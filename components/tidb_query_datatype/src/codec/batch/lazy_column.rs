@@ -178,31 +178,32 @@ impl LazyBatchColumn {
 
         let mut decoded_column = VectorValue::with_capacity(raw_vec_len, eval_type);
 
-        match_template_evaltype! {
-            TT, match &mut decoded_column {
-                VectorValue::TT(vec) => {
-                    match logical_rows {
-                        LogicalRows::Identical { size } => {
-                            for i in 0..size {
+        if eval_type == EvalType::VectorFloat32 {
+            match &mut decoded_column {
+                VectorValue::VectorFloat32(vec) => {
+                    for_each_row_by_logical_rows(raw_vec_len, logical_rows, |i, should_decode| {
+                        if should_decode {
+                            vec.push_vector_float32_datum(&raw_vec[i])?;
+                        } else {
+                            vec.push_null();
+                        }
+                        Ok(())
+                    })?;
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            match_template_evaltype! {
+                TT, match &mut decoded_column {
+                    VectorValue::TT(vec) => {
+                        for_each_row_by_logical_rows(raw_vec_len, logical_rows, |i, should_decode| {
+                            if should_decode {
                                 vec.push(raw_vec[i].decode(field_type, ctx)?);
-                            }
-                            for _ in size..raw_vec_len {
+                            } else {
                                 vec.push(None);
                             }
-                        }
-                        LogicalRows::Ref { logical_rows } => {
-                            let mut decode_bitmap = vec![false; raw_vec_len];
-                            for row_index in logical_rows {
-                                decode_bitmap[*row_index] = true;
-                            }
-                            for i in 0..raw_vec_len {
-                                if decode_bitmap[i] {
-                                    vec.push(raw_vec[i].decode(field_type, ctx)?);
-                                } else {
-                                    vec.push(None);
-                                }
-                            }
-                        }
+                            Ok(())
+                        })?;
                     }
                 }
             }
@@ -273,6 +274,34 @@ impl LazyBatchColumn {
         };
         output.write_chunk_column(&column)
     }
+}
+
+#[inline]
+fn for_each_row_by_logical_rows(
+    raw_vec_len: usize,
+    logical_rows: LogicalRows<'_>,
+    mut f: impl FnMut(usize, bool) -> Result<()>,
+) -> Result<()> {
+    match logical_rows {
+        LogicalRows::Identical { size } => {
+            for i in 0..size {
+                f(i, true)?;
+            }
+            for i in size..raw_vec_len {
+                f(i, false)?;
+            }
+        }
+        LogicalRows::Ref { logical_rows } => {
+            let mut decode_bitmap = vec![false; raw_vec_len];
+            for row_index in logical_rows {
+                decode_bitmap[*row_index] = true;
+            }
+            for i in 0..raw_vec_len {
+                f(i, decode_bitmap[i])?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -388,6 +417,144 @@ mod tests {
         assert_eq!(col.len(), 3);
         assert_eq!(col.capacity(), 3);
         assert_eq!(col.decoded().to_int_vec(), &[Some(32), None, Some(10)]);
+    }
+
+    #[test]
+    fn test_ensure_decoded_vector_float32() {
+        use crate::{codec::mysql::VectorFloat32, FieldTypeTp};
+
+        let mut col = LazyBatchColumn::raw_with_capacity(4);
+        let mut ctx = EvalContext::default();
+
+        // Row 0: non-empty vector
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(
+                &mut ctx,
+                &[Datum::VectorFloat32(VectorFloat32::copy_from_f32(&[
+                    1.0, 2.0, 3.0,
+                ]))],
+                false,
+            )
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        // Row 1: null
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(&mut ctx, &[Datum::Null], false)
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        // Row 2: empty vector
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(
+                &mut ctx,
+                &[Datum::VectorFloat32(VectorFloat32::copy_from_f32(&[]))],
+                false,
+            )
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        // Row 3: another vector (will be skipped by logical rows)
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(
+                &mut ctx,
+                &[Datum::VectorFloat32(VectorFloat32::copy_from_f32(&[4.0]))],
+                false,
+            )
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        col.ensure_decoded(
+            &mut ctx,
+            &FieldTypeTp::TiDbVectorFloat32.into(),
+            LogicalRows::from_slice(&[2, 0]),
+        )
+        .unwrap();
+
+        assert!(col.is_decoded());
+        assert_eq!(col.len(), 4);
+        assert_eq!(
+            col.decoded().to_vector_float32_vec(),
+            vec![
+                Some(VectorFloat32::copy_from_f32(&[1.0, 2.0, 3.0])),
+                None,
+                Some(VectorFloat32::copy_from_f32(&[])),
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_ensure_decoded_vector_float32_identical_logical_rows() {
+        use crate::{codec::mysql::VectorFloat32, FieldTypeTp};
+
+        let mut col = LazyBatchColumn::raw_with_capacity(4);
+        let mut ctx = EvalContext::default();
+
+        // Row 0: non-empty vector
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(
+                &mut ctx,
+                &[Datum::VectorFloat32(VectorFloat32::copy_from_f32(&[
+                    1.0, 2.0, 3.0,
+                ]))],
+                false,
+            )
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        // Row 1: null
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(&mut ctx, &[Datum::Null], false)
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        // Row 2: empty vector (will be skipped by logical rows)
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(
+                &mut ctx,
+                &[Datum::VectorFloat32(VectorFloat32::copy_from_f32(&[]))],
+                false,
+            )
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        // Row 3: another vector (will be skipped by logical rows)
+        let mut datum_raw = Vec::new();
+        datum_raw
+            .write_datum(
+                &mut ctx,
+                &[Datum::VectorFloat32(VectorFloat32::copy_from_f32(&[4.0]))],
+                false,
+            )
+            .unwrap();
+        col.mut_raw().push(&datum_raw);
+
+        col.ensure_decoded(
+            &mut ctx,
+            &FieldTypeTp::TiDbVectorFloat32.into(),
+            LogicalRows::Identical { size: 2 },
+        )
+        .unwrap();
+
+        assert!(col.is_decoded());
+        assert_eq!(col.len(), 4);
+        assert_eq!(
+            col.decoded().to_vector_float32_vec(),
+            vec![
+                Some(VectorFloat32::copy_from_f32(&[1.0, 2.0, 3.0])),
+                None,
+                None,
+                None,
+            ]
+        );
     }
 }
 
