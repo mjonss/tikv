@@ -4,10 +4,13 @@ use std::mem;
 
 use byteorder::{ByteOrder, LittleEndian};
 use bytes::{Buf, BufMut};
-use kvengine::IdVer;
+use kvengine::{table::SnapVersion, IdVer};
+use kvenginepb::get_any_snap_from_changeset;
 use kvproto::raft_cmdpb::{CustomRequest, RaftCmdRequest};
 use protobuf::Message;
-use tikv_util::codec::number::U64_SIZE;
+use tikv_util::{codec::number::U64_SIZE, warn};
+
+use crate::store::{is_change_set_affect_mem_table, PeerTag};
 
 pub fn get_custom_log(req: &RaftCmdRequest) -> Option<CustomRaftLog<'_>> {
     if !req.has_custom_request() {
@@ -225,6 +228,29 @@ impl<'a> CustomRaftLog<'a> {
         txn_file_ref.merge_from_bytes(&self.data[HEADER_SIZE..])?;
         Ok(txn_file_ref)
     }
+
+    pub fn is_affect_memtable(&self, tag: PeerTag, base_version: Option<u64>) -> AffectMemtable {
+        match self.get_type() {
+            CustomRaftLogType::EngineMeta => {
+                let cs = self.get_change_set().unwrap();
+                if let Some(snap) = get_any_snap_from_changeset(&cs) {
+                    AffectMemtable::Persist {
+                        data_seq: snap.data_sequence,
+                    }
+                } else if cs.has_flush() {
+                    AffectMemtable::from_flush(tag, cs.get_flush().version.into(), base_version)
+                } else if is_change_set_affect_mem_table(&cs) {
+                    AffectMemtable::Write
+                } else {
+                    AffectMemtable::None
+                }
+            }
+            CustomRaftLogType::SwitchMemTable | CustomRaftLogType::TriggerTrimOverBound => {
+                AffectMemtable::None
+            }
+            _ => AffectMemtable::Write,
+        }
+    }
 }
 
 pub struct CustomBuilder {
@@ -427,6 +453,30 @@ impl TrimOverBoundParameter {
 
     pub fn is_for_shard(&self, shard_id: u64) -> bool {
         Some(shard_id) == self.source_shard_id() || Some(shard_id) == self.target_shard_id()
+    }
+}
+
+pub enum AffectMemtable {
+    None,
+    Write,
+    Persist { data_seq: u64 },
+}
+
+impl AffectMemtable {
+    fn from_flush(tag: PeerTag, snap_version: SnapVersion, base_version: Option<u64>) -> Self {
+        let Some(base_version) = base_version else {
+            // Shard is not initialized yet. Should not happen.
+            warn!("{} AffectMemtable: no base version", tag);
+            debug_assert!(false);
+            return Self::None;
+        };
+        let Some(data_seq) = snap_version.into_inner().checked_sub(base_version) else {
+            warn!("{} AffectMemtable: invalid snap version", tag;
+                "snap_ver" => snap_version, "base_ver" => base_version);
+            debug_assert!(false);
+            return Self::None;
+        };
+        Self::Persist { data_seq }
     }
 }
 

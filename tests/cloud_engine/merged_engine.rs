@@ -139,13 +139,13 @@ fn test_merged_engine_once() {
                 // Regions out of the keyspace may have no change (when all peers split fast
                 // enough). Then truncated index will not be updated.
                 assert!(
-                    truncated_index == progress.truncated_index()
+                    truncated_index == progress.data_persisted_log_index()
                         || truncated_index == RAFT_INIT_LOG_INDEX
                 );
                 continue;
             }
 
-            if progress.truncated_index() != truncated_index {
+            if progress.data_persisted_log_index() != truncated_index {
                 if let Some(cs) = load_raft_engine_meta(&merged_raft, region_id) {
                     // When the shard has parent/dependents, raft logs are not truncated to
                     // `progress.truncated_index`.
@@ -202,13 +202,13 @@ fn test_merged_engine_once() {
 
             if progress.keyspace_id != keyspace_id {
                 assert!(
-                    truncated_index == progress.truncated_index()
+                    truncated_index == progress.data_persisted_log_index()
                         || truncated_index == RAFT_INIT_LOG_INDEX
                 );
                 continue;
             }
 
-            assert_eq!(progress.truncated_index(), truncated_index);
+            assert_eq!(progress.data_persisted_log_index(), truncated_index);
         }
     }
     cluster.stop();
