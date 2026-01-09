@@ -42,6 +42,7 @@ use merged_engine::{
 };
 use native_br::{
     common::{assemble_wal_chunks, collect_wal_chunks_with_retry, CollectWalChunksContext},
+    error::Error as BrError,
     wal::AssembledWalData,
 };
 use pd_client::{
@@ -80,8 +81,8 @@ use crate::{
         send_request_to_store, ArcTimeStamp, ResolvedTsStats, DISPATCH_CDC_TIMEOUT,
     },
     wal::{
-        StoreTargetAndLag, StoreWalProgresses, UpdateWalResult, WalCache, WalProgressFetcher,
-        WalProgressTargets,
+        StoreTargetAndLag, StoreWalProgresses, UpdateWalError, UpdateWalResult, WalCache,
+        WalProgressFetcher, WalProgressTargets,
     },
     CdcMsg, Deregister, Error, KeyspaceService, KeyspaceStates, ReplicationScheduler,
     ReplicationService, ReplicationWorkerConfig, Result,
@@ -1221,7 +1222,7 @@ impl ReplicationWorker {
             tikv_util::set_current_region(region_id);
             let tag = ShardTag::new(merged_store_id, IdVer::new(region_id, 0));
 
-            let Some(region_is_synced) = self.merged_engine.region_is_synced(region_id) else {
+            let Some(region_progress) = self.merged_engine.mut_region_progress(region_id) else {
                 // The region is newly inserted but not start to sync yet.
                 warn!(
                     "{} send_resolved_ts: region not in merged_engine, skip",
@@ -1230,9 +1231,9 @@ impl ReplicationWorker {
                 stats.record_unresolved_region(region_id);
                 continue;
             };
-            if !region_is_synced {
+            if !region_progress.is_synced() {
                 info!("{} send_resolved_ts: region is not synced, skip", tag;
-                    "progress" => ?self.merged_engine.get_region_progress(region_id));
+                    "progress" => ?region_progress);
                 if let Some(ts) = delegate.resolved_ts() {
                     stats.record_resolved_region(region_id, ts);
                 } else {
@@ -1241,10 +1242,11 @@ impl ReplicationWorker {
                 continue;
             }
 
+            let safe_target_ts = region_progress.update_safe_target_ts(tag, self.last_update_ts);
             let Some(ts) = delegate
                 .resolver
                 .as_mut()
-                .and_then(|r| r.resolve(self.last_update_ts))
+                .and_then(|r| r.resolve(self.last_update_ts.min(safe_target_ts)))
             else {
                 stats.record_unresolved_region(region_id);
                 continue;
@@ -1338,8 +1340,42 @@ impl ReplicationWorker {
         let update_stores_res =
             self.update_stores_with_retry(UPDATE_STORES_TIMEOUT, target_progresses)?;
         debug!("maybe_update_merged_engine: update_stores: {:?}", update_stores_res; "store" => self.merged_store_id());
+
+        // Handle errors on finished for easy.
+        // Errors happen during not finished will be retried in next loop.
         let synced_target_ts = match update_stores_res {
-            UpdateWalResult::Finished { .. } => Some(target_ts),
+            UpdateWalResult::Finished { errors, .. }
+                if errors.len() <= self.tolerate_store_err() =>
+            {
+                for err in errors {
+                    if let Some(target) = err.target {
+                        let store_id_str = target.store_id.to_string();
+                        REP_UPDATE_STORE_COUNTER
+                            .with_label_values(&[&store_id_str, "on_error_advance_target"])
+                            .inc();
+                        warn!("maybe_update_merged_engine: update_stores finished with error, advance target: {:?}", target;
+                                "err" => ?err.err, "store" => self.merged_store_id());
+                        self.merged_engine.update_store_progress(
+                            target.store_id,
+                            target.epoch,
+                            target.offset,
+                        );
+                    }
+                }
+                Some(target_ts)
+            }
+            UpdateWalResult::Finished { errors, .. } => {
+                if errors
+                    .iter()
+                    .any(|err| matches!(err.err, Error::StoreUnhealthy { .. }))
+                {
+                    let target = self.wal_progress_targets.pop_front();
+                    debug_assert!(target.is_some_and(|(ts, _)| ts == target_ts));
+                }
+                return Err(Error::UpdateStores(
+                    errors.into_iter().map(|e| e.err).collect(),
+                ));
+            }
             UpdateWalResult::NotFinished { wal_size } => {
                 info!("maybe_update_merged_engine: update_stores not finished";
                     "store" => self.merged_store_id(), "wal_size" => wal_size,
@@ -1502,7 +1538,10 @@ impl ReplicationWorker {
             debug!("update_store_wal"; "store" => store_id, "lag" => ?target_and_lag);
             let target = target_and_lag.target;
             let Some(target) = target else {
-                errors.push(box_err!("target store not ready: {}", store_id));
+                errors.push(UpdateWalError {
+                    err: Error::StoreUnhealthy { store_id },
+                    target: None,
+                });
                 continue;
             };
             let store_id_str = format!("{store_id}");
@@ -1518,19 +1557,29 @@ impl ReplicationWorker {
                         .with_label_values(&[&store_id_str, x.metric_label()])
                         .inc();
                     match x {
-                        UpdateWalResult::Finished { wal_size } => total_wal_size += wal_size,
+                        UpdateWalResult::Finished { wal_size, .. } => total_wal_size += wal_size,
                         UpdateWalResult::NotFinished { wal_size } => {
                             total_wal_size += wal_size;
                             finished = false;
                         }
                     }
                 }
+                Err(err @ Error::BrError(BrError::WalChunkIntegrityError(_))) => {
+                    REP_UPDATE_STORE_COUNTER
+                        .with_label_values(&[&store_id_str, "wal_integrity_error"])
+                        .inc();
+                    warn!("update_store_wal: failed: {:?}", err; "store" => store_id);
+                    errors.push(UpdateWalError {
+                        err,
+                        target: Some(target),
+                    });
+                }
                 Err(err) => {
                     REP_UPDATE_STORE_COUNTER
                         .with_label_values(&[&store_id_str, "error"])
                         .inc();
                     warn!("update_store_wal: failed: {:?}", err; "store" => store_id);
-                    errors.push(err);
+                    errors.push(UpdateWalError { err, target: None });
                 }
             }
             REP_UPDATE_STORE_DURATION
@@ -1542,19 +1591,23 @@ impl ReplicationWorker {
                 break;
             }
         }
-        if errors.len() <= self.tolerate_store_err() {
-            let res = if finished {
-                UpdateWalResult::Finished {
-                    wal_size: total_wal_size,
-                }
-            } else {
-                UpdateWalResult::NotFinished {
-                    wal_size: total_wal_size,
-                }
-            };
-            return Ok(res);
-        }
-        Err(errors.pop().unwrap())
+        let res = if finished {
+            UpdateWalResult::Finished {
+                wal_size: total_wal_size,
+                errors,
+            }
+        } else {
+            // The `errors` are dropped.
+            // As the progress of stores with errors are not advanced,
+            // they will be retried in next round.
+            if !errors.is_empty() {
+                info!("update_stores: not finished with errors"; "errors" => ?errors);
+            }
+            UpdateWalResult::NotFinished {
+                wal_size: total_wal_size,
+            }
+        };
+        Ok(res)
     }
 
     fn get_decreasing_stores_lag(
@@ -1600,7 +1653,10 @@ impl ReplicationWorker {
             "store" => store_id, "current" => %store_progress, "target" => %target);
         if store_progress >= target {
             debug!("update_store_wal: store is up-to-date"; "store" => store_id);
-            return Ok(UpdateWalResult::Finished { wal_size: 0 });
+            return Ok(UpdateWalResult::Finished {
+                wal_size: 0,
+                errors: vec![],
+            });
         }
 
         let get_end_off = |epoch: u32| {
@@ -1691,6 +1747,7 @@ impl ReplicationWorker {
         }
         Ok(UpdateWalResult::Finished {
             wal_size: total_wal_size,
+            errors: vec![],
         })
     }
 

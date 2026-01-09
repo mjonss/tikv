@@ -66,10 +66,6 @@ impl WalProgressTargets {
         self.queue.lock().front().cloned()
     }
 
-    pub(crate) fn back(&self) -> Option<(TimeStamp, StoreWalProgresses)> {
-        self.queue.lock().back().cloned()
-    }
-
     pub(crate) fn len(&self) -> usize {
         self.queue.lock().len()
     }
@@ -122,6 +118,7 @@ impl WalProgressFetcher {
             config.max_wal_target_time_span.0,
             config.fetch_wal_target_from_backup,
         ));
+        let mut last_target_ts = None;
         let mut skipped_stores = SkippedStores::new(
             pd,
             config.skip_store_addr_keywords.clone(),
@@ -132,10 +129,11 @@ impl WalProgressFetcher {
                 let start_time = Instant::now_coarse();
 
                 match fetcher
-                    .fetch_target_ts_and_progress(&targets, &mut skipped_stores)
+                    .fetch_target_ts_and_progress(&targets, last_target_ts, &mut skipped_stores)
                     .await
                 {
                     Ok(Some((ts, progress))) => {
+                        last_target_ts = Some(ts);
                         targets.push_back((ts, progress));
                     }
                     Ok(None) => {}
@@ -191,6 +189,7 @@ impl WalProgressFetcher {
     async fn fetch_target_ts_and_progress(
         self: &Arc<Self>,
         targets: &WalProgressTargets,
+        last_target_ts: Option<TimeStamp>,
         skipped_stores: &mut SkippedStores,
     ) -> Result<Option<(TimeStamp, StoreWalProgresses)>> {
         if targets.len() >= MAX_PENDING_TARGETS {
@@ -204,11 +203,7 @@ impl WalProgressFetcher {
             return Ok(None);
         }
 
-        let last_target_ts = if let Some(last_target) = targets.back() {
-            last_target.0
-        } else {
-            self.synced_target_ts.get()
-        };
+        let last_target_ts = last_target_ts.unwrap_or_else(|| self.synced_target_ts.get());
         debug_assert!(!last_target_ts.is_zero());
 
         if self.should_fetch_from_backup(last_target_ts) {
@@ -508,9 +503,20 @@ impl WalCache {
 }
 
 #[derive(Debug)]
+pub(crate) struct UpdateWalError {
+    pub(crate) err: Error,
+    pub(crate) target: Option<StoreProgress>,
+}
+
+#[derive(Debug)]
 pub(crate) enum UpdateWalResult {
-    Finished { wal_size: u64 },
-    NotFinished { wal_size: u64 },
+    Finished {
+        wal_size: u64,
+        errors: Vec<UpdateWalError>, // Finished with errors when not empty.
+    },
+    NotFinished {
+        wal_size: u64,
+    },
 }
 
 impl UpdateWalResult {

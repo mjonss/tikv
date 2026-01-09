@@ -39,6 +39,10 @@ pub enum Error {
     NoValidBackup,
     #[error("start_ts before safepoint ({start_ts} < {gc_safe_point})")]
     StartTsBeforeSafepoint { start_ts: u64, gc_safe_point: u64 },
+    #[error("store unhealthy: {store_id}")]
+    StoreUnhealthy { store_id: u64 },
+    #[error("update stores errors: {0:?}")]
+    UpdateStores(Vec<Error>),
     #[error("other error {0}")]
     OtherError(#[from] Box<dyn std::error::Error + Sync + Send>),
 

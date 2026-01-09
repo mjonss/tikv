@@ -151,6 +151,21 @@ impl Default for MergedEngineConfig {
     }
 }
 
+const MAX_PENDING_TARGETS: usize = 8;
+
+/// Target of region progress.
+///
+/// `ts`: The target timestamp of the corresponding WAL.
+/// `log_idx`: The last log index of the region in the corresponding WAL.
+///
+/// When `commit_index` reaches `log_idx`, the region can safely advance
+/// `safe_target_ts` (resolved_ts) to `ts`.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+struct RegionProgressTarget {
+    ts: TimeStamp,
+    log_idx: u64,
+}
+
 #[derive(Clone)]
 pub struct RegionProgress {
     pub keyspace_id: u32,
@@ -159,7 +174,13 @@ pub struct RegionProgress {
     pub synced_index: u64,
     // Use `commit_index()`/`update_commit_index()` to read/write.
     commit_index: u64,
+    // Last index of uncommitted raft logs (in `entries`).
+    // Note that it's not necessary to be `commit_index <= last_index`.
+    last_index: u64,
     persist_progress: RegionPersistProgress,
+
+    safe_target_ts: TimeStamp,
+    pending_targets: VecDeque<RegionProgressTarget>,
 }
 
 impl fmt::Debug for RegionProgress {
@@ -170,7 +191,10 @@ impl fmt::Debug for RegionProgress {
             .field("entries", &self.entries.len())
             .field("synced", &self.synced_index)
             .field("commit", &self.commit_index)
+            .field("last", &self.last_index)
             .field("persist", &self.persist_progress)
+            .field("safe_target", &self.safe_target_ts)
+            .field("pending_targets", &self.pending_targets)
             .finish()
     }
 }
@@ -183,7 +207,10 @@ impl RegionProgress {
             entries: HashMap::default(),
             synced_index: 0,
             commit_index: 0,
+            last_index: 0,
             persist_progress: RegionPersistProgress::default(),
+            safe_target_ts: TimeStamp::zero(),
+            pending_targets: VecDeque::default(),
         }
     }
 
@@ -199,6 +226,13 @@ impl RegionProgress {
             true
         } else {
             false
+        }
+    }
+
+    #[inline]
+    fn update_last_index(&mut self, new_last_index: u64) {
+        if self.last_index < new_last_index {
+            self.last_index = new_last_index;
         }
     }
 
@@ -228,6 +262,56 @@ impl RegionProgress {
             }
         }
         self.entries.insert(log_index, or_insert());
+        self.update_last_index(log_index);
+    }
+
+    pub fn update_safe_target_ts(&mut self, tag: ShardTag, target_ts: TimeStamp) -> TimeStamp {
+        debug_assert!(self.safe_target_ts <= target_ts);
+        if self.safe_target_ts >= target_ts {
+            return self.safe_target_ts;
+        }
+
+        // All logs are committed.
+        if self.commit_index >= self.last_index {
+            self.safe_target_ts = target_ts;
+            debug!("{} update_safe_target_ts: {:?}", tag, self.safe_target_ts);
+            if !self.pending_targets.is_empty() {
+                self.pending_targets.clear();
+                self.pending_targets.shrink_to_fit();
+            }
+            return self.safe_target_ts;
+        }
+
+        // Find the latest committed log and associated target ts.
+        while let Some(pending) = self.pending_targets.front() {
+            if self.commit_index >= pending.log_idx {
+                self.safe_target_ts = pending.ts;
+                debug!("{} update_safe_target_ts: {:?}", tag, self.safe_target_ts);
+                let _ = self.pending_targets.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        // Append the new target.
+        let new_pending = RegionProgressTarget {
+            ts: target_ts,
+            log_idx: self.last_index,
+        };
+        match self.pending_targets.back_mut() {
+            Some(last) if *last >= new_pending => {}
+            Some(last) if last.ts == target_ts => {
+                last.log_idx = self.last_index;
+            }
+            Some(_) | None => {
+                if self.pending_targets.len() >= MAX_PENDING_TARGETS {
+                    self.pending_targets.pop_front();
+                }
+                self.pending_targets.push_back(new_pending);
+            }
+        }
+
+        self.safe_target_ts
     }
 
     pub fn is_synced(&self) -> bool {
@@ -927,6 +1011,14 @@ impl MergedEngine {
             if let Some(entries) = uncommitted_entries.get_region_entries(region_id) {
                 region_progress.entries = entries.clone();
             }
+            if let Some(last_index) = region_progress
+                .entries
+                .iter()
+                .map(|(&log_idx, _)| log_idx)
+                .max()
+            {
+                region_progress.update_last_index(last_index);
+            }
 
             if region_progress.commit_index() > region_progress.synced_index {
                 // Fetch committed entries for `sync_merged`.
@@ -1073,10 +1165,8 @@ impl MergedEngine {
         self.region_progresses.get(&region_id)
     }
 
-    pub fn region_is_synced(&self, region_id: u64) -> Option<bool> {
-        self.region_progresses
-            .get(&region_id)
-            .map(|x| x.is_synced())
+    pub fn mut_region_progress(&mut self, region_id: u64) -> Option<&mut RegionProgress> {
+        self.region_progresses.get_mut(&region_id)
     }
 
     pub fn get_store_progress(&self, store_id: u64) -> Option<StoreProgress> {
@@ -1093,6 +1183,10 @@ impl MergedEngine {
                 epoch: 1,
                 offset: 0,
             })
+    }
+
+    pub fn update_store_progress(&mut self, store_id: u64, epoch: u32, offset: u64) {
+        self.manifest.update_store_progress(store_id, epoch, offset);
     }
 
     pub fn get_synced_target_ts(&self) -> TimeStamp {
