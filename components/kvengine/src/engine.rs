@@ -493,7 +493,10 @@ impl EngineCore {
         meta_pack_reader: Option<&MetaPackReader>,
     ) -> Result<Arc<Shard>> {
         if let Some(shard) = self.get_shard(meta.id) {
-            if shard.ver == meta.ver {
+            let write_seq = shard.get_write_sequence();
+            if shard.ver == meta.ver && write_seq >= meta.data_sequence {
+                info!("{} load and ingest shard: skipped", meta.tag();
+                    "write_seq" => write_seq, "data_seq" => meta.data_sequence);
                 return Ok(shard);
             }
         }
@@ -659,6 +662,17 @@ impl EngineCore {
             return true;
         }
         false
+    }
+
+    pub fn remove_keyspace_shards(&self, keyspace_id: u32) -> Option<Vec<u64>> {
+        let (_, shards) = self.keyspace_shards.remove(&keyspace_id)?;
+        let shard_ids: Vec<u64> = shards.iter().map(|r| *r).collect();
+
+        let shards = self.shards.pin();
+        for shard_id in &shard_ids {
+            shards.remove(shard_id);
+        }
+        Some(shard_ids)
     }
 
     pub fn insert_shard(&self, shard: Arc<Shard>) -> Option<Arc<Shard>> {

@@ -2153,7 +2153,6 @@ impl ReplicationWorker {
         let keyspace_regions = self.merged_engine.get_keyspace_regions(keyspace_id);
         keyspace_regions.iter().for_each(|&region_id| {
             self.remove_region(region_id);
-            self.merged_engine.remove_shard(region_id);
         });
         self.merged_engine.remove_keyspace(keyspace_id);
         self.runtime.spawn(async move {

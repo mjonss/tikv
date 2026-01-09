@@ -584,6 +584,10 @@ impl MergedEngine {
     }
 
     pub fn remove_keyspace(&mut self, keyspace_id: u32) {
+        let shards = self.kv.remove_keyspace_shards(keyspace_id);
+        for shard_id in shards.into_iter().flatten() {
+            self.appliers.remove(&shard_id);
+        }
         self.manifest.keyspace_states.remove(&keyspace_id);
     }
 
@@ -1828,8 +1832,7 @@ impl MergedEngine {
                 keyspace_id,
                 TRUNCATE_ALL_INDEX,
             );
-            self.appliers.remove(&region_id);
-            self.kv.remove_shard(region_id);
+            self.remove_shard(region_id);
             self.preprocessors.remove(&region_id);
             self.pending_merge_states.remove(&region_id);
             let progress = self.region_progresses.get_mut(&region_id).unwrap();
