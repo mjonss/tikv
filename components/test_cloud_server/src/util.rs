@@ -237,6 +237,7 @@ pub fn build_schemas(tables: &[TableSchemaOptions]) -> Vec<Schema> {
                 vec![],
                 0,
                 vec![],
+                vec![],
                 StorageClassSpec::default(),
                 None,
             )

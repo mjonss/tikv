@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use bytes::Bytes;
 use xorf::Filter;
 
@@ -39,7 +39,7 @@ impl<Pk: PkType> PkReader<Pk> for PackedFileLp<Pk> {
     fn pk_iter(&self) -> Result<Self::Iterator> {
         Ok(PackedFileLpPkIterator::<Pk> {
             lp: self.clone(),
-            current_index: 0,
+            next_doc_id: 0,
         })
     }
 
@@ -81,19 +81,23 @@ impl<Pk: PkType> PkReader<Pk> for PackedFileLp<Pk> {
 /// using a function parameter for maximum efficiency
 pub struct PackedFileLpPkIterator<Pk: PkType> {
     lp: PackedFileLp<Pk>,
-    current_index: usize,
+    next_doc_id: DocId,
 }
 
 impl<Pk: PkType> OrderedPkIterator for PackedFileLpPkIterator<Pk> {
-    async fn next(&mut self) -> Result<Option<(Bytes, u64, u8)>> {
-        if self.current_index >= self.lp.props().get_n_pk() as usize {
+    async fn next(&mut self) -> Result<Option<(DocId, Bytes, u64, u8)>> {
+        let doc_id = self.next_doc_id;
+        if doc_id >= self.lp.props().get_n_pk() {
             return Ok(None);
         }
-        let version = self.lp.version_at(self.current_index);
-        let is_deleted = self.lp.is_deleted_at(self.current_index);
-        let pk_bytes = self.lp.encoded_pk_at(self.current_index);
-        self.current_index += 1;
-        Ok(Some((pk_bytes, version, is_deleted)))
+        let idx = doc_id as usize;
+        let version = self.lp.version_at(idx);
+        let is_deleted = self.lp.is_deleted_at(idx);
+        let pk_bytes = self.lp.encoded_pk_at(idx);
+        self.next_doc_id = doc_id
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("doc_id overflow"))?;
+        Ok(Some((doc_id, pk_bytes, version, is_deleted)))
     }
 }
 
@@ -196,7 +200,8 @@ mod tests {
         let mut iter = lp.pk_iter()?;
 
         // First entry: pk=1, version=100, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 0);
         assert_eq!(pk_bytes.len(), 8); // Encoded i64 is 8 bytes
         assert_eq!(version, 100);
         assert_eq!(is_deleted, 0);
@@ -206,7 +211,8 @@ mod tests {
         assert_eq!(decoded_pk, 1);
 
         // Second entry: pk=1, version=50, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 1);
         assert_eq!(pk_bytes.len(), 8);
         assert_eq!(version, 50);
         assert_eq!(is_deleted, 1);
@@ -214,7 +220,8 @@ mod tests {
         assert_eq!(decoded_pk, 1);
 
         // Third entry: pk=3, version=200, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 2);
         assert_eq!(pk_bytes.len(), 8);
         assert_eq!(version, 200);
         assert_eq!(is_deleted, 0);
@@ -222,7 +229,8 @@ mod tests {
         assert_eq!(decoded_pk, 3);
 
         // Fourth entry: pk=5, version=300, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 3);
         assert_eq!(pk_bytes.len(), 8);
         assert_eq!(version, 300);
         assert_eq!(is_deleted, 1);
@@ -262,25 +270,29 @@ mod tests {
         let mut iter = lp.pk_iter()?;
 
         // First entry: pk="key_a", version=100, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 0);
         assert_eq!(pk_bytes.as_ref(), b"key_a");
         assert_eq!(version, 100);
         assert_eq!(is_deleted, 0);
 
         // Second entry: pk="key_a", version=50, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 1);
         assert_eq!(pk_bytes.as_ref(), b"key_a");
         assert_eq!(version, 50);
         assert_eq!(is_deleted, 1);
 
         // Third entry: pk="key_b", version=200, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 2);
         assert_eq!(pk_bytes.as_ref(), b"key_b");
         assert_eq!(version, 200);
         assert_eq!(is_deleted, 0);
 
         // Fourth entry: pk="key_c", version=300, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 3);
         assert_eq!(pk_bytes.as_ref(), b"key_c");
         assert_eq!(version, 300);
         assert_eq!(is_deleted, 1);
@@ -314,7 +326,8 @@ mod tests {
         let lp = lp.as_int_lp().unwrap();
         let mut iter = lp.pk_iter()?;
 
-        let (pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await.unwrap().unwrap();
+        assert_eq!(doc_id, 0);
         assert_eq!(pk_bytes.len(), 8);
         assert_eq!(version, 100);
         assert_eq!(is_deleted, 0);

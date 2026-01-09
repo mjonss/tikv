@@ -132,6 +132,7 @@ pub fn build_schema(ddl: &str) -> Schema {
         pk_ids,
         0,
         vec![],
+        vec![],
         StorageClassSpec::default(),
         None,
     )

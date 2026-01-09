@@ -1498,6 +1498,7 @@ fn build_columnar_schema_buf(table_id: i64) -> SchemaBuf {
         vec![],
         0,
         vec![],
+        vec![],
         StorageClassSpec::default(),
         None,
     )

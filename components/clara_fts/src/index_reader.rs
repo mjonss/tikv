@@ -18,6 +18,7 @@ use anyhow::{anyhow, bail, Result};
 
 /// IndexReader reads index file for full text searching.
 pub struct IndexReader {
+    index: tantivy::Index,
     index_reader: tantivy::IndexReader,
     query_tokenizer: tantivy::tokenizer::TextAnalyzer,
 
@@ -54,10 +55,23 @@ impl IndexReader {
         };
 
         Ok(Self {
+            index,
             index_reader,
             query_tokenizer: tokenizer,
             field_body,
         })
+    }
+
+    /// Returns the underlying Tantivy index object.
+    #[inline]
+    pub fn tantivy_index(&self) -> &tantivy::Index {
+        &self.index
+    }
+
+    /// Returns the number of documents in the index.
+    #[inline]
+    pub fn n_docs(&self) -> usize {
+        self.index_reader.searcher().num_docs() as usize
     }
 
     /// Creates a new `IndexReader` from index file.
@@ -72,32 +86,6 @@ impl IndexReader {
     pub fn new_memory(index_buffer: Vec<u8>) -> Result<Self> {
         let directory = crate::MergedFileAsDirectory::from_buffer(index_buffer)?;
         Self::new(directory)
-    }
-
-    /// Returns the stored content for a doc id.
-    pub fn get(&self, doc_id: u32, result: &mut String) -> Result<()> {
-        // TODO: Performance is not measured, possibly need to improve.
-        result.clear();
-        let searcher = self.index_reader.searcher();
-        let doc = searcher.doc::<tantivy::TantivyDocument>(tantivy::DocAddress::new(0, doc_id))?;
-        let value = doc
-            .get_first(self.field_body)
-            .ok_or_else(|| anyhow::anyhow!("No value for doc_id={}", doc_id))?;
-        match value {
-            tantivy::schema::OwnedValue::Str(s) => {
-                result.push_str(s);
-                Ok(())
-            }
-            _ => bail!("Unexpected field type for doc_id={}", doc_id),
-        }
-    }
-
-    /// Only used in tests as a handy get().
-    #[cfg(test)]
-    fn get_for_test(&self, doc_id: u32) -> Result<String> {
-        let mut result = String::new();
-        self.get(doc_id, &mut result)?;
-        Ok(result)
     }
 
     /// Build a "Should" boolean query for the given query string.
@@ -369,23 +357,7 @@ mod tests {
         reader.search_no_score("furina", &BitmapFilter::all_match(), &mut results)?;
         assert!(results.is_empty());
 
-        assert_eq!(
-            reader.get_for_test(0)?,
-            "Being too popular can be such a hassle".to_owned()
-        );
-        assert_eq!(
-            reader.get_for_test(1)?,
-            "Who knew the people would adore me so much?".to_owned()
-        );
-        assert_eq!(
-            reader.get_for_test(2)?,
-            "The world is but a stage.".to_owned()
-        );
-        assert_eq!(
-            reader.get_for_test(3)?,
-            "Why cry, when you can laugh instead?".to_owned()
-        );
-        assert!(reader.get_for_test(4).is_err());
+        assert_eq!(reader.n_docs(), 4);
     });
 
     write_read_test!(test_null, get_writer, finalize, {
@@ -412,25 +384,7 @@ mod tests {
         reader.search_no_score("furina", &BitmapFilter::all_match(), &mut results)?;
         assert!(results.is_empty());
 
-        assert_eq!(
-            reader.get_for_test(0)?,
-            "Being too popular can be such a hassle".to_owned()
-        );
-        assert!(reader.get_for_test(1).is_err());
-        assert_eq!(
-            reader.get_for_test(2)?,
-            "Who knew the people would adore me so much?".to_owned()
-        );
-        assert_eq!(
-            reader.get_for_test(3)?,
-            "The world is but a stage.".to_owned()
-        );
-        assert!(reader.get_for_test(4).is_err());
-        assert!(reader.get_for_test(5).is_err());
-        assert_eq!(
-            reader.get_for_test(6)?,
-            "Why cry, when you can laugh instead?".to_owned()
-        );
+        assert_eq!(reader.n_docs(), 7);
     });
 
     write_read_test!(test_indexer_empty, get_writer, finalize, {

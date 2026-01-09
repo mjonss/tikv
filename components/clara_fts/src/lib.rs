@@ -31,3 +31,6 @@ pub use tokenizer::*;
 
 mod brute_searcher;
 pub use brute_searcher::*;
+
+/// Body field. This is the only field we use.
+const FIELD_BODY: tantivy::schema::Field = tantivy::schema::Field::from_field_id(0);

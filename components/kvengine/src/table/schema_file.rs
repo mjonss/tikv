@@ -9,7 +9,7 @@ use std::{
 use api_version::api_v2::KEYSPACE_PREFIX_LEN;
 use bytes::{Buf, BufMut};
 use collections::HashSet;
-use kvenginepb::SchemaMeta;
+use kvenginepb::{fts::FullTextIndexDef, SchemaMeta};
 use protobuf::Message;
 use schema::schema::StorageClassSpec;
 use tidb_query_datatype::codec::table::{
@@ -160,6 +160,8 @@ impl SchemaFile {
                     })
                     .collect();
 
+                let fulltext_indexes = schema_pb.fulltext_indexes.iter().cloned().collect();
+
                 builder.columns(
                     handle_column,
                     new_version_column_info(),
@@ -167,6 +169,7 @@ impl SchemaFile {
                     schema_pb.pk_col_ids,
                     schema_pb.max_col_id,
                     vector_indexes,
+                    fulltext_indexes,
                 );
             }
 
@@ -514,6 +517,9 @@ pub fn build_schema_file(
             for vec_idx in &schema.vector_indexes {
                 schema_pb.mut_vector_indexes().push(vec_idx.to_pb());
             }
+            for fts_idx in &schema.fulltext_indexes {
+                schema_pb.mut_fulltext_indexes().push(fts_idx.clone());
+            }
         }
         if let Some(partitions) = &schema.partitions {
             for (id, sc_spec) in partitions {
@@ -612,6 +618,7 @@ impl SchemaBuf {
         pk_col_ids: Vec<i64>,
         max_col_id: i64,
         vector_indexes: Vec<VectorIndexDef>,
+        fulltext_indexes: Vec<FullTextIndexDef>,
         sc_spec: StorageClassSpec,
         partitions: Option<Vec<(i64, StorageClassSpec)>>,
     ) -> Self {
@@ -624,6 +631,7 @@ impl SchemaBuf {
                 pk_col_ids,
                 max_col_id,
                 vector_indexes,
+                fulltext_indexes,
             }),
             partitions,
             sc_spec,
@@ -645,6 +653,7 @@ impl SchemaBuf {
             self.pk_col_ids.clone(),
             self.max_col_id,
             self.vector_indexes.clone(),
+            self.fulltext_indexes.clone(),
             self.sc_spec.clone(),
             self.partitions.clone(),
         )
@@ -709,6 +718,7 @@ impl SchemaBuf {
             pk_col_ids: self.pk_col_ids.clone(),
             max_col_id: self.max_col_id,
             vector_indexes: self.vector_indexes.clone(),
+            fulltext_indexes: self.fulltext_indexes.clone(),
         });
     }
 }
@@ -722,6 +732,7 @@ pub struct SchemaBufBuilder {
     pk_col_ids: Vec<i64>,
     max_col_id: i64,
     vector_indexes: Vec<VectorIndexDef>,
+    fulltext_indexes: Vec<FullTextIndexDef>,
     sc_spec: StorageClassSpec,
     partitions: Option<Vec<(i64, StorageClassSpec)>>,
 }
@@ -752,6 +763,7 @@ impl SchemaBufBuilder {
         pk_col_ids: Vec<i64>,
         max_col_id: i64,
         vector_indexes: Vec<VectorIndexDef>,
+        fulltext_indexes: Vec<FullTextIndexDef>,
     ) -> &mut Self {
         // For compatiable, if max_col_id is not set, try to calculate using the columns
         // id.
@@ -776,6 +788,7 @@ impl SchemaBufBuilder {
         self.columns = columns;
         self.pk_col_ids = pk_col_ids;
         self.vector_indexes = vector_indexes;
+        self.fulltext_indexes = fulltext_indexes;
         self
     }
 
@@ -788,6 +801,7 @@ impl SchemaBufBuilder {
             self.pk_col_ids,
             self.max_col_id,
             self.vector_indexes,
+            self.fulltext_indexes,
             self.sc_spec,
             self.partitions,
         )
@@ -801,6 +815,7 @@ pub struct SchemaBufInner {
     pub columns: Vec<ColumnInfo>,
     pub pk_col_ids: Vec<i64>,
     pub vector_indexes: Vec<VectorIndexDef>,
+    pub fulltext_indexes: Vec<FullTextIndexDef>,
     pub max_col_id: i64,
 }
 
@@ -847,6 +862,7 @@ mod tests {
             vec![],
             4,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         ));
@@ -857,6 +873,7 @@ mod tests {
             vec![new_column_info(3, false), new_column_info(4, true)],
             vec![],
             4,
+            vec![],
             vec![],
             StorageClassSpec::default(),
             None,
@@ -1043,6 +1060,7 @@ mod tests {
             vec![],
             4,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         ));
@@ -1053,6 +1071,7 @@ mod tests {
             vec![new_column_info(3, false), new_column_info(4, true)],
             vec![],
             4,
+            vec![],
             vec![],
             StorageClassSpec::default(),
             None,
@@ -1165,6 +1184,7 @@ mod tests {
             vec![],
             4,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         ));
@@ -1176,6 +1196,7 @@ mod tests {
             vec![],
             4,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         ));
@@ -1186,6 +1207,7 @@ mod tests {
             vec![new_column_info(3, false), new_column_info(4, true)],
             vec![],
             4,
+            vec![],
             vec![],
             StorageClassSpec::default(),
             None,
@@ -1215,6 +1237,7 @@ mod tests {
             vec![],
             4,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         ));
@@ -1230,6 +1253,7 @@ mod tests {
             vec![new_column_info(3, false), new_column_info(4, true)],
             vec![],
             4,
+            vec![],
             vec![],
             StorageClassSpec::default(),
             Some(partitions),
@@ -1352,6 +1376,7 @@ mod tests {
             vec![],
             4,
             vec![],
+            vec![],
             StorageClass::Ia.into(),
             None,
         ));
@@ -1368,6 +1393,7 @@ mod tests {
             vec![new_column_info(3, false), new_column_info(4, true)],
             vec![],
             4,
+            vec![],
             vec![],
             StorageClassSpec::default(),
             Some(partitions),

@@ -2111,6 +2111,7 @@ pub mod tests {
             vec![],
             0,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         ))
@@ -2651,6 +2652,7 @@ pub mod tests {
             schema.pk_col_ids.clone(),
             100,
             schema.vector_indexes.clone(),
+            schema.fulltext_indexes.clone(),
         );
         let new_schema = Schema::new(schema_buf_builder.build());
         // Add a new column with default value to read.

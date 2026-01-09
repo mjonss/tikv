@@ -559,6 +559,7 @@ fn build_vector_schema(table_id: i64, metric: tipb::VectorDistanceMetric) -> Sch
         pk_col_ids,
         0,
         vector_indexes,
+        vec![],
         StorageClassSpec::default(),
         None,
     )
@@ -581,6 +582,7 @@ fn build_empty_schema(table_id: i64) -> Schema {
         pk_col_ids,
         0,
         vector_indexes,
+        vec![],
         StorageClassSpec::default(),
         None,
     )
@@ -1254,6 +1256,7 @@ fn build_vector_schema_with_distance(table_id: i64) -> Schema {
         pk_col_ids,
         0,
         vector_indexes,
+        vec![],
         StorageClassSpec::default(),
         None,
     )

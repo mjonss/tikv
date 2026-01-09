@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use bytes::Bytes;
 use xorf::Filter;
 
@@ -96,6 +96,7 @@ pub struct DedicatedFilePkIterator<Pk: PkType> {
     current_hblock: Option<Arc<HBlockAccessor<Pk>>>,
     next_hblock: usize, // Index of current handle block
     next_pk: usize,     // Index within current block
+    next_doc_id: DocId,
     total_hblocks: usize,
     _marker: std::marker::PhantomData<Pk>,
 }
@@ -111,6 +112,7 @@ impl<Pk: PkType> DedicatedFilePkIterator<Pk> {
             current_hblock: None,
             next_hblock: 0,
             next_pk: 0,
+            next_doc_id: 0,
             total_hblocks,
             _marker: std::marker::PhantomData,
         })
@@ -118,7 +120,7 @@ impl<Pk: PkType> DedicatedFilePkIterator<Pk> {
 }
 
 impl<Pk: PkType> OrderedPkIterator for DedicatedFilePkIterator<Pk> {
-    async fn next(&mut self) -> Result<Option<(Bytes, u64, u8)>> {
+    async fn next(&mut self) -> Result<Option<(DocId, Bytes, u64, u8)>> {
         loop {
             // Check if we need to load a new block
             let need_new_hblock = match &self.current_hblock {
@@ -145,9 +147,13 @@ impl<Pk: PkType> OrderedPkIterator for DedicatedFilePkIterator<Pk> {
                 let version = handle_block.version_at(self.next_pk);
                 let is_deleted = handle_block.is_deleted_at(self.next_pk);
                 let pk_bytes = handle_block.encoded_pk_at(self.next_pk);
+                let doc_id = self.next_doc_id;
 
                 self.next_pk += 1;
-                return Ok(Some((pk_bytes, version, is_deleted)));
+                self.next_doc_id = doc_id
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow!("doc_id overflow"))?;
+                return Ok(Some((doc_id, pk_bytes, version, is_deleted)));
             }
         }
     }
@@ -193,7 +199,8 @@ mod tests {
         let mut iter = dedicated_file.pk_iter()?;
 
         // First entry: pk=1, version=100, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 0);
         assert_eq!(pk_bytes.len(), 8); // Encoded i64 is 8 bytes
         assert_eq!(version, 100);
         assert_eq!(is_deleted, 0);
@@ -203,7 +210,8 @@ mod tests {
         assert_eq!(decoded_pk, 1);
 
         // Second entry: pk=1, version=50, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 1);
         assert_eq!(pk_bytes.len(), 8);
         assert_eq!(version, 50);
         assert_eq!(is_deleted, 1);
@@ -211,7 +219,8 @@ mod tests {
         assert_eq!(decoded_pk, 1);
 
         // Third entry: pk=3, version=200, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 2);
         assert_eq!(pk_bytes.len(), 8);
         assert_eq!(version, 200);
         assert_eq!(is_deleted, 0);
@@ -219,7 +228,8 @@ mod tests {
         assert_eq!(decoded_pk, 3);
 
         // Fourth entry: pk=5, version=300, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 3);
         assert_eq!(pk_bytes.len(), 8);
         assert_eq!(version, 300);
         assert_eq!(is_deleted, 1);
@@ -262,25 +272,29 @@ mod tests {
         let mut iter = dedicated_file.pk_iter()?;
 
         // First entry: pk="key_a", version=100, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 0);
         assert_eq!(pk_bytes.as_ref(), b"key_a");
         assert_eq!(version, 100);
         assert_eq!(is_deleted, 0);
 
         // Second entry: pk="key_a", version=50, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 1);
         assert_eq!(pk_bytes.as_ref(), b"key_a");
         assert_eq!(version, 50);
         assert_eq!(is_deleted, 1);
 
         // Third entry: pk="key_b", version=200, not deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 2);
         assert_eq!(pk_bytes.as_ref(), b"key_b");
         assert_eq!(version, 200);
         assert_eq!(is_deleted, 0);
 
         // Fourth entry: pk="key_c", version=300, deleted
-        let (pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        let (doc_id, pk_bytes, version, is_deleted) = iter.next().await?.unwrap();
+        assert_eq!(doc_id, 3);
         assert_eq!(pk_bytes.as_ref(), b"key_c");
         assert_eq!(version, 300);
         assert_eq!(is_deleted, 1);
@@ -320,7 +334,8 @@ mod tests {
         let mut pk_count = 0;
         let mut last_decoded_pk = 0i64;
 
-        while let Some((pk_bytes, version, _is_deleted)) = iter.next().await? {
+        while let Some((doc_id, pk_bytes, version, _is_deleted)) = iter.next().await? {
+            assert_eq!(doc_id, pk_count);
             // Decode the PK bytes
             let decoded_pk = NumberCodec::decode_i64(pk_bytes.as_ref());
 

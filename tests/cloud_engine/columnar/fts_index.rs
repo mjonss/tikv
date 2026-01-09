@@ -372,6 +372,7 @@ fn build_fts_schema(table_id: i64, opts: FtsOpts) -> Schema {
         vec![],
         0,
         vec![],
+        vec![],
         StorageClassSpec::default(),
         None,
     )

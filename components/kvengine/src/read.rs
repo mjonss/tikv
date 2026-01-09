@@ -1470,6 +1470,7 @@ impl SnapAccessCore {
             table_schema.pk_col_ids.clone(),
             table_schema.max_col_id,
             table_schema.vector_indexes.clone(),
+            table_schema.fulltext_indexes.clone(),
             table_schema.get_storage_class_spec().clone(),
             None,
         );
@@ -2767,6 +2768,7 @@ impl CloudColumnarReader {
             table_schema.pk_col_ids.clone(),
             table_schema.max_col_id,
             table_schema.vector_indexes.clone(),
+            table_schema.fulltext_indexes.clone(),
             table_schema.get_storage_class_spec().clone(),
             table_schema.partitions.clone(),
         );

@@ -39,7 +39,7 @@ pub fn supports_tokenizer(tokenizer_name: &str) -> bool {
 
 #[cfg(test)]
 pub mod tests {
-    use tantivy_tokenizer_api::TokenStream;
+    use tantivy::tokenizer::TokenStream;
 
     /// A helper function to debug tokenize API in tests. It turns "世界你好"
     /// into "世界/你好".
@@ -51,7 +51,7 @@ pub mod tests {
         fn debug_tokenize(&mut self, text: &str) -> String {
             let mut token_stream = self.token_stream(text);
             let mut tokens = Vec::new();
-            token_stream.process(&mut |token: &tantivy_tokenizer_api::Token| {
+            token_stream.process(&mut |token: &tantivy::tokenizer::Token| {
                 tokens.push(token.text.clone());
             });
             tokens.join("/")

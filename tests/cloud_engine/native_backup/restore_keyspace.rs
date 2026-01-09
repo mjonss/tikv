@@ -1500,6 +1500,7 @@ fn test_restore_keyspace_with_schema() {
             vec![],
             0,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         )

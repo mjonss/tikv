@@ -40,24 +40,24 @@ impl Default for MultiLingualTokenizer {
     }
 }
 
-impl tantivy_tokenizer_api::Tokenizer for MultiLingualTokenizer {
+impl tantivy::tokenizer::Tokenizer for MultiLingualTokenizer {
     type TokenStream<'a> = MultiLingualTokenStream<'a>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
         let tokens_iter = self.tokenizer.tokenize(text);
         MultiLingualTokenStream {
             iter: tokens_iter,
-            token: tantivy_tokenizer_api::Token::default(),
+            token: tantivy::tokenizer::Token::default(),
         }
     }
 }
 
 pub struct MultiLingualTokenStream<'a> {
     iter: charabia::normalizer::NormalizedTokenIter<'a, 'a, 'a, 'a>,
-    token: tantivy_tokenizer_api::Token,
+    token: tantivy::tokenizer::Token,
 }
 
-impl<'a> tantivy_tokenizer_api::TokenStream for MultiLingualTokenStream<'a> {
+impl<'a> tantivy::tokenizer::TokenStream for MultiLingualTokenStream<'a> {
     /// Advance to the next token
     ///
     /// Returns false if there are no other tokens.
@@ -86,13 +86,13 @@ impl<'a> tantivy_tokenizer_api::TokenStream for MultiLingualTokenStream<'a> {
 
     /// Returns a reference to the current token.
     #[inline(always)]
-    fn token(&self) -> &tantivy_tokenizer_api::Token {
+    fn token(&self) -> &tantivy::tokenizer::Token {
         &self.token
     }
 
     /// Returns a mutable reference to the current token.
     #[inline(always)]
-    fn token_mut(&mut self) -> &mut tantivy_tokenizer_api::Token {
+    fn token_mut(&mut self) -> &mut tantivy::tokenizer::Token {
         &mut self.token
     }
 }

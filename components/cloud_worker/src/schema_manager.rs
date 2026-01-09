@@ -1536,6 +1536,7 @@ fn table_info_to_schema(ti: &TableInfo) -> Result<Schema> {
             new_int_handle_column_info()
         };
         let vector_indexes = parse_vector_indexes(ti_cols, ti.index_info.as_ref());
+        let fulltext_indexes = parse_fulltext_indexes(ti_cols, ti.index_info.as_ref());
 
         builder.columns(
             handle_column,
@@ -1544,6 +1545,7 @@ fn table_info_to_schema(ti: &TableInfo) -> Result<Schema> {
             pk_col_ids,
             ti.max_col_id,
             vector_indexes,
+            fulltext_indexes,
         );
     }
 
@@ -1770,6 +1772,28 @@ fn parse_vector_indexes(
         }
     }
     vec_idxes
+}
+
+fn parse_fulltext_indexes(
+    ti_cols: &[ColumnInfo],
+    idx_infos: Option<&Vec<IndexInfo>>,
+) -> Vec<kvenginepb::fts::FullTextIndexDef> {
+    let mut idxes = vec![];
+    if let Some(idx_infos) = idx_infos {
+        for idx_info in idx_infos {
+            if let Some(fts_info) = &idx_info.full_text_index {
+                let column_offset = idx_info.idx_cols[0].offset as usize;
+                let col_id = ti_cols[column_offset].id; // TODO (wenxuan): Support multi-column
+                idxes.push(kvenginepb::fts::FullTextIndexDef {
+                    index_id: idx_info.id,
+                    col_id,
+                    parser_type: fts_info.parser_type.clone(),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    idxes
 }
 
 fn new_vec_idx_def(info: &VectorIndexInfo, index_id: i64, col_id: i64) -> VectorIndexDef {
@@ -2043,6 +2067,7 @@ mod tests {
                 vec![],
                 0,
                 vec![],
+                vec![],
                 StorageClassSpec::default(),
                 None,
             );
@@ -2058,6 +2083,7 @@ mod tests {
                 vec![new_int_handle_column_info()],
                 vec![],
                 0,
+                vec![],
                 vec![],
                 StorageClassSpec::default(),
                 None,
@@ -2170,6 +2196,7 @@ mod tests {
                 vec![new_int_handle_column_info()],
                 vec![],
                 0,
+                vec![],
                 vec![],
                 StorageClassSpec::default(),
                 None,

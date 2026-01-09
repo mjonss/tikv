@@ -1639,6 +1639,7 @@ mod tests {
             vec![],
             0,
             vec![],
+            vec![],
             StorageClassSpec::default(),
             None,
         );

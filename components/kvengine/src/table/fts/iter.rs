@@ -3,6 +3,14 @@
 use anyhow::{bail, Result};
 use bytes::Bytes;
 
+/// A document id within a single FTS index segment/file.
+///
+/// This is the 0-based ordinal of a `(pk, version)` entry in the on-disk
+/// ordering (PK ascending, version descending for the same PK). It matches
+/// Tantivy's `DocId` used by the corresponding index segment and is only
+/// meaningful within that segment/file.
+pub type DocId = u32;
+
 /// We don't allow PkType to be implemented outside this module, so here we use
 /// the sealed trait pattern.
 mod private {
@@ -73,18 +81,24 @@ pub trait PkReader<Pk: PkType> {
     /// version that is <= read_ts for the same PK as the doc at doc_id. If
     /// found, None will be returned, indicating this doc id is shadowed by a
     /// newer version.
+    ///
+    /// The `doc_id` uses the same numbering as `OrderedPkIterator` (0-based
+    /// within the file/segment).
     async fn async_at(&self, doc_id: usize, read_ts: u64) -> Result<Option<(Bytes, u64, u8)>>;
 }
 
 /// Iterator trait for iterating over sorted primary keys for **FTS files**.
 pub trait OrderedPkIterator {
-    /// Returns the next (encoded_pk, version, is_deleted) tuple.
+    /// Returns the next (doc_id, encoded_pk, version, is_deleted) tuple.
+    ///
+    /// Implementations must yield entries in strictly increasing `doc_id`
+    /// order, starting from 0, and cover all documents in the file/segment.
     /// A note about encoded_pk:
     /// - For int PKs, i64 pk **in memory comparable form** is returned.
     /// - For common PKs, pk in bytes is returned.
     /// None is returned when the iteration is finished.
     #[allow(async_fn_in_trait)]
-    async fn next(&mut self) -> Result<Option<(Bytes, u64, u8)>>;
+    async fn next(&mut self) -> Result<Option<(DocId, Bytes, u64, u8)>>;
 }
 
 /// Find whether there is a newer version of a specified PK.

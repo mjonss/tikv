@@ -15,7 +15,6 @@ ordered-float = "5.0.0"
 prost = "0.13"
 stable_deref_trait = "1.2.0"
 tantivy = "0.22.0"
-tantivy-tokenizer-api = "0.3.0"
 tempfile = "3.0"
 
 [dependencies.charabia]

@@ -204,6 +204,7 @@ crossbeam-deque = { git = "https://github.com/crossbeam-rs/crossbeam", rev = "41
 sysinfo = { git = "https://github.com/tikv/sysinfo", branch = "0.26-fix-cpu" }
 
 lindera = { git = "https://github.com/breezewish/lindera", branch = "v0.43.1-tokio-1.24" }
+tantivy = { git = "https://github.com/breezewish/tikv-tantivy.git", branch = "patch-0.22.1" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procinfo = { git = "https://github.com/tikv/procinfo-rs", rev = "6599eb9dca74229b2c1fcc44118bef7eff127128" }

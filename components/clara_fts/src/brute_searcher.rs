@@ -391,8 +391,6 @@ mod tests {
 mod benches {
     use std::{fs, hint::black_box, io};
 
-    use tantivy::directory::DirectoryClone;
-
     use super::*;
 
     fn prepare_bench_data() -> Vec<String> {
@@ -441,16 +439,12 @@ mod benches {
     #[ignore]
     fn bench_scored_tantivy_searcher_prebuilt(b: &mut test::Bencher) {
         let data = prepare_bench_data();
+        let data_str = data.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
-        let mut idx_writer = crate::index_writer::TantivyIndexWriter::new(
-            "STANDARD_V1",
-            tantivy::directory::RamDirectory::create().box_clone(),
-        )
-        .unwrap();
-        for d in &data {
-            idx_writer.add_document(d).unwrap();
-        }
-        let idx = idx_writer.finalize().unwrap();
+        let idx = crate::index_for_test(&data_str)
+            .unwrap()
+            .finalize()
+            .unwrap();
         let idx_reader = crate::IndexReader::from_tantivy_index(idx).unwrap();
 
         let mut results = Vec::new();
@@ -472,18 +466,14 @@ mod benches {
     #[ignore]
     fn bench_scored_tantivy_searcher_on_demand(b: &mut test::Bencher) {
         let data = prepare_bench_data();
+        let data_str = data.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
         let mut results = Vec::new();
         b.iter(|| {
-            let mut idx_writer = crate::index_writer::TantivyIndexWriter::new(
-                "STANDARD_V1",
-                tantivy::directory::RamDirectory::create().box_clone(),
-            )
-            .unwrap();
-            for d in &data {
-                idx_writer.add_document(d).unwrap();
-            }
-            let idx = idx_writer.finalize().unwrap();
+            let idx = crate::index_for_test(&data_str)
+                .unwrap()
+                .finalize()
+                .unwrap();
             let idx_reader = crate::IndexReader::from_tantivy_index(idx).unwrap();
             idx_reader
                 .search_scored(

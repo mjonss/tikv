@@ -12,50 +12,58 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use anyhow::{anyhow, bail, Context, Result};
-use tantivy::schema::{Field, Schema};
+use tantivy::{
+    directory::{Directory, MmapDirectory, RamDirectory},
+    schema::Schema,
+};
 
-use crate::MergedFileFromDirectory;
+use crate::{MergedFileFromDirectory, TrackedDirectory};
 
-static INDEX_IMMEDIATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static INDEX_IMMEDIATE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub struct TantivyIndexWriter {
+pub struct TantivyIndexWriter<D: Directory> {
     index_writer: tantivy::SingleSegmentIndexWriter,
-    field_body: Field,
+    dir: D,
 }
 
-impl TantivyIndexWriter {
-    pub fn new(tokenizer_name: &str, dir: Box<dyn tantivy::Directory>) -> Result<Self> {
+impl<D: Directory> TantivyIndexWriter<D> {
+    pub fn build_schema(tokenizer_name: &str) -> Result<Schema> {
         let mut schema_builder = Schema::builder();
         let field_body = schema_builder.add_text_field(
             "body",
-            tantivy::schema::TextOptions::default()
-                .set_indexing_options(
-                    tantivy::schema::TextFieldIndexing::default()
-                        .set_tokenizer(tokenizer_name)
-                        .set_fieldnorms(true)
-                        .set_index_option(
-                            tantivy::schema::IndexRecordOption::WithFreqsAndPositions,
-                        ),
-                )
-                .set_stored(), // TODO: No need to store
+            // Intentionally not stored: callers only need doc ids / scores.
+            tantivy::schema::TextOptions::default().set_indexing_options(
+                tantivy::schema::TextFieldIndexing::default()
+                    .set_tokenizer(tokenizer_name)
+                    .set_fieldnorms(true)
+                    .set_index_option(tantivy::schema::IndexRecordOption::WithFreqsAndPositions),
+            ),
         );
-        let schema = schema_builder.build();
+        if field_body.field_id() != crate::FIELD_BODY.field_id() {
+            bail!("Unexpected field id for body");
+        }
+        Ok(schema_builder.build())
+    }
+
+    fn new(tokenizer_name: &str, dir: D) -> Result<Self> {
+        let schema = Self::build_schema(tokenizer_name)?;
         let index_writer = tantivy::IndexBuilder::new()
             .tokenizers(crate::tokenizer::TOKENIZERS.clone())
             .schema(schema)
-            .single_segment_index_writer(dir, 32_000_000_000)?;
-        Ok(Self {
-            index_writer,
-            field_body,
-        })
+            .single_segment_index_writer(dir.box_clone(), 32_000_000_000)?;
+        Ok(Self { index_writer, dir })
     }
 
     pub fn add_document(&mut self, body: &str) -> Result<()> {
         self.index_writer
-            .add_document(tantivy::doc!( self.field_body => body ))?;
+            .add_document(tantivy::doc!(crate::FIELD_BODY => body))?;
         Ok(())
     }
 
@@ -67,13 +75,44 @@ impl TantivyIndexWriter {
     pub fn finalize(self) -> Result<tantivy::Index> {
         Ok(self.index_writer.finalize()?)
     }
+
+    pub fn finalize_as_dir(self) -> Result<D> {
+        self.index_writer.finalize()?;
+        Ok(self.dir)
+    }
+}
+
+impl TantivyIndexWriter<TrackedDirectory<RamDirectory>> {
+    pub fn new_in_memory(tokenizer_name: &str) -> Result<Self> {
+        let dir = TrackedDirectory::wrap(RamDirectory::default());
+        TantivyIndexWriter::new(tokenizer_name, dir)
+    }
+}
+
+/// Helper function to build a Tantivy index in memory for testing purposes.
+/// The index will contain the provided documents as the body field.
+/// Empty documents will be represented as null documents.
+pub fn index_for_test(docs: &[&str]) -> Result<TantivyIndexWriter<TrackedDirectory<RamDirectory>>> {
+    let mut writer = TantivyIndexWriter::new_in_memory("STANDARD_V1")?;
+    if docs.is_empty() {
+        writer.add_null()?;
+    } else {
+        for doc in docs {
+            if doc.is_empty() {
+                writer.add_null()?;
+            } else {
+                writer.add_document(doc)?;
+            }
+        }
+    }
+    Ok(writer)
 }
 
 pub struct IndexWriterOnDisk {
     index_path: PathBuf,
     index_immediate_path: PathBuf,
     merging_directory: Option<crate::MergedFileFromMmapDirectory>,
-    internal_writer: Option<TantivyIndexWriter>,
+    internal_writer: Option<TantivyIndexWriter<TrackedDirectory<MmapDirectory>>>,
 }
 
 impl IndexWriterOnDisk {
@@ -88,7 +127,7 @@ impl IndexWriterOnDisk {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_millis(),
-            INDEX_IMMEDIATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            INDEX_IMMEDIATE_COUNTER.fetch_add(1, Ordering::SeqCst),
             std::iter::repeat_with(fastrand::alphanumeric)
                 .take(10)
                 .collect::<String>()
@@ -102,7 +141,7 @@ impl IndexWriterOnDisk {
         }
 
         let merging_dir = crate::MergedFileFromMmapDirectory::new(&immediate_path)?;
-        let dir = merging_dir.directory().box_clone();
+        let dir = merging_dir.tracked_directory().clone();
         Ok(Self {
             index_path: PathBuf::from(index_path),
             index_immediate_path: immediate_path,
@@ -138,7 +177,6 @@ impl IndexWriterOnDisk {
 
         self.internal_writer.take().unwrap().finalize()?;
 
-        // Merge directory into a single file.
         let file = fs::File::create(&self.index_path)?;
         self.merging_directory
             .take()
@@ -158,8 +196,6 @@ impl IndexWriterOnDisk {
 
 impl Drop for IndexWriterOnDisk {
     fn drop(&mut self) {
-        // Ensure internal_writer is dropped before merging_directory.
-        // Merging directory will take care of cleaning up.
         drop(self.internal_writer.take());
         drop(self.merging_directory.take());
     }
@@ -167,7 +203,7 @@ impl Drop for IndexWriterOnDisk {
 
 pub struct IndexWriterInMemory {
     merging_directory: Option<crate::MergedFileFromRamDirectory>,
-    internal_writer: Option<TantivyIndexWriter>,
+    internal_writer: Option<TantivyIndexWriter<TrackedDirectory<RamDirectory>>>,
 }
 
 impl IndexWriterInMemory {
@@ -175,7 +211,7 @@ impl IndexWriterInMemory {
     /// be stored in memory and will not be persisted to disk.
     pub fn new(tokenizer_name: &str) -> Result<Self> {
         let merging_dir = crate::MergedFileFromRamDirectory::new();
-        let dir = merging_dir.directory().box_clone();
+        let dir = merging_dir.tracked_directory().clone();
         Ok(Self {
             merging_directory: Some(merging_dir),
             internal_writer: Some(TantivyIndexWriter::new(tokenizer_name, dir)?),
@@ -209,7 +245,6 @@ impl IndexWriterInMemory {
 
         self.internal_writer.take().unwrap().finalize()?;
 
-        // Merge directory into a single file.
         let buffer = self
             .merging_directory
             .take()
@@ -222,8 +257,6 @@ impl IndexWriterInMemory {
 
 impl Drop for IndexWriterInMemory {
     fn drop(&mut self) {
-        // Ensure internal_writer is dropped before merging_directory.
-        // Merging directory will take care of cleaning up.
         drop(self.internal_writer.take());
         drop(self.merging_directory.take());
     }

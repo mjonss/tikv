@@ -172,6 +172,7 @@ pub struct IndexInfo {
     pub is_global: bool,
     pub mv_index: Option<bool>,
     pub vector_index: Option<VectorIndexInfo>,
+    pub full_text_index: Option<FullTextIndexInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,6 +180,12 @@ pub struct VectorIndexInfo {
     pub kind: String,
     pub dimension: u64,
     pub distance_metric: String,
+}
+
+/// Aligned with TiDB: pkg/parser/model/index_full_text.go
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FullTextIndexInfo {
+    pub parser_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
