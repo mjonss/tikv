@@ -1157,6 +1157,7 @@ pub(crate) struct WorkloadStats {
     pub backup_count: u64,
     pub alter_tables: (usize, usize, usize), // (NON_IA, IA, AUTO)
     pub transited_to_ia: u64,
+    pub dfs_unhealthy: usize,
 }
 
 impl WorkloadStats {
@@ -1181,6 +1182,7 @@ impl WorkloadStats {
         let transited_to_ia = ENGINE_STORAGE_CLASS_TRANSITION_COUNTER
             .with_label_values(&["to_ia"])
             .get();
+        let dfs_unhealthy = DFS_UNHEALTHY_COUNTER.load(Ordering::SeqCst);
         Self {
             keyspace_count,
             node_restart,
@@ -1195,6 +1197,7 @@ impl WorkloadStats {
             backup_count,
             alter_tables,
             transited_to_ia,
+            dfs_unhealthy,
         }
     }
 }

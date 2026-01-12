@@ -17,6 +17,7 @@ use std::{
 };
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use fail::fail_point;
 use kvengine::dfs::Dfs;
 use protobuf::Message;
 use rfenginepb::StoreBackupMeta;
@@ -127,6 +128,29 @@ impl SnapshotState {
             _ => unreachable!(),
         }
     }
+}
+
+#[cfg(feature = "failpoints")]
+static DFS_WORKER_FAILPOINT_TARGET_STORE_ID: AtomicU64 = AtomicU64::new(0);
+
+// To ensure that no more than one store becomes unhealthy in tests.
+// Currently we can only tolerate one unhealthy store.
+#[cfg(feature = "failpoints")]
+pub fn set_dfs_worker_failpoint_target_store_id(store_id: u64) {
+    DFS_WORKER_FAILPOINT_TARGET_STORE_ID.store(store_id, Ordering::Release);
+}
+
+#[cfg(feature = "failpoints")]
+fn failpoint_target_matches_store(store_id: u64) -> bool {
+    let target = DFS_WORKER_FAILPOINT_TARGET_STORE_ID.load(Ordering::Acquire);
+    target == 0 || target == store_id
+}
+
+#[cfg(not(feature = "failpoints"))]
+#[allow(dead_code)]
+#[inline]
+fn failpoint_target_matches_store(_: u64) -> bool {
+    false
 }
 
 pub(crate) struct ObjectStorageWorker {
@@ -443,6 +467,11 @@ impl ObjectStorageWorker {
             self.skip_sync_before_epoch = next_snap_epoch + 1;
         }
         self.healthy.set_unhealthy();
+        fail_point!(
+            "dfs_worker_set_unhealthy",
+            failpoint_target_matches_store(self.get_engine_id()),
+            |_| {}
+        );
     }
 
     fn try_wait_snap_and_recover_healthy(&mut self) {
@@ -482,6 +511,11 @@ impl ObjectStorageWorker {
                         snap.delayed_to_epoch_id
                     );
                     self.healthy.set_healthy();
+                    fail_point!(
+                        "dfs_worker_recover_healthy",
+                        failpoint_target_matches_store(self.get_engine_id()),
+                        |_| {}
+                    );
                 }
             }
             res => {
@@ -839,6 +873,11 @@ impl ObjectStorageWorker {
                     chunk.len()
                 );
                 let _acquired = mem_limiter.acquire(chunk.len())?;
+                fail_point!(
+                    "dfs_worker_put_wal_chunk_error",
+                    failpoint_target_matches_store(store_id),
+                    |_| Err(Error::Dfs("dfs_worker_put_wal_chunk_error".to_string()))
+                );
                 metrics::RFENGINE_DFS_RUNNING_UPLOADS.inc();
                 let res = fs
                     .put_objects(vec![(file_key, Bytes::from(chunk))])

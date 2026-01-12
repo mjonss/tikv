@@ -6874,6 +6874,7 @@ dependencies = [
  "crc32c",
  "engine_traits",
  "error_code",
+ "fail 0.5.0",
  "file_system",
  "fslock",
  "futures 0.3.28",

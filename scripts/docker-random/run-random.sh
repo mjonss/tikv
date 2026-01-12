@@ -215,6 +215,7 @@ for i in $(seq -w 1 100000); do
         pkill -9 -f "/go-tpc" || true
         pkill -9 -f "minio" || true
         pkill -9 -f "/cdc" || true
+        pkill -9 -f "/rep-pd-server" || true
     fi
 
     sync -d "$LOG"

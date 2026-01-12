@@ -8,6 +8,7 @@ publish = false
 
 [features]
 testexport = []
+failpoints = ["fail/failpoints"]
 
 [dependencies]
 api_version = { path = "../api_version" }
@@ -17,6 +18,7 @@ chrono = "0.4"
 crc32c = { workspace = true }
 engine_traits = { path = "../engine_traits", default-features = false }
 error_code = { path = "../error_code", default-features = false }
+fail = "0.5"
 file_system = { path = "../file_system", default-features = false }
 fslock = "0.1.7"
 kvengine = { workspace = true }

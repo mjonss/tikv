@@ -92,6 +92,7 @@ fn test_random_replication() {
 
     let backup_config = backup::BackupConfig {
         dfs: dfs_conf.clone(),
+        tolerate_err: 1,
         skip_keyspace_meta: true,
         ..Default::default()
     };
@@ -165,6 +166,7 @@ fn test_random_replication() {
     rep_config.grpc_addr = "127.0.0.1:5999".to_string();
     rep_config.advertise_addr = "127.0.0.1:5999".to_string();
     rep_config.report_region_interval = ReadableDuration::secs(3);
+    rep_config.tolerate_store_err = true;
     rep_config.local_file_gc_timeout = ReadableDuration::secs(30);
     // 0s: always fetch target from backup.
     let (min_wal_target_time_span, max_wal_target_time_span) =
@@ -316,6 +318,22 @@ fn test_random_replication() {
     );
     if switches.enable_oss_chaos {
         sync_handles.push(spawn_oss_chaos(&oss, OSS_CHAOS_INTERVAL, running.clone()))
+    }
+
+    if !async_handles.is_empty() {
+        // Inject DFS unhealthy chaos for half of test duration, to ensure that DFS
+        // worker is healthy before test end.
+        // Specify store id as we can only tolerate unhealthy of no more than one
+        // store.
+        let dfs_unhealthy_store_id = {
+            let node_id = *cluster.get_nodes().first().unwrap();
+            cluster.get_rfengine(node_id).get_engine_id()
+        };
+        sync_handles.push(spawn_dfs_unhealthy_chaos(
+            dfs_unhealthy_store_id,
+            Duration::from_secs(3),
+            TEST_DURATION / 2,
+        ));
     }
 
     for i in 6..=10 {

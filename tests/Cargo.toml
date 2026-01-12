@@ -22,7 +22,7 @@ required-features = ["testexport"]
 [[test]]
 name = "random"
 path = "random/mod.rs"
-required-features = ["testexport"]
+required-features = ["testexport", "failpoints"]
 
 [[test]]
 name = "cloud_engine_failpoints"
@@ -66,7 +66,14 @@ path = "cloud_engine_benches/storage_class/mod.rs"
 
 [features]
 default = ["failpoints", "testexport", "cloud-aws", "cloud-gcp", "cloud-azure"]
-failpoints = ["fail/failpoints", "tikv/failpoints", "pd_client/failpoints", "tikv_util/failpoints", "native_br/failpoints"]
+failpoints = [
+    "fail/failpoints",
+    "tikv/failpoints",
+    "pd_client/failpoints",
+    "tikv_util/failpoints",
+    "native_br/failpoints",
+    "rfengine/failpoints",
+]
 cloud-aws = ["external_storage_export/cloud-aws"]
 cloud-gcp = ["external_storage_export/cloud-gcp"]
 cloud-azure = ["external_storage_export/cloud-azure"]

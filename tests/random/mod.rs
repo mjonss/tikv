@@ -47,6 +47,7 @@ use native_br::{common::send_request_to_store_with_retry, error::Error::HttpErro
 use pd_client::PdClient;
 use raftstore::coprocessor::RegionInfoProvider;
 use rand::prelude::*;
+use rfengine::set_dfs_worker_failpoint_target_store_id;
 use security::{GetSecurityManager, SecurityConfig, SecurityManager};
 pub use test_cloud_server::{alloc_node_id, alloc_node_id_vec};
 use test_cloud_server::{
@@ -67,7 +68,7 @@ use tidb_query_datatype::{
 };
 use tikv::config::TikvConfig;
 use tikv_client::TimestampExt;
-use tikv_util::{box_err, codec::bytes::encode_bytes, error, info, time::Instant, warn};
+use tikv_util::{box_err, codec::bytes::encode_bytes, error, info, mpsc, time::Instant, warn};
 use tokio::sync::{OwnedRwLockWriteGuard, Semaphore};
 use txn_types::Key;
 
@@ -104,6 +105,7 @@ lazy_static::lazy_static! {
     pub static ref ALTER_TABLE_IA_COUNTER: AtomicUsize = AtomicUsize::new(0);
     pub static ref ALTER_TABLE_AUTO_IA_COUNTER: AtomicUsize = AtomicUsize::new(0);
     pub static ref ASYNC_SHARD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static ref DFS_UNHEALTHY_COUNTER: AtomicUsize = AtomicUsize::new(0);
 }
 
 pub const TIMEOUT: Duration = Duration::from_secs(90);
@@ -452,6 +454,78 @@ pub(crate) fn spawn_oss_chaos(
         }
 
         write_limiter.set_io_rate_limit(origin_rate);
+    })
+}
+
+pub(crate) fn spawn_dfs_unhealthy_chaos(
+    store_id: u64,
+    interval: Duration,
+    timeout: Duration,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let put_wal_chunk_error_fp = "dfs_worker_put_wal_chunk_error";
+        let unhealthy_fp = "dfs_worker_set_unhealthy";
+        let healthy_fp = "dfs_worker_recover_healthy";
+
+        let (unhealthy_tx, unhealthy_rx) = mpsc::unbounded();
+        let (healthy_tx, healthy_rx) = mpsc::unbounded();
+
+        set_dfs_worker_failpoint_target_store_id(store_id);
+
+        fail::cfg_callback(unhealthy_fp, move || {
+            let _ = unhealthy_tx.send(());
+        })
+        .unwrap();
+        fail::cfg_callback(healthy_fp, move || {
+            let _ = healthy_tx.send(());
+        })
+        .unwrap();
+
+        let mut rng = thread_rng();
+        let max_ms = interval.as_millis().max(1) as u64;
+        let start_time = Instant::now_coarse();
+        while start_time.saturating_elapsed() < timeout {
+            let wait_ms = rng.gen_range(1..=max_ms);
+            sleep(Duration::from_millis(wait_ms));
+
+            fail::cfg(put_wal_chunk_error_fp, "1*return").unwrap();
+
+            match unhealthy_rx.recv_timeout(Duration::from_secs(30)) {
+                Ok(()) => {
+                    let count = DFS_UNHEALTHY_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
+                    info!(
+                        "spawn_dfs_unhealthy_chaos: store {} unhealthy triggered {}",
+                        store_id, count
+                    );
+                }
+                Err(err) => {
+                    warn!(
+                        "spawn_dfs_unhealthy_chaos: unhealthy wait timeout: {:?}",
+                        err
+                    );
+                    continue;
+                }
+            }
+
+            match healthy_rx.recv_timeout(Duration::from_secs(60)) {
+                Ok(()) => {
+                    info!(
+                        "spawn_dfs_unhealthy_chaos: store {} recovered healthy",
+                        store_id
+                    );
+                }
+                Err(err) => {
+                    warn!("spawn_dfs_unhealthy_chaos: healthy wait timeout: {:?}", err);
+                }
+            }
+        }
+
+        fail::remove(put_wal_chunk_error_fp);
+        fail::remove(unhealthy_fp);
+        fail::remove(healthy_fp);
+        set_dfs_worker_failpoint_target_store_id(0);
+
+        info!("spawn_dfs_unhealthy_chaos thread exit");
     })
 }
 
