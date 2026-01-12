@@ -19,7 +19,7 @@ use std::{
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use http::{request::Parts, Method, StatusCode};
 use hyper::{Body, Response};
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::Dfs;
 use native_br::{
     backup,
     backup::IncrementalBackupFile,
@@ -746,7 +746,7 @@ type KeyspacesMap = HashMap<String /* keyspace */, u64 /* restore_id */>;
 pub(crate) struct BrContext {
     pub pd_client: Arc<dyn PdClient>,
     pub data_dir: PathBuf,
-    pub s3fs: Arc<S3Fs>,
+    pub dfs: Arc<dyn Dfs>,
     pub runtime: Arc<Runtime>,
     pub restore_tasks: RwLock<TasksMap>,
     pub keyspace_tasks: RwLock<KeyspacesMap>,
@@ -914,7 +914,7 @@ impl BrContext {
             target_keyspace_name,
             backup_file.name(),
             Some(working_path),
-            self.s3fs.clone(),
+            self.dfs.clone(),
             self.pd_client.clone(),
             &self.runtime,
             truncate_ts,
@@ -1228,7 +1228,7 @@ impl NativeBrManager {
     pub(crate) fn new(
         runtime: Arc<Runtime>,
         pd_client: Arc<dyn PdClient>,
-        s3fs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         data_dir: PathBuf,
         config: Config,
     ) -> Self {
@@ -1275,7 +1275,7 @@ impl NativeBrManager {
             Some(RfEngineCache::new(
                 rfengine_cache_dir,
                 config.to_restore_config(),
-                s3fs.clone(),
+                dfs.clone(),
                 pd_client.clone(),
             ))
         } else {
@@ -1283,7 +1283,7 @@ impl NativeBrManager {
         };
         let mut context = BrContext {
             pd_client,
-            s3fs,
+            dfs,
             data_dir,
             runtime,
             restore_tasks: Default::default(),
@@ -1320,7 +1320,7 @@ impl NativeBrManager {
         max_count: usize,
     ) -> Result<(Vec<IncrementalBackupFile>, bool)> {
         let (backups, has_more) = get_all_incremental_backups(
-            &self.context.s3fs,
+            self.context.dfs.as_ref(),
             &start_backup_time.date_naive(),
             Some(&start_backup_time.time()),
             max_count,
@@ -1809,14 +1809,14 @@ mod tests {
         );
 
         let file_data = "abcdefgh".to_string().into_bytes();
-        let s3fs = Arc::new(new_test_s3fs(&file_data));
+        let dfs = Arc::new(new_test_s3fs(&file_data));
         let temp_dir = tempfile::tempdir().unwrap();
 
         (
             NativeBrManager::new(
                 thread_pool,
                 Arc::new(MockPdClient {}),
-                s3fs,
+                dfs,
                 temp_dir.path().to_path_buf(),
                 Config {
                     native_br: NativeBrConfig {

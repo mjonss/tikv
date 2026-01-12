@@ -395,4 +395,8 @@ impl Dfs for BuiltinDfs {
     fn get_runtime(&self) -> &Runtime {
         &self.runtime
     }
+
+    fn get_prefix(&self) -> String {
+        "builtin_dfs".to_string()
+    }
 }

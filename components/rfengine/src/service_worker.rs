@@ -15,7 +15,7 @@ use std::{
 
 use bytes::Bytes;
 use file_system::IoRateLimiter;
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::Dfs;
 use rfenginepb::StoreBackupMeta;
 use slog_global::{error, info};
 use tikv_util::{
@@ -117,7 +117,7 @@ impl ServiceWorker {
         rx: Receiver<ServiceTask>,
         manifest: Manifest,
         compacted_epoch: Arc<AtomicU32>,
-        lightweight_backup: Option<(LightweightBackupConfig, Arc<S3Fs>)>,
+        lightweight_backup: Option<(LightweightBackupConfig, Arc<dyn Dfs>)>,
         healthy: Healthy,
         compact_rate_limiter: Option<Arc<IoRateLimiter>>,
         #[cfg(any(test, feature = "testexport"))] compact_force_stop: Arc<AtomicBool>,

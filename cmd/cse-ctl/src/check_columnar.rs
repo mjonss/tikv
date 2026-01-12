@@ -109,7 +109,7 @@ pub(crate) fn execute_check_columnar(args: CheckColumnarArgs) {
     let columnar_meta_cache = ColumnarMetaCache::default();
 
     let ctx = Arc::new(SchemaMgrContext {
-        s3fs: s3fs.clone(),
+        dfs: s3fs.clone(),
         pd: pd_client,
         columnar_meta_cache,
     });
@@ -203,10 +203,10 @@ async fn check_columnar(
     let master_key = config.security.new_master_key().await;
     let txn_chunk_manager = TxnChunkManager::new(
         vec![],
-        ctx.s3fs.clone(),
+        ctx.dfs.clone(),
         BlockCache::None,
         None,
-        WorkerPool::Handle(ctx.s3fs.get_runtime().handle().clone()),
+        WorkerPool::Handle(ctx.dfs.get_runtime().handle().clone()),
         TxnChunkManagerConfig::default(),
     );
     let ia_config = IaConfig {
@@ -215,8 +215,8 @@ async fn check_columnar(
         ..Default::default()
     };
     let ia_mgr = build_ia_mgr(
-        ctx.s3fs.clone(),
-        ctx.s3fs.get_runtime(),
+        ctx.dfs.clone(),
+        ctx.dfs.get_runtime(),
         &config.working_dir,
         &ia_config,
     );
@@ -428,7 +428,7 @@ async fn request_snapshot_from_shard(
         PrepareType::ColumnarOnly
     };
     let snap_ctx = SnapCtx {
-        dfs: ctx.s3fs.clone(),
+        dfs: ctx.dfs.clone(),
         master_key: master_key.clone(),
         block_cache: BlockCache::None,
         vector_index_cache: None,

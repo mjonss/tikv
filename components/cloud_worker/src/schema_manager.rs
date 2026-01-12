@@ -20,7 +20,7 @@ use futures::future::join_all;
 use http::Request;
 use hyper::Body;
 use kvengine::{
-    dfs::{self, Dfs, S3Fs},
+    dfs::{self, Dfs},
     table::{
         columnar::{
             new_common_handle_column_info, new_int_handle_column_info, new_version_column_info,
@@ -403,7 +403,7 @@ impl Default for SchemaManagerConfig {
 }
 
 pub struct SchemaMgrContext {
-    pub s3fs: Arc<S3Fs>,
+    pub dfs: Arc<dyn Dfs>,
     pub pd: Arc<dyn PdClient>,
     pub columnar_meta_cache: ColumnarMetaCache,
 }
@@ -411,7 +411,7 @@ pub struct SchemaMgrContext {
 impl From<Arc<Context>> for SchemaMgrContext {
     fn from(ctx: Arc<Context>) -> Self {
         Self {
-            s3fs: ctx.s3fs.clone(),
+            dfs: ctx.dfs.clone(),
             pd: ctx.pd.clone(),
             columnar_meta_cache: ctx.columnar_meta_cache.clone(),
         }
@@ -439,7 +439,7 @@ impl SchemaManager {
         config: SchemaManagerConfig,
         endpoints: &[String],
     ) -> Self {
-        let runtime = ctx.s3fs.get_runtime();
+        let runtime = ctx.dfs.get_runtime();
         let mut client_config = tikv_client::Config::default()
             .with_grpc_max_decoding_message_size(DEFAULT_GRPC_MAX_DECODING_MESSAGE_SIZE);
         if !security_config.ca_path.is_empty()
@@ -946,7 +946,7 @@ impl SchemaManager {
             .first()
             .unwrap();
 
-        let dfs = self.ctx.s3fs.clone();
+        let dfs = self.ctx.dfs.clone();
         let tx_clone = tx.clone();
         let self_clone = self.clone();
         let stores = stores.to_vec();
@@ -1112,7 +1112,7 @@ impl SchemaManager {
         stores: &[Store],
     ) -> Result<()> {
         let (tx, rx) = tikv_util::mpsc::unbounded::<Result<(u32, u64, i64)>>();
-        let runtime = self.ctx.s3fs.get_runtime();
+        let runtime = self.ctx.dfs.get_runtime();
         let mut spawn_task_count = 0;
 
         for (&keyspace_id, keyspace_shard_stats) in keyspace_stats {

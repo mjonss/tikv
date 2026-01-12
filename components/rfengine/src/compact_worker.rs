@@ -22,7 +22,7 @@ use std::{
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use engine_traits::ObjectStorage;
 use file_system::IoRateLimiter;
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::Dfs;
 use protobuf::Message;
 use quick_cache::unsync::Cache as QuickCache;
 use rfenginepb::{
@@ -118,7 +118,7 @@ impl CompactWorker {
         snap_tx: Sender<ObjectStorageTask>,
         manifest: Manifest,
         compacted_epoch: Arc<AtomicU32>,
-        lightweight_backup: Option<&(LightweightBackupConfig, Arc<S3Fs>)>,
+        lightweight_backup: Option<&(LightweightBackupConfig, Arc<dyn Dfs>)>,
         rate_limiter: Option<Arc<IoRateLimiter>>,
         #[cfg(any(test, feature = "testexport"))] force_stop: Arc<AtomicBool>,
     ) -> Self {

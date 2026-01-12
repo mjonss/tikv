@@ -70,14 +70,14 @@ pub fn restore_tikv(
     let tag = format!("restore_tikv:{store_id}");
     let mut dfs_conf = config.dfs.clone();
     dfs_conf.read_only = true; // Set read only for safety.
-    let s3fs = S3Fs::new_from_config(dfs_conf);
-    let cluster_backup = get_cluster_backup_meta(&s3fs, name);
-    let s3fs_clone = s3fs.clone();
+    let dfs = S3Fs::new_from_config(dfs_conf);
+    let cluster_backup = get_cluster_backup_meta(&dfs, name);
+    let dfs_clone = dfs.clone();
     // Get the alloc_id in the cluster latest backup meta.
-    let latest_cluster_backup = s3fs_clone
+    let latest_cluster_backup = dfs_clone
         .get_runtime()
         .block_on(get_latest_backup_meta(
-            &s3fs_clone,
+            &dfs_clone,
             cluster_backup.cluster_id,
         ))
         .unwrap_or_else(|_| cluster_backup.clone());
@@ -90,7 +90,7 @@ pub fn restore_tikv(
             "check new store id {} for store id {}",
             new_store_id, store.store_id
         );
-        match check_store_id_exists(&s3fs_clone, new_store_id) {
+        match check_store_id_exists(&dfs_clone, new_store_id) {
             Ok(false) => {}
             Ok(true) => {
                 panic!("new store id {} already exists", new_store_id);
@@ -114,7 +114,7 @@ pub fn restore_tikv(
             alloc_id,
             &cluster_backup,
             &tikv_conf,
-            Arc::new(s3fs),
+            Arc::new(dfs),
             config.lower_memory,
         )
         .unwrap();
@@ -243,7 +243,7 @@ fn setup_raft_engine(
     alloc_id: u64,
     cluster_backup: &ClusterBackupMeta,
     conf: &TikvConfig,
-    dfs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     lower_memory: bool,
 ) -> Result<()> {
     let rlog_files = collect_snapshot_meta_rlog_files(
@@ -296,12 +296,12 @@ fn setup_raft_engine(
 
 pub fn restore_pd(config: RestoreConfig, name: String) {
     let dfs_conf = config.dfs.clone();
-    let s3fs = S3Fs::new_from_config(dfs_conf);
-    let cluster_backup = get_cluster_backup_meta(&s3fs, name);
+    let dfs = S3Fs::new_from_config(dfs_conf);
+    let cluster_backup = get_cluster_backup_meta(&dfs, name);
     // Get the alloc_id in the cluster latest backup meta.
-    let latest_cluster_backup = s3fs
+    let latest_cluster_backup = dfs
         .get_runtime()
-        .block_on(get_latest_backup_meta(&s3fs, cluster_backup.cluster_id))
+        .block_on(get_latest_backup_meta(&dfs, cluster_backup.cluster_id))
         .unwrap_or_else(|_| cluster_backup.clone());
     if latest_cluster_backup.keyspace_meta.is_empty() {
         panic!("No keyspace meta in backup");
@@ -322,14 +322,14 @@ pub fn restore_pd(config: RestoreConfig, name: String) {
     ));
 }
 
-pub fn get_cluster_backup_meta(s3fs: &S3Fs, name: String) -> ClusterBackupMeta {
-    let runtime = s3fs.get_runtime();
-    runtime.block_on(get_cluster_backup_meta_async(s3fs, name))
+pub fn get_cluster_backup_meta(dfs: &dyn Dfs, name: String) -> ClusterBackupMeta {
+    let runtime = dfs.get_runtime();
+    runtime.block_on(get_cluster_backup_meta_async(dfs, name))
 }
 
-pub async fn get_cluster_backup_meta_async(s3fs: &S3Fs, name: String) -> ClusterBackupMeta {
-    let backup_key = backup_file_full_path(s3fs.get_prefix(), name.clone(), None);
-    let data = s3fs
+pub async fn get_cluster_backup_meta_async(dfs: &dyn Dfs, name: String) -> ClusterBackupMeta {
+    let backup_key = backup_file_full_path(dfs.get_prefix(), name.clone(), None);
+    let data = dfs
         .get_object(backup_key, name, engine_traits::GetObjectOptions::default())
         .await
         .unwrap();

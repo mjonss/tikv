@@ -13,9 +13,9 @@ use bytes::Buf;
 use chrono::DateTime;
 use clap::Args;
 use kvengine::dfs::{
-    DFSConfig, Dfs, FileType, S3Fs, OSS_STORAGE_CLASS_ARCHIVE, OSS_STORAGE_CLASS_IA,
-    OSS_STORAGE_CLASS_STANDARD, STORAGE_CLASS_GLACIER_IR, STORAGE_CLASS_INTELLIGENT_TIERING,
-    STORAGE_CLASS_STANDARD, STORAGE_CLASS_STANDARD_IA,
+    try_parse_all_file_id, DFSConfig, Dfs, FileType, S3Fs, OSS_STORAGE_CLASS_ARCHIVE,
+    OSS_STORAGE_CLASS_IA, OSS_STORAGE_CLASS_STANDARD, STORAGE_CLASS_GLACIER_IR,
+    STORAGE_CLASS_INTELLIGENT_TIERING, STORAGE_CLASS_STANDARD, STORAGE_CLASS_STANDARD_IA,
 };
 use kvproto::metapb::Store;
 use native_br::{
@@ -479,7 +479,7 @@ impl StatsWorker {
                     stats.meta_stat.add(duration, size);
                 } else if obj.key.ends_with(".pack") {
                     stats.pack_stat.add(duration, size);
-                } else if let Some((file_id, ftype)) = self.s3fs.try_parse_all_file_id(&obj.key) {
+                } else if let Some((file_id, ftype)) = try_parse_all_file_id(&obj.key) {
                     if self.valid_files.contains(&file_id) {
                         stats
                             .in_used_file_stat

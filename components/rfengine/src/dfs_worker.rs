@@ -17,8 +17,7 @@ use std::{
 };
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use engine_traits::ObjectStorage;
-use kvengine::dfs::{Dfs, S3Fs};
+use kvengine::dfs::Dfs;
 use protobuf::Message;
 use rfenginepb::StoreBackupMeta;
 use slog_global::*;
@@ -142,7 +141,7 @@ pub(crate) struct ObjectStorageWorker {
     epoch_rotate_len: usize,
     start_off: u64, // The start offset of the current chunk.
     sync_off: u64,  // The offset of the syncing of current wal.
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     healthy: Healthy,
     memory_limiter: MemoryLimiter,
     background_uploads: VecDeque<BackgroundWal>,
@@ -167,7 +166,7 @@ impl ObjectStorageWorker {
 
     pub(crate) fn new(
         config: LightweightBackupConfig,
-        s3fs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         epoch_id: u32,
         epoch_rotate_len: usize,
         engine_id: Arc<AtomicU64>,
@@ -191,7 +190,7 @@ impl ObjectStorageWorker {
             epoch_rotate_len,
             start_off: 0,
             sync_off: 0,
-            s3fs,
+            dfs,
             healthy: dfs_worker_healthy,
             memory_limiter,
             background_uploads: Default::default(),
@@ -231,7 +230,7 @@ impl ObjectStorageWorker {
             );
 
             // Chunks in an epoch should be listed in one iterate.
-            let (chunks, has_more) = self.s3fs.list_objects("", Some(&scan_prefix), None)?;
+            let (chunks, has_more) = self.dfs.list_objects("", Some(&scan_prefix), None)?;
             debug_assert_eq!(has_more, None);
             let chunk_metas: Vec<WalChunkMeta> = chunks
                 .into_iter()
@@ -274,9 +273,9 @@ impl ObjectStorageWorker {
     }
 
     fn init_snapshot(&mut self) {
-        let prefix = self.s3fs.get_prefix();
+        let prefix = self.dfs.get_prefix();
         let store_id = self.get_engine_id();
-        match find_latest_snapshot(self.s3fs.clone(), &prefix, store_id, self.epoch_id) {
+        match find_latest_snapshot(self.dfs.clone(), &prefix, store_id, self.epoch_id) {
             Ok(snap_key) => {
                 if let Some(snap_delayed_to_epoch) =
                     parse_delayed_to_epoch_from_snapshot_key(snap_key.as_deref())
@@ -400,7 +399,7 @@ impl ObjectStorageWorker {
     }
 
     fn wait_upload(&mut self, upload: BackgroundWal) {
-        let join_res = self.s3fs.get_runtime().block_on(upload.join_handle);
+        let join_res = self.dfs.get_runtime().block_on(upload.join_handle);
         match join_res {
             Ok(Ok(())) => {
                 self.upload_results.push_back((upload.chunk, true));
@@ -457,7 +456,7 @@ impl ObjectStorageWorker {
         let Some(snap) = self.snapshot_state.try_take_background_snapshot() else {
             return;
         };
-        let join_res = self.s3fs.get_runtime().block_on(snap.join_handle);
+        let join_res = self.dfs.get_runtime().block_on(snap.join_handle);
         match join_res {
             Ok(Ok(())) => {
                 info!(
@@ -520,9 +519,9 @@ impl ObjectStorageWorker {
             last_wal_chunk_file_key(store_id, self.epoch_id, self.start_off, self.sync_off);
         let chunk = self.take_chunk_data()?;
         let wal_chunk = self.new_wal_chunk(true);
-        let fs = self.s3fs.clone();
+        let fs = self.dfs.clone();
         let mut mem_limiter = self.memory_limiter.clone();
-        let handle = self.s3fs.get_runtime().spawn_blocking(move || {
+        let handle = self.dfs.get_runtime().spawn_blocking(move || {
             let _acquired = mem_limiter.acquire(chunk.len())?;
             metrics::RFENGINE_DFS_RUNNING_UPLOADS.inc();
             let res = fs
@@ -739,10 +738,10 @@ impl ObjectStorageWorker {
         // `rlog_obj` should be written to DFS at the end, as we scan for latest
         // snapshot by the rlog object.
         // See https://github.com/tidbcloud/cloud-storage-engine/issues/1840.
-        let s3fs = self.s3fs.clone();
-        let join_handle: JoinHandle<Result<()>> = self.s3fs.get_runtime().spawn_blocking(move || {
+        let dfs = self.dfs.clone();
+        let join_handle: JoinHandle<Result<()>> = self.dfs.get_runtime().spawn_blocking(move || {
                 for obj in [meta_obj, prepared_snap.rlog_obj] {
-                    if let Err(err) = s3fs.put_objects(vec![obj]) {
+                    if let Err(err) = dfs.put_objects(vec![obj]) {
                         error!("{} put snapshot object failed", engine_id; "err" => ?err, "epoch" => epoch_id);
                         return Err(Error::Dfs(err));
                     }
@@ -827,10 +826,10 @@ impl ObjectStorageWorker {
         let chunk_res = self.take_chunk_data();
         // chunk_res return only compress_lz4 error which is very unlikely.
         // So we keep the the error handling logic in one place for simplicity.
-        let fs = self.s3fs.clone();
+        let fs = self.dfs.clone();
         let mut mem_limiter = self.memory_limiter.clone();
         let handle = {
-            self.s3fs.get_runtime().spawn_blocking(move || {
+            self.dfs.get_runtime().spawn_blocking(move || {
                 let chunk = chunk_res?;
                 info!(
                     "{}: put wal chunk {} len {} compress len {}",
@@ -1108,7 +1107,7 @@ impl Drop for MemoryLimiterGuard {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use kvengine::dfs::DFSConfig;
+    use kvengine::dfs::{DFSConfig, S3Fs};
     use rand::prelude::*;
 
     use super::*;

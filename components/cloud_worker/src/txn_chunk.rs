@@ -91,7 +91,7 @@ pub(crate) async fn handle_txn_chunk(
     };
     create_txn_chunk(
         chunk_id,
-        ctx.s3fs.clone(),
+        ctx.dfs.clone(),
         parts,
         body,
         &keyspace_info,

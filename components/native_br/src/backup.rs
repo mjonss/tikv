@@ -11,7 +11,7 @@ use fail::fail_point;
 use futures::{compat::Stream01CompatExt, executor::block_on, StreamExt};
 use http::Request;
 use hyper::Body;
-use kvengine::dfs::{DFSConfig, S3Fs};
+use kvengine::dfs::{DFSConfig, Dfs, S3Fs};
 use kvproto::metapb::Store;
 use pd_client::{util::get_all_stores_except_tiflash, PdClient};
 use protobuf::Message;
@@ -190,10 +190,10 @@ pub fn backup_cluster_with_ts(
         .unwrap();
 
     let dfs_conf = config.dfs.clone();
-    let s3fs = S3Fs::new_from_config(dfs_conf);
+    let dfs = S3Fs::new_from_config(dfs_conf);
     let mut cluster_backup_meta = ClusterBackupMeta::new();
     let last_backup_meta = last_backup_meta.or_else(|| {
-        match runtime.block_on(get_latest_backup_meta(&s3fs, cluster_id)) {
+        match runtime.block_on(get_latest_backup_meta(&dfs, cluster_id)) {
             Ok(latest) => Some(latest),
             Err(err) => {
                 warn!("get latest backup meta failed"; "err" => ?err);
@@ -257,10 +257,10 @@ pub fn backup_cluster_with_ts(
     cluster_backup_meta
         .set_tolerated_err_stores(tolerated_err_stores.into_iter().map(|s| s.id).collect());
 
-    let backup_key = backup_file_full_path(s3fs.get_prefix(), name, Some(backup_ts));
+    let backup_key = backup_file_full_path(dfs.get_prefix(), name, Some(backup_ts));
     let backup_data = Bytes::from(cluster_backup_meta.write_to_bytes().unwrap());
     runtime
-        .block_on(s3fs.put_object(backup_key.clone(), backup_data, backup_key.clone()))
+        .block_on(dfs.put_object(backup_key.clone(), backup_data, backup_key.clone()))
         .unwrap();
 
     let stores_has_missing_commit_record = cluster_backup_meta
@@ -731,15 +731,15 @@ mod tests {
         test_util::init_log_for_test();
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test");
-        let s3fs = S3Fs::new_from_config(dfs_config);
+        let dfs = S3Fs::new_from_config(dfs_config);
         let pd_client = TestPdClient::new(1, false);
 
         // Use cluster_id to distinguish with different backup meta.
         const CLUSTER_ID_INCREMENTAL: u64 = 1;
         const CLUSTER_ID_MANUAL: u64 = 2;
 
-        let prefix = s3fs.get_prefix();
-        s3fs.get_runtime().block_on(async {
+        let prefix = dfs.get_prefix();
+        dfs.get_runtime().block_on(async {
             {
                 let backup_ts = pd_client.get_tso().await.unwrap().into_inner();
                 let mut backup_meta = ClusterBackupMeta::new();
@@ -747,7 +747,7 @@ mod tests {
                 let backup_key =
                     backup_file_full_path(prefix.clone(), "".to_string(), Some(backup_ts));
                 let backup_data = Bytes::from(backup_meta.write_to_bytes().unwrap());
-                s3fs.put_object(backup_key.clone(), backup_data, backup_key)
+                dfs.put_object(backup_key.clone(), backup_data, backup_key)
                     .await
                     .unwrap();
             }
@@ -760,21 +760,21 @@ mod tests {
                 let backup_key =
                     backup_file_full_path(prefix.clone(), "check_table".to_string(), None);
                 let backup_data = Bytes::from(backup_meta.write_to_bytes().unwrap());
-                s3fs.put_object(backup_key.clone(), backup_data, backup_key)
+                dfs.put_object(backup_key.clone(), backup_data, backup_key)
                     .await
                     .unwrap();
             }
 
             // `check_table` will be the latest one if we don't filter incremental backup
             // metas.
-            let (objects, ..) = s3fs.list("", Some("backup/"), None).await.unwrap();
+            let (objects, ..) = dfs.list("", Some("backup/"), None).await.unwrap();
             assert_eq!(objects.len(), 2);
             assert_eq!(
                 objects.last().unwrap().key,
                 format!("{}/backup/check_table", prefix)
             );
 
-            let _ = get_latest_backup_meta(&s3fs, CLUSTER_ID_INCREMENTAL)
+            let _ = get_latest_backup_meta(&dfs, CLUSTER_ID_INCREMENTAL)
                 .await
                 .unwrap();
         });

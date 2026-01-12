@@ -25,7 +25,7 @@ use http::{header, Request};
 use hyper::Body;
 use itertools::Itertools;
 use kvengine::{
-    dfs::{self, Dfs, FileType, S3Fs},
+    dfs::{self, Dfs, FileType},
     ia::util::IaConfig,
     limiter::StoreLimiter,
     table::{BoundedDataSet, DataBound, InnerKey},
@@ -152,7 +152,7 @@ pub fn restore_keyspace_with_cfg(
     target_keyspace_name: &str,
     backup_name: &str,
     working_path: Option<PathBuf>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     pd_client: Arc<dyn PdClient>,
     runtime: &Runtime,
     truncate_ts: Option<u64>,
@@ -198,7 +198,7 @@ pub fn restore_keyspace_with_cfg(
         target_keyspace_id,
         backup_name,
         working_path,
-        s3fs,
+        dfs,
         config,
         pd_client,
         runtime,
@@ -215,7 +215,7 @@ pub fn restore_keyspace(
     target_keyspace_id: u32,
     backup_name: &str,
     working_path: Option<PathBuf>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     config: RestoreConfig,
     pd_client: Arc<dyn PdClient>,
     runtime: &Runtime,
@@ -254,7 +254,7 @@ pub fn restore_keyspace(
 
     reporter.report_step(RestoreStep::LoadBackupMeta);
     let (cluster_backup, archive_reader) =
-        match get_cluster_backup_file_and_meta(&s3fs, backup_name.to_owned()) {
+        match get_cluster_backup_file_and_meta(dfs.as_ref(), backup_name.to_owned()) {
             Ok((_, backup_meta)) => (backup_meta, None),
             Err(dfs::Error::NoSuchKey(err)) => {
                 warn!(
@@ -263,9 +263,9 @@ pub fn restore_keyspace(
                     err
                 );
                 let backup_file =
-                    get_incremental_backup_with_name(s3fs.get_prefix(), backup_name.to_owned());
+                    get_incremental_backup_with_name(dfs.get_prefix(), backup_name.to_owned());
                 let backup_date = backup_file.created_at().date_naive();
-                let archive_reader = ArchiveReader::new(s3fs.clone(), &backup_date)?;
+                let archive_reader = ArchiveReader::new(dfs.clone(), &backup_date)?;
                 let backup_meta = archive_reader
                     .read_meta_file()
                     .map_err(|_| MetaNotFound(backup_file.id()))?;
@@ -309,7 +309,7 @@ pub fn restore_keyspace(
         &cluster_backup,
         working_path,
         pd_client.clone(),
-        s3fs.clone(),
+        dfs.clone(),
         config.clone(),
         keyspace_id,
         target_keyspace_id,
@@ -458,7 +458,7 @@ pub fn restore_keyspace(
 
     reporter.report_step(RestoreStep::RetainSstFiles);
     let files = cluster.get_all_shard_files(None, None);
-    match retain_sst_files(files, &s3fs) {
+    match retain_sst_files(files, dfs.clone()) {
         Err(e) => {
             return Err(box_err!(
                 "Keyspace {} fail to retain restored sst files in s3, {:?}",
@@ -589,7 +589,7 @@ pub struct BackupCluster {
     tag: String,
     path: PathBuf,
     pd_client: Arc<dyn PdClient>,
-    dfs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     security_conf: SecurityConfig,
     master_key: MasterKey,
     keyspace_id: u32,
@@ -688,7 +688,7 @@ impl BackupCluster {
         cluster_meta: &ClusterBackupMeta,
         path: PathBuf,
         pd_client: Arc<dyn PdClient>,
-        dfs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         restore_conf: RestoreConfig,
         keyspace_id: u32,
         target_keyspace_id: u32,
@@ -804,7 +804,7 @@ impl BackupCluster {
             let tx = result_tx.clone();
             let cluster_backup_meta = cluster_meta.clone();
             let pd_client = cluster.pd_client.clone();
-            let s3fs = cluster.dfs.clone();
+            let dfs = cluster.dfs.clone();
             let keyspace_tag = cluster.tag().to_string();
             let archive_store_meta = if let Some(archive_reader) = &cluster.archive_reader {
                 let store_meta = archive_reader.get_store_wal_rlog_meta(store_id)?;
@@ -823,7 +823,7 @@ impl BackupCluster {
                     &cluster_backup_meta,
                     &store_config,
                     pd_client,
-                    s3fs,
+                    dfs,
                     archiving,
                     archive_store_meta,
                     &restore_conf_cp,
@@ -896,7 +896,7 @@ impl BackupCluster {
         cluster_backup: &ClusterBackupMeta,
         conf: &TikvConfig,
         pd_client: Arc<dyn PdClient>,
-        dfs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         archiving: bool,
         archive_store_meta: Option<(String, StoreMeta)>, // archive date, archive store meta
         restore_conf: &RestoreConfig,
@@ -904,7 +904,7 @@ impl BackupCluster {
     ) -> Result<RfEngine> {
         let object_cache_no_hook: Option<ObjectCacheWithHook> = object_cache.map(Into::into);
         let rlog_files = if let Some((date, store_meta)) = &archive_store_meta {
-            ArchiveReader::read_store_rlog_files(&dfs, date, store_meta)?
+            ArchiveReader::read_store_rlog_files(dfs.as_ref(), date, store_meta)?
         } else {
             collect_snapshot_meta_rlog_files(
                 dfs.clone(),
@@ -969,7 +969,7 @@ impl BackupCluster {
         cluster_backup: &ClusterBackupMeta,
         conf: &TikvConfig,
         pd_client: Arc<dyn PdClient>,
-        dfs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         archiving: bool,
         archive_store_meta: Option<(String, StoreMeta)>, // archive date, archive store meta
         restore_conf: &RestoreConfig,
@@ -1508,7 +1508,7 @@ impl BackupCluster {
         let files = self.get_all_shard_files(None, None);
         let mut shards_need_reset_columnar = HashSet::default();
         if let Some(archive_reader) = &self.archive_reader {
-            let mut not_found_files = get_not_found_files(&self.dfs, files)?;
+            let mut not_found_files = get_not_found_files(self.dfs.clone(), files)?;
             shards_need_reset_columnar = not_found_files
                 .iter()
                 .filter(|f| !Self::is_file_type_need_archive(f.ftype))

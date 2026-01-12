@@ -20,7 +20,7 @@ use hyper::{
 use kvengine::{
     context::{IaCtx, MetaFileCacheWeighter, PrepareType, SnapCtx},
     dfs,
-    dfs::{S3Fs, DFS_REMOTE_CACHE_ADDR_HEADER},
+    dfs::{Dfs, DFS_REMOTE_CACHE_ADDR_HEADER},
     local_compact,
     metrics::ENGINE_REMOTE_COMPACT_EXCEED_MEMORY_LIMIT_COUNTER,
     table::{
@@ -72,7 +72,7 @@ pub(crate) struct Context {
     pub compression_lvl: i32,
     pub checksum_type: ChecksumType,
     pub thread_pool: tokio::runtime::Handle,
-    pub s3fs: Arc<S3Fs>,
+    pub dfs: Arc<dyn Dfs>,
     pub load_manager: Arc<LoadDataManager>,
     pub br_manager: Arc<NativeBrManager>,
     pub rep_scheduler: Option<ReplicationScheduler>,
@@ -97,13 +97,13 @@ impl Context {
     pub(crate) fn get_snap_ctx(&self, dfs_remote_cache_addr: Option<&str>) -> SnapCtx {
         let dfs: Arc<dyn dfs::Dfs> = if let Some(dfs_cache_addr) = dfs_remote_cache_addr {
             Arc::new(dfs::RemoteCachedDfs::new(
-                self.s3fs.clone(),
+                self.dfs.clone(),
                 dfs_cache_addr.to_string(),
                 self.http_client.clone(),
                 self.remote_cache_ttl,
             ))
         } else {
-            self.s3fs.clone()
+            self.dfs.clone()
         };
         let prepare_type = if self.read_columnar {
             PrepareType::All
@@ -560,7 +560,7 @@ async fn handle_remote_compaction(
     id_allocator: Arc<dyn IdAllocator>,
 ) -> hyper::Result<hyper::Response<hyper::Body>> {
     let thread_pool = ctx.thread_pool.clone();
-    let dfs = ctx.s3fs.clone();
+    let dfs = ctx.dfs.clone();
     let compression_lvl = ctx.compression_lvl;
     let checksum_type = ctx.checksum_type;
     let master_key = ctx.master_key.clone();

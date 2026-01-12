@@ -2,7 +2,7 @@
 
 use std::{fs, path::Path, sync::Arc, time::Duration};
 
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::{Dfs, S3Fs};
 use kvproto::{metapb::Region, raft_serverpb::RegionLocalState};
 use protobuf::Message;
 use raft_proto::eraftpb::{Entry, EntryType};
@@ -143,8 +143,12 @@ fn write_wal_to_epoch(
     }
 }
 
-fn open_engine(dir: &Path, cfg: &rfengine::RfEngineConfig, s3fs: Arc<S3Fs>) -> rfengine::RfEngine {
-    let raft = rfengine::RfEngine::open(dir, cfg, None, Some(s3fs)).unwrap();
+fn open_engine(
+    dir: &Path,
+    cfg: &rfengine::RfEngineConfig,
+    dfs: Arc<dyn Dfs>,
+) -> rfengine::RfEngine {
+    let raft = rfengine::RfEngine::open(dir, cfg, None, Some(dfs)).unwrap();
     raft.set_engine_id(100);
     raft
 }

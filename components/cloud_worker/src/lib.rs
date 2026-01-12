@@ -32,7 +32,7 @@ use ::native_br::{backup::BackupConfig, restore::RestoreConfig};
 use dashmap::DashMap;
 use kvengine::{
     context::{new_meta_file_cache, IaCtx},
-    dfs::{DFSConfig, Dfs, S3Fs},
+    dfs::{DFSConfig, Dfs},
     ia::{manager::IaManager, util::IaConfig},
     table::{
         columnar::ColumnarMetaCache,
@@ -192,7 +192,7 @@ fn start_server_impl(
     running_ctl: &RunningController,
 ) -> (ServerFuture, Arc<server::Context>, ServiceHandles) {
     let dfs_config = config.dfs.clone();
-    let s3fs = Arc::new(kvengine::dfs::S3Fs::new_from_config(dfs_config));
+    let dfs = Arc::new(kvengine::dfs::S3Fs::new_from_config(dfs_config));
 
     let block_cache = BlockCache::new(
         BlockCacheType::Quick,
@@ -220,9 +220,7 @@ fn start_server_impl(
     incoming.set_nodelay(true);
 
     let security_mgr = pd.get_security_mgr();
-    let master_key = s3fs
-        .get_runtime()
-        .block_on(config.security.new_master_key());
+    let master_key = dfs.get_runtime().block_on(config.security.new_master_key());
     let is_load_data_worker = std::env::var(LOAD_DATA_WORKER_ENV).is_ok();
     let mut worker_scaler_opt: Option<WorkerScaler> = None;
     if !is_load_data_worker && config.worker_scaler.run {
@@ -259,7 +257,7 @@ fn start_server_impl(
     let load_manager = Arc::new(LoadDataManager::new(
         pd.clone(),
         config.data_dir.clone().into(),
-        s3fs.clone(),
+        dfs.clone(),
         thread_pool.clone(),
         master_key.clone(),
         worker_scaler_opt,
@@ -275,7 +273,7 @@ fn start_server_impl(
     let br_manager = Arc::new(NativeBrManager::new(
         thread_pool.clone(),
         pd.clone(),
-        s3fs.clone(),
+        dfs.clone(),
         native_br_data_dir,
         config.clone(),
     ));
@@ -291,8 +289,8 @@ fn start_server_impl(
         Some(WORKER_MEMORY_LIMITER_CURRENT_USED.clone()),
     );
 
-    let ia_ctx =
-        create_ia_ctx(&config, &s3fs, thread_pool.handle()).expect("create IA context failed");
+    let ia_ctx = create_ia_ctx(&config, dfs.clone(), thread_pool.handle())
+        .expect("create IA context failed");
 
     run_local_gc(&config, &ia_ctx, running_ctl.handle());
 
@@ -301,7 +299,7 @@ fn start_server_impl(
     // runtime in async context.
     let txn_chunk_manager = TxnChunkManager::new(
         vec![],
-        s3fs.clone(),
+        dfs.clone(),
         block_cache.clone(),
         None,
         thread_pool.handle().clone().into(),
@@ -311,7 +309,7 @@ fn start_server_impl(
     let (rep_scheduler, rep_handle) = if config.replication_worker.enabled {
         ReplicationWorker::new(
             pd.clone(),
-            s3fs.clone(),
+            dfs.clone(),
             config.data_dir.clone(),
             config.security.clone(),
             config.replication_worker.clone(),
@@ -344,7 +342,7 @@ fn start_server_impl(
         compression_lvl,
         checksum_type,
         thread_pool: thread_pool.handle().clone(),
-        s3fs: s3fs.clone(),
+        dfs: dfs.clone(),
         pd: pd.clone(),
         load_manager: load_manager.clone(),
         br_manager,
@@ -391,7 +389,7 @@ fn start_server_impl(
             loop {
                 register_compactor_to_all_stores(
                     pd.clone(),
-                    s3fs.clone(),
+                    dfs.clone(),
                     remote_compact_url.clone(),
                     security_mgr.clone(),
                 );
@@ -470,7 +468,7 @@ fn run_prometheus_push(push_metrics_addr: String, push_metrics_interval: Duratio
 
 fn create_ia_ctx(
     config: &Config,
-    s3fs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     runtime: &tokio::runtime::Handle,
 ) -> Result<IaCtx, String> {
     if config.is_ia_enabled() {
@@ -485,7 +483,7 @@ fn create_ia_ctx(
             .map_err(|err| format!("build IA options failed: {err:?}"))?;
         opts.dynamic_capacity = false; // Always disable dynamic capacity.
 
-        let ia_mgr = IaManager::new(opts, Arc::new(s3fs.clone()), None, runtime.clone().into())
+        let ia_mgr = IaManager::new(opts, dfs, None, runtime.clone().into())
             .map_err(|err| format!("create IA manager failed: {err:?}"))?;
 
         let meta_path = ia_path.join("meta");
@@ -714,7 +712,7 @@ pub(crate) fn get_all_stores_except_tiflash(
 
 fn register_compactor_to_all_stores(
     pd: Arc<dyn PdClient>,
-    dfs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     remote_url: String,
     security_mgr: Arc<SecurityManager>,
 ) {

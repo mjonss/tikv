@@ -1,8 +1,6 @@
 // Copyright 2023 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    io,
-    io::BufWriter,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -18,13 +16,13 @@ use pd_client::PdClient;
 use protobuf::Message;
 use rfenginepb::ClusterBackupMeta;
 use security::SecurityConfig;
-use tikv_util::{box_try, error, info, mpsc::Receiver, time::Instant, warn};
+use tikv_util::{error, info, mpsc::Receiver, time::Instant, warn};
 
 use crate::{
     backup::{backup_file_full_path, IncrementalBackupFile},
     common::{
-        collect_store_wal_rlog_files, create_pd_client, get_all_incremental_backups, StoreRlog,
-        StoreWalRlog, TableFile, TempLocalObject, INCREMENTAL_BACKUP_FOLDER_FORMAT,
+        collect_store_wal_rlog_files, create_pd_client, get_all_incremental_backups, LocalObject,
+        StoreRlog, StoreWalRlog, TableFile, TempLocalObject, INCREMENTAL_BACKUP_FOLDER_FORMAT,
     },
     error::{Error, Result},
     restore::RestoreConfig,
@@ -191,7 +189,7 @@ pub const ARCHIVE_INDEX_FORMAT_V2: u32 = 2;
 pub fn archive_with_cfg(config: ArchiveConfig) -> Result<()> {
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
     let dfs_conf = config.dfs.clone();
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_conf));
+    let dfs = Arc::new(S3Fs::new_from_config(dfs_conf));
     let expiration_date = NaiveDate::parse_from_str(
         config.expiration_date.as_str(),
         INCREMENTAL_BACKUP_FOLDER_FORMAT,
@@ -209,14 +207,7 @@ pub fn archive_with_cfg(config: ArchiveConfig) -> Result<()> {
     let begin_archive_date = expiration_date
         .checked_add_days(chrono::Days::new(1))
         .unwrap();
-    archive_cluster_backup(
-        config,
-        pd_client,
-        s3fs,
-        begin_archive_date,
-        end_archive_date,
-    )
-    .map(|_| ())
+    archive_cluster_backup(config, pd_client, dfs, begin_archive_date, end_archive_date).map(|_| ())
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
@@ -299,7 +290,7 @@ impl ArchiveBackup {
 pub fn archive_cluster_backup(
     config: ArchiveConfig,
     pd_client: Arc<dyn PdClient>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     begin_archive_date: NaiveDate,
     end_archive_date: NaiveDate,
 ) -> Result<usize> /* latest archived shards count */ {
@@ -345,7 +336,7 @@ pub fn archive_cluster_backup(
         None
     };
 
-    let mut backup_date = match get_latest_archive_date(&s3fs, &begin_archive_date) {
+    let mut backup_date = match get_latest_archive_date(dfs.as_ref(), &begin_archive_date) {
         Ok(latest_archive_date) => latest_archive_date
             .checked_add_days(chrono::Days::new(1))
             .unwrap(),
@@ -356,9 +347,9 @@ pub fn archive_cluster_backup(
                 begin_archive_date,
                 e.to_string()
             );
-            let runtime = s3fs.get_runtime();
+            let runtime = dfs.get_runtime();
             let (backups, _) = runtime.block_on(get_all_incremental_backups(
-                &s3fs,
+                dfs.as_ref(),
                 &begin_archive_date,
                 None,
                 1,
@@ -393,7 +384,7 @@ pub fn archive_cluster_backup(
         let new = archive_backup_files(
             config.clone(),
             pd_client.clone(),
-            s3fs.clone(),
+            dfs.clone(),
             cluster_id,
             path.clone(),
             backup_date,
@@ -419,15 +410,16 @@ pub fn archive_cluster_backup(
 fn archive_backup_files(
     config: ArchiveConfig,
     pd_client: Arc<dyn PdClient>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     cluster_id: u64,
     path: PathBuf,
     backup_date: NaiveDate,
     skip_keyspace_ids: Option<HashSet<u32>>,
     old: Option<ArchiveBackup>,
 ) -> Result<ArchiveBackup> {
-    let runtime = s3fs.get_runtime();
-    let (backups, _) = runtime.block_on(get_daily_incremental_backups(&s3fs, &backup_date, 1))?;
+    let runtime = dfs.get_runtime();
+    let (backups, _) =
+        runtime.block_on(get_daily_incremental_backups(dfs.as_ref(), &backup_date, 1))?;
     if backups.is_empty() {
         return Err(Error::ArchiveError(format!(
             "failed to get first backup meta on {}",
@@ -437,11 +429,11 @@ fn archive_backup_files(
     let back_file = backups.first().unwrap();
     let file_name = back_file.name().to_string();
     let (meta_file_data, cluster_backup) =
-        get_cluster_backup_file_and_meta(&s3fs, file_name.clone())
+        get_cluster_backup_file_and_meta(dfs.as_ref(), file_name.clone())
             .map_err(|e| Error::DfsError(e))?;
     let (files, shards_count) = get_cluster_backup_files_and_shards_count(
         pd_client.clone(),
-        s3fs.clone(),
+        dfs.clone(),
         cluster_id,
         file_name,
         cluster_backup,
@@ -462,7 +454,7 @@ fn archive_backup_files(
                 .unwrap()
                 .eq(&backup_date)
         {
-            write_archive_packages_and_index(config, &pd_client, s3fs, old_archive_backup, &files)?
+            write_archive_packages_and_index(config, &pd_client, dfs, old_archive_backup, &files)?
         } else {
             return Err(Error::ArchiveError(format!(
                 "old backup {} is not {}'s last day",
@@ -481,7 +473,7 @@ fn archive_backup_files(
 fn write_archive_packages_and_index(
     config: ArchiveConfig,
     pd_client: &Arc<dyn PdClient>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     archive_backup: ArchiveBackup,
     next_day_files: &HashMap<u64, FileType>,
 ) -> Result<()> {
@@ -497,7 +489,7 @@ fn write_archive_packages_and_index(
     );
     let format_date = archive_format_date(&archive_backup.date);
     if config.dry_run {
-        let not_found_files = get_not_found_files(&s3fs, deleted)?;
+        let not_found_files = get_not_found_files(dfs.clone(), deleted)?;
         if !not_found_files.is_empty() {
             return Err(Error::ArchiveError(format!(
                 "deleted files not found {:?} on {}",
@@ -512,7 +504,7 @@ fn write_archive_packages_and_index(
         let mut writer = ArchiveWriter::new(
             config.max_archive_file_size,
             config.concurrency,
-            s3fs.clone(),
+            dfs.clone(),
             format_date.clone(),
             archive_backup.meta_data,
         );
@@ -527,7 +519,7 @@ fn write_archive_packages_and_index(
         for store in &cluster_backup.stores {
             let store_id = store.get_store_id();
             let pd_client = pd_client.clone();
-            let dfs = s3fs.clone();
+            let dfs = dfs.clone();
             let cluster_backup_meta = cluster_backup.clone();
             let tx = result_tx.clone();
             let tag = format!("archive:{format_date}:{store_id}");
@@ -584,7 +576,7 @@ fn get_sorted_deleted_files(
 
 fn get_cluster_backup_files_and_shards_count(
     pd_client: Arc<dyn PdClient>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     cluster_id: u64,
     backup_name: String,
     cluster_backup: ClusterBackupMeta,
@@ -618,7 +610,7 @@ fn get_cluster_backup_files_and_shards_count(
         &cluster_backup,
         path,
         pd_client.clone(),
-        s3fs,
+        dfs,
         restore_conf,
         0,
         0,
@@ -649,7 +641,7 @@ fn get_cluster_backup_files_and_shards_count(
 
 /// Return full path of daily incremental backups in S3.
 pub async fn get_daily_incremental_backups(
-    s3fs: &S3Fs,
+    dfs: &dyn Dfs,
     date: &chrono::NaiveDate,
     max_count: usize,
 ) -> dfs::Result<(Vec<IncrementalBackupFile>, bool)> {
@@ -658,7 +650,7 @@ pub async fn get_daily_incremental_backups(
     let prefix = format!("backup/{}/", date.format(INCREMENTAL_BACKUP_FOLDER_FORMAT));
     let mut reach_limit = false;
     loop {
-        match s3fs.list(&start_key, Some(&prefix), None).await {
+        match dfs.list(&start_key, Some(&prefix), None).await {
             Ok((backup_files, more, next_start_after)) => {
                 let mut inc_files = backup_files
                     .into_iter()
@@ -688,12 +680,12 @@ pub fn get_incremental_backup_with_name(prefix: String, name: String) -> Increme
 }
 
 pub fn get_cluster_backup_file_and_meta(
-    s3fs: &S3Fs,
+    dfs: &dyn Dfs,
     name: String,
 ) -> dfs::Result<(Bytes, ClusterBackupMeta)> {
-    let backup_key = backup_file_full_path(s3fs.get_prefix(), name.clone(), None);
-    let runtime = s3fs.get_runtime();
-    let data = runtime.block_on(s3fs.get_object(
+    let backup_key = backup_file_full_path(dfs.get_prefix(), name.clone(), None);
+    let runtime = dfs.get_runtime();
+    let data = runtime.block_on(dfs.get_object(
         backup_key.clone(),
         name,
         engine_traits::GetObjectOptions::default(),
@@ -717,7 +709,7 @@ pub fn get_cluster_backup_file_and_meta(
 }
 
 pub async fn get_all_archive_index_paths(
-    s3fs: &S3Fs,
+    dfs: &dyn Dfs,
     start_date: String,
     max_count: usize,
 ) -> dfs::Result<(Vec<String>, bool)> {
@@ -728,7 +720,7 @@ pub async fn get_all_archive_index_paths(
     let mut reach_limit = false;
     loop {
         // TODO: pass in `max_count` for limit.
-        match s3fs.list(&start_key, Some(prefix), None).await {
+        match dfs.list(&start_key, Some(prefix), None).await {
             Ok((archive_indexes, more, next_start_after)) => {
                 let mut inc_indexes = archive_indexes
                     .into_iter()
@@ -752,11 +744,11 @@ pub async fn get_all_archive_index_paths(
     Ok((indexes, reach_limit))
 }
 
-pub fn get_latest_archive_date(s3fs: &S3Fs, start_date: &chrono::NaiveDate) -> Result<NaiveDate> {
-    let (indexes, _) = s3fs
+pub fn get_latest_archive_date(dfs: &dyn Dfs, start_date: &chrono::NaiveDate) -> Result<NaiveDate> {
+    let (indexes, _) = dfs
         .get_runtime()
         .block_on(get_all_archive_index_paths(
-            s3fs,
+            dfs,
             archive_format_date(start_date),
             usize::MAX,
         ))
@@ -783,11 +775,11 @@ pub fn get_latest_archive_date(s3fs: &S3Fs, start_date: &chrono::NaiveDate) -> R
     Ok(latest_archive_date)
 }
 
-pub fn get_archive_index(s3fs: &S3Fs, date: String) -> Result<(ArchiveIndex, Bytes)> {
-    let index_key = archive_index_key(s3fs.get_prefix(), date.clone());
-    let data = s3fs
+pub fn get_archive_index(dfs: &dyn Dfs, date: String) -> Result<(ArchiveIndex, Bytes)> {
+    let index_key = archive_index_key(dfs.get_prefix(), date.clone());
+    let data = dfs
         .get_runtime()
-        .block_on(s3fs.get_object(
+        .block_on(dfs.get_object(
             index_key.clone(),
             index_key.clone(),
             GetObjectOptions::default(),
@@ -809,12 +801,12 @@ pub fn get_archive_index(s3fs: &S3Fs, date: String) -> Result<(ArchiveIndex, Byt
     Ok((archive_index, data))
 }
 
-pub async fn get_archived_object(s3fs: &S3Fs, archive_addr: ArchiveAddress) -> Result<Bytes> {
+pub async fn get_archived_object(dfs: &dyn Dfs, archive_addr: ArchiveAddress) -> Result<Bytes> {
     if archive_addr.object_addr.length == 0 {
         return Ok(Bytes::new());
     }
     let package_key = archive_package_key(
-        s3fs.get_prefix(),
+        dfs.get_prefix(),
         archive_addr.date.clone(),
         archive_addr.object_addr.package_id,
     );
@@ -822,7 +814,7 @@ pub async fn get_archived_object(s3fs: &S3Fs, archive_addr: ArchiveAddress) -> R
         start_off: Some(archive_addr.object_addr.offset),
         end_off: Some(archive_addr.object_addr.offset + archive_addr.object_addr.length),
     };
-    s3fs.get_object(package_key.clone(), package_key, opts)
+    dfs.get_object(package_key.clone(), package_key, opts)
         .await
         .map_err(|e| {
             error!(
@@ -835,12 +827,12 @@ pub async fn get_archived_object(s3fs: &S3Fs, archive_addr: ArchiveAddress) -> R
 }
 
 pub async fn get_archived_object_to_file(
-    s3fs: &S3Fs,
+    dfs: &dyn Dfs,
     archive_addr: ArchiveAddress,
     dir: &Path,
 ) -> Result<TempLocalObject> {
     let package_key = archive_package_key(
-        s3fs.get_prefix(),
+        dfs.get_prefix(),
         archive_addr.date.clone(),
         archive_addr.object_addr.package_id,
     );
@@ -855,18 +847,17 @@ pub async fn get_archived_object_to_file(
         opts.end_off.unwrap()
     );
     let path = dir.join(tmp_key.replace('/', "_"));
-    let build_writer = move || -> io::Result<_> {
-        let temp_obj = TempLocalObject::create(path.clone())?;
-        Ok(BufWriter::new(temp_obj))
-    };
-    match s3fs
-        .get_object_to_writer(package_key.clone(), package_key, opts, build_writer)
+    match dfs
+        .get_object_to_path(package_key.clone(), package_key, opts, &path)
         .await
     {
-        Ok((writer, len)) => {
-            let mut temp_obj = box_try!(writer.into_inner()); // Writer will flush here.
+        Ok(len) => {
+            let mut temp_obj = TempLocalObject::from(LocalObject {
+                file: None,
+                path: Arc::new(path),
+                len,
+            });
             temp_obj.close();
-            debug_assert_eq!(temp_obj.len, len);
             Ok(temp_obj)
         }
         Err(err) => {
@@ -916,12 +907,12 @@ pub fn get_archived_wal_addresses(
 }
 
 pub fn get_archived_wals_from_addresses(
-    s3fs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     date: &str,
     addrs: Vec<ObjectAddress>,
     cache_dir: Option<PathBuf>,
 ) -> Result<Vec<WalChunkData>> {
-    let runtime = s3fs.get_runtime();
+    let runtime = dfs.get_runtime();
     let addrs_len = addrs.len();
     let mut handles = Vec::with_capacity(addrs_len);
 
@@ -930,15 +921,15 @@ pub fn get_archived_wals_from_addresses(
     // = 512MB/64MB).
     for addr in addrs {
         let wal_chunk_archive_addr = ArchiveAddress::new(date.to_string(), addr);
-        let fs = s3fs.clone();
+        let fs = dfs.clone();
         let dir = cache_dir.clone();
         handles.push(runtime.spawn(async move {
             if let Some(dir) = &dir {
-                get_archived_object_to_file(&fs, wal_chunk_archive_addr, dir)
+                get_archived_object_to_file(fs.as_ref(), wal_chunk_archive_addr, dir)
                     .await
                     .map(|local_obj| WalChunkData::LocalFileWithoutMeta(local_obj))
             } else {
-                get_archived_object(&fs, wal_chunk_archive_addr)
+                get_archived_object(fs.as_ref(), wal_chunk_archive_addr)
                     .await
                     .map(|data| WalChunkData::Memory(data))
             }
@@ -965,7 +956,7 @@ pub fn get_archived_wals_from_addresses(
 }
 
 pub fn get_archived_wals(
-    s3fs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     date: &str,
     store_meta: &StoreMeta,
     cache_dir: Option<PathBuf>,
@@ -973,13 +964,14 @@ pub fn get_archived_wals(
     let wal_addrs = get_archived_wal_addresses(store_meta)?;
     let mut wals = Vec::with_capacity(wal_addrs.len());
     for (epoch, addrs) in wal_addrs {
-        let wal_chunks = get_archived_wals_from_addresses(s3fs, date, addrs, cache_dir.clone())?;
+        let wal_chunks =
+            get_archived_wals_from_addresses(dfs.clone(), date, addrs, cache_dir.clone())?;
         wals.push((epoch, wal_chunks));
     }
     Ok(wals)
 }
 
-pub fn get_not_found_files(s3fs: &S3Fs, files: Vec<TableFile>) -> Result<Vec<TableFile>> {
+pub fn get_not_found_files(dfs: Arc<dyn Dfs>, files: Vec<TableFile>) -> Result<Vec<TableFile>> {
     let (result_tx, result_rx) = tikv_util::mpsc::bounded(files.len());
     let mut not_found_files = Vec::default();
     let recv_table_file_existence = |not_found_files: &mut Vec<TableFile>,
@@ -993,12 +985,12 @@ pub fn get_not_found_files(s3fs: &S3Fs, files: Vec<TableFile>) -> Result<Vec<Tab
     };
     let mut msg_count = 0;
     for f in files {
-        let dfs = s3fs.clone();
+        let dfs_clone = dfs.clone();
         let tx = result_tx.clone();
-        s3fs.get_runtime().spawn(async move {
-            let res = dfs
+        dfs.get_runtime().spawn(async move {
+            let res = dfs_clone
                 .exist(
-                    dfs.file_key(f.id, f.ftype),
+                    dfs_clone.file_key(f.id, f.ftype),
                     format!("{}.{}", f.id, f.ftype.suffix()),
                 )
                 .await;
@@ -1338,7 +1330,7 @@ struct ArchiveWriter {
     package_id: u32,
     index: ArchiveIndex,
     buf: Vec<u8>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     date: String,
 }
 
@@ -1346,7 +1338,7 @@ impl ArchiveWriter {
     fn new(
         max_size: u64,
         concurrency: usize,
-        s3fs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         date: String,
         meta_data: Bytes,
     ) -> Self {
@@ -1361,7 +1353,7 @@ impl ArchiveWriter {
             package_id,
             index: ArchiveIndex::new(ARCHIVE_INDEX_FORMAT_V2, meta_address),
             buf,
-            s3fs,
+            dfs,
             date,
         }
     }
@@ -1402,10 +1394,10 @@ impl ArchiveWriter {
                 vec_files.push(f);
                 continue;
             }
-            let s3fs = self.s3fs.clone();
+            let dfs = self.dfs.clone();
             let tx = result_tx.clone();
-            self.s3fs.get_runtime().spawn(async move {
-                let res = s3fs
+            self.dfs.get_runtime().spawn(async move {
+                let res = dfs
                     .read_file(f.id, Options::default().with_type(f.ftype))
                     .await;
                 let _ = tx.send(res.map(|sst_data| (f, sst_data)));
@@ -1420,8 +1412,8 @@ impl ArchiveWriter {
             self.recv_table_file_data(&result_rx)?;
         }
         for f in vec_files {
-            let file_data = self.s3fs.get_runtime().block_on(
-                self.s3fs
+            let file_data = self.dfs.get_runtime().block_on(
+                self.dfs
                     .read_file(f.id, Options::default().with_type(f.ftype)),
             )?;
             self.append_table_file(f, file_data);
@@ -1464,23 +1456,16 @@ impl ArchiveWriter {
         if self.buf.is_empty() {
             return;
         }
-        let runtime = self.s3fs.get_runtime();
-        let key = archive_package_key(self.s3fs.get_prefix(), self.date.clone(), self.package_id);
+        let runtime = self.dfs.get_runtime();
+        let key = archive_package_key(self.dfs.get_prefix(), self.date.clone(), self.package_id);
         let data = Bytes::from(self.buf.to_vec());
         runtime
-            .block_on(
-                self.s3fs.put_object_with_options(
-                    key.clone(),
-                    data,
-                    key.clone(),
-                    None,
-                    Some(
-                        self.s3fs
-                            .storage_class_str(StorageClass::GlacierInstantRetrieval),
-                    ),
-                    None,
-                ),
-            )
+            .block_on(self.dfs.put_object_with_storage_class(
+                key.clone(),
+                data,
+                key.clone(),
+                StorageClass::GlacierInstantRetrieval,
+            ))
             .unwrap();
         info!("cluster archive package {} on {}", key, self.date.clone());
         self.package_id += 1;
@@ -1490,11 +1475,11 @@ impl ArchiveWriter {
     fn finish(&mut self) {
         self.rotate();
         self.index.marshal(&mut self.buf);
-        let runtime = self.s3fs.get_runtime();
-        let key = archive_index_key(self.s3fs.get_prefix(), self.date.clone());
+        let runtime = self.dfs.get_runtime();
+        let key = archive_index_key(self.dfs.get_prefix(), self.date.clone());
         let data = Bytes::from(self.buf.to_vec());
         runtime
-            .block_on(self.s3fs.put_object(key.clone(), data, key.clone()))
+            .block_on(self.dfs.put_object(key.clone(), data, key.clone()))
             .unwrap();
         info!("cluster archive index {} on {}", key, self.date.clone());
     }
@@ -1517,14 +1502,14 @@ pub struct ArchiveReader {
     meta_archive_address: Option<ArchiveAddress>,
     store_metas: Vec<StoreMeta>,
     archive_addresses: HashMap<u64, ArchiveAddress>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
 }
 
 impl ArchiveReader {
-    pub fn new(s3fs: Arc<S3Fs>, date: &NaiveDate) -> Result<Self> {
+    pub fn new(dfs: Arc<dyn Dfs>, date: &NaiveDate) -> Result<Self> {
         let start_date = archive_format_date(date);
-        let (index_keys, _) = s3fs.get_runtime().block_on(get_all_archive_index_paths(
-            &s3fs,
+        let (index_keys, _) = dfs.get_runtime().block_on(get_all_archive_index_paths(
+            dfs.as_ref(),
             start_date.clone(),
             usize::MAX,
         ))?;
@@ -1539,7 +1524,7 @@ impl ArchiveReader {
         let mut archive_addresses: HashMap<u64, ArchiveAddress> = HashMap::default();
         for index_key in index_keys {
             let date = parse_index_date(&index_key.clone());
-            let (archive_index, _) = get_archive_index(&s3fs, date.clone())?;
+            let (archive_index, _) = get_archive_index(dfs.as_ref(), date.clone())?;
             if date.eq(&start_date) {
                 meta_archive_address = Some(ArchiveAddress::new(
                     date.clone(),
@@ -1561,7 +1546,7 @@ impl ArchiveReader {
             meta_archive_address,
             store_metas,
             archive_addresses,
-            s3fs,
+            dfs,
         })
     }
 
@@ -1576,9 +1561,9 @@ impl ArchiveReader {
     pub fn read_meta_file(&self) -> Result<ClusterBackupMeta> {
         if let Some(archive_addr) = self.get_meta_archive_addr() {
             return self
-                .s3fs
+                .dfs
                 .get_runtime()
-                .block_on(get_archived_object(&self.s3fs, archive_addr))
+                .block_on(get_archived_object(self.dfs.as_ref(), archive_addr))
                 .and_then(|data| {
                     let mut cluster_backup_meta = ClusterBackupMeta::new();
                     cluster_backup_meta.merge_from_bytes(&data).map_err(|e| {
@@ -1610,21 +1595,21 @@ impl ArchiveReader {
     }
 
     pub fn read_store_rlog_files(
-        s3fs: &S3Fs,
+        dfs: &dyn Dfs,
         date: &str,
         store_meta: &StoreMeta,
     ) -> Result<StoreRlog> {
         let snap_epoch = store_meta.snapshot_epoch_id;
         let meta_archive_addr =
             ArchiveAddress::new(date.to_string(), store_meta.snapshot_meta_address);
-        let snap_meta = s3fs
+        let snap_meta = dfs
             .get_runtime()
-            .block_on(get_archived_object(s3fs, meta_archive_addr))?;
+            .block_on(get_archived_object(dfs, meta_archive_addr))?;
         let rlog_archive_addr =
             ArchiveAddress::new(date.to_string(), store_meta.snapshot_rlog_address);
-        let snap_rlog = s3fs
+        let snap_rlog = dfs
             .get_runtime()
-            .block_on(get_archived_object(s3fs, rlog_archive_addr))?;
+            .block_on(get_archived_object(dfs, rlog_archive_addr))?;
         let store_rlog = StoreRlog {
             store_id: store_meta.store_id,
             snap_epoch,
@@ -1642,9 +1627,9 @@ impl ArchiveReader {
     pub fn read_file(&self, file_id: u64) -> Result<Bytes> {
         if let Some(archive_addr) = self.get_file_archive_addr(file_id) {
             return self
-                .s3fs
+                .dfs
                 .get_runtime()
-                .block_on(get_archived_object(&self.s3fs, archive_addr.clone()))
+                .block_on(get_archived_object(self.dfs.as_ref(), archive_addr.clone()))
                 .map_err(|e| {
                     error!(
                         "{}, file id {}, archive addr {:?}",
@@ -1663,10 +1648,10 @@ impl ArchiveReader {
 
     pub fn restore_file(&self, f: TableFile) -> Result<()> {
         let date = self.read_file(f.id)?;
-        self.s3fs
+        self.dfs
             .get_runtime()
             .block_on(
-                self.s3fs
+                self.dfs
                     .create(f.id, date, Options::default().with_type(f.ftype)),
             )
             .map_err(|e| {
@@ -1695,10 +1680,10 @@ impl ArchiveReader {
         let (result_tx, result_rx) = tikv_util::mpsc::bounded(archive_addrs.len());
         let mut msg_count = 0;
         for (f, archive_addr) in archive_addrs {
-            let s3fs = self.s3fs.clone();
+            let dfs = self.dfs.clone();
             let tx = result_tx.clone();
-            self.s3fs.get_runtime().spawn(async move {
-                let res = get_archived_object(&s3fs, archive_addr.clone())
+            self.dfs.get_runtime().spawn(async move {
+                let res = get_archived_object(dfs.as_ref(), archive_addr.clone())
                     .await
                     .map_err(|e| {
                         error!(
@@ -1712,7 +1697,7 @@ impl ArchiveReader {
                     return;
                 }
                 let data = res.unwrap();
-                let res = s3fs
+                let res = dfs
                     .create(f.id, data, Options::default().with_type(f.ftype))
                     .await
                     .map_err(|e| {
@@ -1783,16 +1768,16 @@ mod tests {
         const NUM_FILE_IDS: u64 = 24;
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_archive_writer_");
-        let s3fs = Arc::new(S3Fs::new_from_config(dfs_config));
+        let dfs = Arc::new(S3Fs::new_from_config(dfs_config));
         let get_file_id = |i: u64| i;
         let get_file_data =
             |file_id: u64| Bytes::from(b"x".repeat(100 + file_id as usize).to_vec());
-        s3fs.get_runtime().block_on(async {
+        dfs.get_runtime().block_on(async {
             for i in 0..NUM_FILE_IDS {
                 let file_id = get_file_id(i);
                 let opts = dfs::Options::default().with_type(get_file_type(file_id));
                 let sst_data = get_file_data(file_id);
-                s3fs.create(file_id, sst_data, opts).await.unwrap();
+                dfs.create(file_id, sst_data, opts).await.unwrap();
             }
         });
 
@@ -1809,7 +1794,7 @@ mod tests {
         assert!(!meta_data.is_empty());
         let backup_date = chrono::Utc::now().date_naive();
         let format_date = archive_format_date(&backup_date);
-        let mut writer = ArchiveWriter::new(1024, 16, s3fs.clone(), format_date.clone(), meta_data);
+        let mut writer = ArchiveWriter::new(1024, 16, dfs.clone(), format_date.clone(), meta_data);
 
         let get_snap_epoch = |i: u64| (i + 10) as u32;
         let get_wal_epoch = |i: u64| (i + 11) as u32;
@@ -1842,14 +1827,14 @@ mod tests {
         writer.append_table_files(files).unwrap();
         writer.finish();
         let num_packages = writer.package_id;
-        s3fs.get_runtime().block_on(async {
-            let (objects, ..) = s3fs.list("", None, None).await.unwrap();
+        dfs.get_runtime().block_on(async {
+            let (objects, ..) = dfs.list("", None, None).await.unwrap();
             assert_eq!(
                 objects.len(),
                 NUM_FILE_IDS as usize + 1 /* archive_index */ + num_packages as usize
             );
         });
-        let (archive_index, data) = get_archive_index(&s3fs, format_date.clone()).unwrap();
+        let (archive_index, data) = get_archive_index(dfs.as_ref(), format_date.clone()).unwrap();
         assert!(!data.is_empty());
         assert_eq!(archive_index.version, ARCHIVE_INDEX_FORMAT_V2);
         assert_eq!(archive_index.store_metas.len(), NUM_STORES as usize);
@@ -1857,9 +1842,9 @@ mod tests {
         {
             let meta_address = archive_index.meta_address;
             let archive_address = ArchiveAddress::new(format_date.clone(), meta_address);
-            let data = s3fs
+            let data = dfs
                 .get_runtime()
-                .block_on(get_archived_object(&s3fs, archive_address))
+                .block_on(get_archived_object(dfs.as_ref(), archive_address))
                 .unwrap();
             let mut cluster_backup = ClusterBackupMeta::new();
             cluster_backup.merge_from_bytes(&data).unwrap();
@@ -1886,9 +1871,9 @@ mod tests {
             let file_id = archive_index.table_file_ids[i];
             let address = archive_index.table_file_addrs[i];
             let archive_address = ArchiveAddress::new(format_date.clone(), address);
-            let data = s3fs
+            let data = dfs
                 .get_runtime()
-                .block_on(get_archived_object(&s3fs, archive_address))
+                .block_on(get_archived_object(dfs.as_ref(), archive_address))
                 .unwrap();
             assert_eq!(data.len(), address.length as usize);
             let file_data = get_file_data(file_id);
@@ -1908,7 +1893,7 @@ mod tests {
         let (temp_dir, mut oss, dfs_config) = prepare_dfs("test_archive_reader_");
         let cache_dir = temp_dir.path().join("cache");
         fs::create_dir_all(cache_dir.clone()).unwrap();
-        let s3fs = Arc::new(S3Fs::new_from_config(dfs_config));
+        let dfs = Arc::new(S3Fs::new_from_config(dfs_config));
         let first_date = chrono::Utc::now().date_naive() - chrono::Duration::days(NUM_DATES as i64);
         let get_date = |j: u64| first_date + chrono::Duration::days(j as i64);
         let get_num_stores = |j: u64| j + 8;
@@ -1922,12 +1907,12 @@ mod tests {
             |file_id: u64| Bytes::from(b"x".repeat(file_id as usize % 1000).to_vec());
         for j in 0..NUM_DATES {
             let num_file_ids = get_num_file_ids(j);
-            s3fs.get_runtime().block_on(async {
+            dfs.get_runtime().block_on(async {
                 for i in 0..num_file_ids {
                     let file_id = get_file_id(j, i);
                     let opts = dfs::Options::default().with_type(get_file_type(file_id));
                     let sst_data = get_file_data(file_id);
-                    s3fs.create(file_id, sst_data, opts).await.unwrap();
+                    dfs.create(file_id, sst_data, opts).await.unwrap();
                 }
             });
             let mut cluster_meta = ClusterBackupMeta::new();
@@ -1943,7 +1928,7 @@ mod tests {
             let backup_date = get_date(j);
             let format_date = archive_format_date(&backup_date);
             let mut writer =
-                ArchiveWriter::new(512, 16, s3fs.clone(), format_date.clone(), meta_data);
+                ArchiveWriter::new(512, 16, dfs.clone(), format_date.clone(), meta_data);
 
             for i in 0..num_stores {
                 let store_id = i;
@@ -1972,7 +1957,7 @@ mod tests {
             writer.finish();
         }
         let start_date = get_date(0);
-        let reader = ArchiveReader::new(s3fs, &start_date).unwrap();
+        let reader = ArchiveReader::new(dfs, &start_date).unwrap();
         let num_stores = get_num_stores(0);
         {
             let cluster_backup_meta = reader.read_meta_file().unwrap();
@@ -1988,7 +1973,7 @@ mod tests {
                 let store_id = i;
                 let store_meta = reader.get_store_wal_rlog_meta(store_id).unwrap();
                 let store_rlog = ArchiveReader::read_store_rlog_files(
-                    &reader.s3fs,
+                    reader.dfs.as_ref(),
                     reader.get_start_date(),
                     &store_meta,
                 )
@@ -2002,16 +1987,20 @@ mod tests {
                 assert_eq!(store_rlog.snap_rlog, get_snap_rlog(store_id));
 
                 {
-                    let wals =
-                        get_archived_wals(&reader.s3fs, reader.get_start_date(), &store_meta, None)
-                            .unwrap();
+                    let wals = get_archived_wals(
+                        reader.dfs.clone(),
+                        reader.get_start_date(),
+                        &store_meta,
+                        None,
+                    )
+                    .unwrap();
                     assert_eq!(wals.len(), 1);
                     assert_eq!(wals[0].0, get_wal_epoch(store_id));
                     assert_eq!(wals[0].1[0].must_get_bytes(), get_wal_chunk(store_id));
                 }
                 {
                     let wals = get_archived_wals(
-                        &reader.s3fs,
+                        reader.dfs.clone(),
                         reader.get_start_date(),
                         &store_meta,
                         Some(cache_dir.clone()),
@@ -2050,25 +2039,26 @@ mod tests {
         const NUM_INDEXES: i64 = 3;
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_get_all_archive_index_paths_");
-        let s3fs = Arc::new(S3Fs::new_from_config(dfs_config));
+        let dfs = Arc::new(S3Fs::new_from_config(dfs_config));
         let first_date = chrono::Utc::now().date_naive() - chrono::Duration::days(NUM_INDEXES);
         let get_date = |i: i64| first_date + chrono::Duration::days(i);
-        s3fs.get_runtime().block_on(async {
+        dfs.get_runtime().block_on(async {
             for i in 0..NUM_INDEXES {
                 let date = get_date(i);
                 let format_date = archive_format_date(&date);
-                let key = archive_index_key(s3fs.get_prefix(), format_date);
+                let key = archive_index_key(dfs.get_prefix(), format_date);
                 let sst_data = Bytes::from(b"x".repeat(100 + i as usize).to_vec());
-                s3fs.put_object(key.clone(), sst_data, key.clone())
+                dfs.put_object(key.clone(), sst_data, key.clone())
                     .await
                     .unwrap();
             }
             for i in 0..NUM_INDEXES {
                 let date = get_date(i);
                 let start_date = archive_format_date(&date);
-                let (index_keys, _) = get_all_archive_index_paths(&s3fs, start_date, usize::MAX)
-                    .await
-                    .unwrap();
+                let (index_keys, _) =
+                    get_all_archive_index_paths(dfs.as_ref(), start_date, usize::MAX)
+                        .await
+                        .unwrap();
                 assert_eq!(index_keys.len(), (NUM_INDEXES - i) as usize);
             }
         });

@@ -21,7 +21,7 @@ use grpcio::{ChannelBuilder, EnvBuilder, ServerBuilder};
 use grpcio_health::{create_health, HealthService, ServingStatus};
 use hyper::{http, StatusCode};
 use kvengine::{
-    dfs::S3Fs,
+    dfs::Dfs,
     table::{tiny_meta, InnerKey, SnapVersion},
     Engine, IdVer, ShardMeta, ShardTag, SnapAccess, UserMeta, LOCK_CF, WRITE_CF,
 };
@@ -171,7 +171,7 @@ impl Drop for ReplicationWorker {
 impl ReplicationWorker {
     pub fn new(
         pd: Arc<dyn PdClient>,
-        fs: Arc<S3Fs>,
+        fs: Arc<dyn Dfs>,
         data_dir: String,
         security: SecurityConfig,
         config: ReplicationWorkerConfig,

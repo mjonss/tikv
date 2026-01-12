@@ -1,9 +1,10 @@
 // Copyright 2022 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    convert::TryFrom,
     fmt::{Debug, Formatter},
+    io::Write,
     ops::{Deref, DerefMut},
+    path::Path,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -16,11 +17,9 @@ use bstr::ByteSlice;
 use bytes::{BufMut, Bytes, BytesMut};
 use engine_traits::{GetObjectOptions, ListObjectContent, ObjectCacheWithHook, ObjectStorage};
 use fail::fail_point;
-use farmhash::fingerprint64;
 use futures::StreamExt;
 use http::StatusCode;
 use hyper_tls::HttpsConnector;
-use regex::Regex;
 use rusoto_core::{
     param::{Params, ServiceParams},
     request::{BufferedHttpResponse, HttpResponse},
@@ -38,7 +37,7 @@ use crate::dfs::{
     self,
     config::{Config, ConnOptions},
     metrics::*,
-    Dfs, Error, FileType, Options, ReservableWriter,
+    Dfs, Error, Options, ReservableWriter,
 };
 
 pub const STORAGE_CLASS_DEFAULT: &str = STORAGE_CLASS_INTELLIGENT_TIERING;
@@ -334,88 +333,16 @@ impl S3FsCore {
         }
     }
 
-    pub fn file_key(&self, file_id: u64, file_type: FileType) -> String {
-        let idx = (fingerprint64(file_id.to_le_bytes().as_slice())) as u8;
-        match file_type {
-            FileType::Sst => {
-                format!("{}/{:02x}/{:016x}.sst", self.prefix, idx, file_id)
-            }
-            FileType::Blob => {
-                format!("{}/blob/{:02x}/{:016x}.blob", self.prefix, idx, file_id)
-            }
-            FileType::TxnChunk => {
-                format!("{}/txn/{:02x}/{:016x}.txn", self.prefix, idx, file_id)
-            }
-            FileType::Schema => {
-                format!("{}/schema/{:02x}/{:016x}.schema", self.prefix, idx, file_id)
-            }
-            FileType::Columnar => {
-                format!("{}/col/{:02x}/{:016x}.col", self.prefix, idx, file_id)
-            }
-            FileType::VectorIndex => {
-                format!("{}/vec/{:02x}/{:016x}.vec", self.prefix, idx, file_id)
-            }
-        }
-    }
-
-    pub fn get_prefix(&self) -> String {
-        self.prefix.clone()
-    }
-
-    pub fn is_on_aws(&self) -> bool {
+    fn is_on_aws(&self) -> bool {
         self.provider == CloudProvider::Aws
     }
 
-    pub fn is_on_aliyun(&self) -> bool {
+    fn is_on_aliyun(&self) -> bool {
         self.provider == CloudProvider::Aliyun
     }
 
     pub fn storage_class_str(&self, storage_class: StorageClass) -> &'static str {
         self.provider.storage_class_str(storage_class)
-    }
-
-    // parse the sst file's suffix with format {idx}/{file_id}.sst
-    pub fn parse_sst_file_suffix(&self, key: &str) -> String {
-        let end_idx = key.len();
-        let start_idx = end_idx - 4 - 16 - 1 - 2;
-        let suffix = &key[start_idx..end_idx];
-        suffix.to_string()
-    }
-
-    // Try to parse the sst file id from file key.
-    // Note: do NOT use in performance critical path as regex is used.
-    pub fn try_parse_all_file_id(&self, key: &str) -> Option<(u64, FileType)> {
-        self.try_parse_sst_file_id(key)
-            .or_else(|| self.try_parse_other_file_id(key))
-    }
-
-    // Expected file key format: "/{prefix}/{idx}/{file_id}.sst".
-    pub fn try_parse_sst_file_id(&self, key: &str) -> Option<(u64, FileType)> {
-        if !key.ends_with(".sst") {
-            return None;
-        }
-
-        lazy_static::lazy_static! {
-            static ref RE: Regex = Regex::new(r"/[0-9a-f]{2}/([0-9a-f]{16})\.sst$").unwrap();
-        }
-        let caps = RE.captures(key)?;
-        Some((u64::from_str_radix(&caps[1], 16).unwrap(), FileType::Sst))
-    }
-
-    // Expected file key format:
-    // "/{prefix}/{file_type}/{idx}/{file_id}.{file_type}".
-    pub fn try_parse_other_file_id(&self, key: &str) -> Option<(u64, FileType)> {
-        lazy_static::lazy_static! {
-            static ref RE: Regex = Regex::new(r"/(?<subdir>[a-z]+)/[0-9a-f]{2}/(?<fileid>[0-9a-f]{16})\.(?<filetype>[a-z]+)$").unwrap();
-        }
-        let caps = RE.captures(key)?;
-
-        if caps["filetype"] != caps["subdir"] {
-            return None;
-        }
-        let file_type = FileType::try_from(&caps["filetype"]).ok()?;
-        let file_id = u64::from_str_radix(&caps["fileid"], 16).ok()?;
-        Some((file_id, file_type))
     }
 
     fn is_err_retryable<T>(&self, rustoto_err: &RusotoError<T>) -> bool {
@@ -894,7 +821,7 @@ impl S3FsCore {
             .await
     }
 
-    pub async fn put_object_with_options(
+    async fn put_object_with_options(
         &self,
         key: String,
         data: Bytes,
@@ -1058,7 +985,7 @@ impl S3FsCore {
     ///
     /// `target_storage_class`: copy to another storage class if some. Note than
     /// only AWS S3 support storage class.
-    pub async fn copy_object(
+    async fn copy_object(
         &self,
         source_key: &str,
         target_key: &str,
@@ -1152,7 +1079,7 @@ impl S3FsCore {
     }
 
     /// Choose proper storage class for removed files.
-    pub fn choose_storage_class_for_removed_files(&self, file_len: Option<u64>) -> &'static str {
+    fn choose_storage_class_for_removed_files(&self, file_len: Option<u64>) -> &'static str {
         // STORAGE_CLASS_STANDARD_IA is more cost efficient than STORAGE_CLASS_STANDARD
         // for NOT small files.
         if file_len.is_some() && file_len.unwrap() > SMALL_FILE_THRESHOLD_BYTES {
@@ -1355,12 +1282,108 @@ impl Dfs for S3Fs {
             .await
     }
 
+    async fn list(
+        &self,
+        start_after: &str,
+        prefix: Option<&str>,
+        max_keys: Option<u32>,
+    ) -> crate::dfs::Result<(Vec<ListObjectContent>, bool, Option<String>)> {
+        self.core.list(start_after, prefix, max_keys).await
+    }
+
+    async fn get_object(
+        &self,
+        key: String,
+        file_name: String,
+        opts: GetObjectOptions,
+    ) -> crate::dfs::Result<Bytes> {
+        self.core.get_object(key, file_name, opts).await
+    }
+
+    async fn get_object_with_cache(
+        &self,
+        key: String,
+        file_name: String,
+        opts: GetObjectOptions,
+        cache: Option<&ObjectCacheWithHook>,
+    ) -> crate::dfs::Result<Bytes> {
+        self.core
+            .get_object_with_cache(key, file_name, opts, cache)
+            .await
+    }
+
+    async fn get_object_to_path(
+        &self,
+        key: String,
+        file_name: String,
+        opts: GetObjectOptions,
+        path: &Path,
+    ) -> crate::dfs::Result<u64> {
+        let path = path.to_path_buf();
+        let build_writer = move || -> std::io::Result<_> {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .read(true)
+                .truncate(true)
+                .open(&path)?;
+            Ok(std::io::BufWriter::new(file))
+        };
+        let (mut writer, len) = self
+            .get_object_to_writer(key, file_name, opts, build_writer)
+            .await?;
+        writer.flush()?;
+        Ok(len)
+    }
+
+    async fn put_object(
+        &self,
+        key: String,
+        data: Bytes,
+        file_name: String,
+    ) -> crate::dfs::Result<()> {
+        self.core.put_object(key, data, file_name).await
+    }
+
+    async fn put_object_with_storage_class(
+        &self,
+        key: String,
+        data: Bytes,
+        file_name: String,
+        storage_class: StorageClass,
+    ) -> crate::dfs::Result<()> {
+        let storage_class = Some(self.storage_class_str(storage_class));
+        self.put_object_with_options(key, data, file_name, None, storage_class, None)
+            .await
+    }
+
+    async fn exist(&self, key: String, file_name: String) -> crate::dfs::Result<bool> {
+        self.core.exist(key, file_name).await
+    }
+
+    async fn retain_file(&self, file_key: &str) -> crate::dfs::Result<()> {
+        self.core.retain_file(file_key).await
+    }
+
+    fn list_objects(
+        &self,
+        start_after: &str,
+        prefix: Option<&str>,
+        max_keys: Option<u32>,
+    ) -> std::result::Result<(Vec<ListObjectContent>, Option<String>), String> {
+        ObjectStorage::list_objects(self, start_after, prefix, max_keys)
+    }
+
+    fn put_objects(&self, objects: Vec<(String, Bytes)>) -> std::result::Result<(), String> {
+        ObjectStorage::put_objects(self, objects)
+    }
+
     fn get_runtime(&self) -> &Runtime {
         self.runtime.as_ref().unwrap()
     }
 
-    fn get_s3fs(self: Arc<Self>) -> Option<Arc<Self>> {
-        Some(self)
+    fn get_prefix(&self) -> String {
+        self.prefix.clone()
     }
 }
 
@@ -1539,11 +1562,10 @@ mod tests {
     use std::{fs, io::Write};
 
     use bytes::Buf;
-    use rand::random;
 
     use super::*;
     use crate::{
-        dfs::test_util::new_test_s3fs,
+        dfs::{test_util::new_test_s3fs, FileType},
         table::{
             file::{File, LocalFile},
             sstable::new_filename,
@@ -1679,65 +1701,6 @@ mod tests {
         s3fs.get_runtime().spawn(f);
         assert!(rx.recv().unwrap());
         let _ = fs::remove_file(local_file);
-    }
-
-    #[test]
-    fn test_parse_file_id() {
-        let s3fs = new_test_s3fs(b"abcdefgh");
-
-        let file_key = s3fs.file_key(random(), FileType::Sst);
-        assert_eq!(
-            format!("{}/{}", "prefix", s3fs.parse_sst_file_suffix(&file_key)),
-            file_key
-        );
-
-        for file_id in [0, 42, 0x1_0000_0000, 0xffff_ffff_ffff_ffff] {
-            let file_key = s3fs.file_key(file_id, FileType::Sst);
-            assert_eq!(
-                s3fs.try_parse_sst_file_id(&file_key),
-                Some((file_id, FileType::Sst))
-            );
-            assert_eq!(
-                s3fs.try_parse_all_file_id(&file_key),
-                Some((file_id, FileType::Sst))
-            );
-        }
-
-        for file_type in [
-            FileType::Blob,
-            FileType::TxnChunk,
-            FileType::Schema,
-            FileType::Columnar,
-            FileType::VectorIndex,
-        ] {
-            for file_key in [
-                "".to_string(),
-                "cse/0000000000000001/e00000001/0000000000800000_00000000008e9000.wal".to_string(),
-                s3fs.file_key(42, file_type),
-            ] {
-                assert_eq!(s3fs.try_parse_sst_file_id(&file_key), None);
-            }
-
-            for file_id in [0, 42, 0x1_0000_0000, 0xffff_ffff_ffff_ffff] {
-                let file_key = s3fs.file_key(file_id, file_type);
-                assert_eq!(
-                    s3fs.try_parse_other_file_id(&file_key),
-                    Some((file_id, file_type))
-                );
-                assert_eq!(
-                    s3fs.try_parse_all_file_id(&file_key),
-                    Some((file_id, file_type))
-                );
-            }
-        }
-
-        for file_key in [
-            "".to_string(),
-            "cse/0000000000000001/e00000001/0000000000800000_00000000008e9000.wal".to_string(),
-            s3fs.file_key(42, FileType::Sst),
-        ] {
-            assert_eq!(s3fs.try_parse_other_file_id(&file_key), None);
-        }
     }
 
     #[test]

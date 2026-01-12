@@ -5,7 +5,7 @@ use std::{assert_matches::assert_matches, fs, path::PathBuf, sync::Arc, time::Du
 use bytes::{Buf, Bytes};
 use kvengine::{
     dfs,
-    dfs::{FileType, S3Fs},
+    dfs::{Dfs, FileType, S3Fs},
     ia::{
         gc::{IaGcConfig, IaGcRunner},
         ia_file::{table_meta_file_local_path, IaFile},

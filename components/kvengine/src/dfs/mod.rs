@@ -21,8 +21,11 @@ use std::{
 use async_trait::async_trait;
 use bytes::Bytes;
 pub use config::{Config as DFSConfig, ConnOptions as DFSConnOptions};
+use engine_traits::{GetObjectOptions, ListObjectContent, ObjectCacheWithHook};
+use farmhash::fingerprint64;
 use file_system;
 use metrics::*;
+use regex::Regex;
 pub use remote_cached::*;
 pub use s3::*;
 use thiserror::Error;
@@ -64,9 +67,118 @@ pub trait Dfs: Any + Sync + Send {
     /// get_runtime gets the tokio runtime for the DFS.
     fn get_runtime(&self) -> &tokio::runtime::Runtime;
 
-    /// get_s3fs returns the S3Fs if the DFS is backed by S3.
-    fn get_s3fs(self: Arc<Self>) -> Option<Arc<S3Fs>> {
-        None
+    /// prefix returns the prefix used by the DFS.
+    fn get_prefix(&self) -> String;
+
+    /// Lists objects in the DFS.
+    ///
+    /// Returns a tuple containing:
+    /// - Vec<ListObjectContent>: List of objects
+    /// - bool: has_more (deprecated, use next_start_after)
+    /// - Option<String>: next_start_after for pagination
+    async fn list(
+        &self,
+        _start_after: &str,
+        _prefix: Option<&str>,
+        _max_keys: Option<u32>,
+    ) -> Result<(Vec<ListObjectContent>, bool, Option<String>)> {
+        Err(Error::Other("list is unsupported".to_string()))
+    }
+
+    async fn get_object(
+        &self,
+        _key: String,
+        _file_name: String,
+        _opts: GetObjectOptions,
+    ) -> Result<Bytes> {
+        Err(Error::Other("get_object is unsupported".to_string()))
+    }
+
+    async fn get_object_with_cache(
+        &self,
+        key: String,
+        file_name: String,
+        opts: GetObjectOptions,
+        _cache: Option<&ObjectCacheWithHook>,
+    ) -> Result<Bytes> {
+        self.get_object(key, file_name, opts).await
+    }
+
+    async fn get_object_to_path(
+        &self,
+        _key: String,
+        _file_name: String,
+        _opts: GetObjectOptions,
+        _path: &Path,
+    ) -> Result<u64> {
+        Err(Error::Other(
+            "get_object_to_path is unsupported".to_string(),
+        ))
+    }
+
+    async fn put_object(&self, _key: String, _data: Bytes, _file_name: String) -> Result<()> {
+        Err(Error::Other("put_object is unsupported".to_string()))
+    }
+
+    async fn put_object_with_storage_class(
+        &self,
+        key: String,
+        data: Bytes,
+        file_name: String,
+        _storage_class: StorageClass,
+    ) -> Result<()> {
+        self.put_object(key, data, file_name).await
+    }
+
+    async fn exist(&self, _key: String, _file_name: String) -> Result<bool> {
+        Err(Error::Other("exist is unsupported".to_string()))
+    }
+
+    async fn retain_file(&self, _file_key: &str) -> Result<()> {
+        Err(Error::Other("retain_file is unsupported".to_string()))
+    }
+
+    /// Synchronously lists objects in the DFS.
+    ///
+    /// Returns a tuple containing:
+    /// - Vec<ListObjectContent>: List of objects
+    /// - Option<String>: next_start_after for pagination
+    fn list_objects(
+        &self,
+        _start_after: &str,
+        _prefix: Option<&str>,
+        _max_keys: Option<u32>,
+    ) -> std::result::Result<(Vec<ListObjectContent>, Option<String>), String> {
+        Err("list_objects is unsupported".to_string())
+    }
+
+    fn put_objects(&self, _objects: Vec<(String, Bytes)>) -> std::result::Result<(), String> {
+        Err("put_objects is unsupported".to_string())
+    }
+
+    fn file_key(&self, file_id: u64, file_type: FileType) -> String {
+        let idx = (fingerprint64(file_id.to_le_bytes().as_slice())) as u8;
+        let prefix = self.get_prefix();
+        match file_type {
+            FileType::Sst => {
+                format!("{}/{:02x}/{:016x}.sst", prefix, idx, file_id)
+            }
+            FileType::Blob => {
+                format!("{}/blob/{:02x}/{:016x}.blob", prefix, idx, file_id)
+            }
+            FileType::TxnChunk => {
+                format!("{}/txn/{:02x}/{:016x}.txn", prefix, idx, file_id)
+            }
+            FileType::Schema => {
+                format!("{}/schema/{:02x}/{:016x}.schema", prefix, idx, file_id)
+            }
+            FileType::Columnar => {
+                format!("{}/col/{:02x}/{:016x}.col", prefix, idx, file_id)
+            }
+            FileType::VectorIndex => {
+                format!("{}/vec/{:02x}/{:016x}.vec", prefix, idx, file_id)
+            }
+        }
     }
 }
 
@@ -139,6 +251,10 @@ impl Dfs for InMemFs {
 
     fn get_runtime(&self) -> &Runtime {
         &self.runtime
+    }
+
+    fn get_prefix(&self) -> String {
+        "in_mem_fs".to_string()
     }
 }
 
@@ -369,6 +485,10 @@ impl Dfs for LocalFs {
     fn get_runtime(&self) -> &Runtime {
         &self.runtime
     }
+
+    fn get_prefix(&self) -> String {
+        "local".to_string()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -487,6 +607,49 @@ impl<W: std::io::Write> ReservableWriter for std::io::BufWriter<W> {
     fn reserve_capacity(&mut self, _additional: u64) {}
 }
 
+// parse the sst file's suffix with format {idx}/{file_id}.sst
+pub fn parse_sst_file_suffix(key: &str) -> String {
+    let end_idx = key.len();
+    let start_idx = end_idx - 4 - 16 - 1 - 2;
+    let suffix = &key[start_idx..end_idx];
+    suffix.to_string()
+}
+
+// Try to parse the sst file id from file key.
+// Note: do NOT use in performance critical path as regex is used.
+pub fn try_parse_all_file_id(key: &str) -> Option<(u64, FileType)> {
+    try_parse_sst_file_id(key).or_else(|| try_parse_other_file_id(key))
+}
+
+// Expected file key format: "/{prefix}/{idx}/{file_id}.sst".
+pub fn try_parse_sst_file_id(key: &str) -> Option<(u64, FileType)> {
+    if !key.ends_with(".sst") {
+        return None;
+    }
+
+    lazy_static::lazy_static! {
+        static ref RE: Regex = Regex::new(r"/[0-9a-f]{2}/([0-9a-f]{16})\.sst$").unwrap();
+    }
+    let caps = RE.captures(key)?;
+    Some((u64::from_str_radix(&caps[1], 16).unwrap(), FileType::Sst))
+}
+
+// Expected file key format:
+// "/{prefix}/{file_type}/{idx}/{file_id}.{file_type}".
+pub fn try_parse_other_file_id(key: &str) -> Option<(u64, FileType)> {
+    lazy_static::lazy_static! {
+        static ref RE: Regex = Regex::new(r"/(?<subdir>[a-z]+)/[0-9a-f]{2}/(?<fileid>[0-9a-f]{16})\.(?<filetype>[a-z]+)$").unwrap();
+    }
+    let caps = RE.captures(key)?;
+
+    if caps["filetype"] != caps["subdir"] {
+        return None;
+    }
+    let file_type = FileType::try_from(&caps["filetype"]).ok()?;
+    let file_id = u64::from_str_radix(&caps["fileid"], 16).ok()?;
+    Some((file_id, file_type))
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::MetadataExt;
@@ -557,5 +720,65 @@ mod tests {
         localfs.runtime.spawn(f);
         assert!(rx.recv().unwrap());
         std::fs::File::open(&local_file).unwrap_err();
+    }
+
+    #[test]
+    fn test_parse_file_id() {
+        use rand::random;
+
+        use crate::dfs::test_util::new_test_s3fs;
+
+        let s3fs = new_test_s3fs(b"abcdefgh");
+
+        let file_key = s3fs.file_key(random(), FileType::Sst);
+        assert_eq!(
+            format!("{}/{}", "prefix", parse_sst_file_suffix(&file_key)),
+            file_key
+        );
+
+        for file_id in [0, 42, 0x1_0000_0000, 0xffff_ffff_ffff_ffff] {
+            let file_key = s3fs.file_key(file_id, FileType::Sst);
+            assert_eq!(
+                try_parse_sst_file_id(&file_key),
+                Some((file_id, FileType::Sst))
+            );
+            assert_eq!(
+                try_parse_all_file_id(&file_key),
+                Some((file_id, FileType::Sst))
+            );
+        }
+
+        for file_type in [
+            FileType::Blob,
+            FileType::TxnChunk,
+            FileType::Schema,
+            FileType::Columnar,
+            FileType::VectorIndex,
+        ] {
+            for file_key in [
+                "".to_string(),
+                "cse/0000000000000001/e00000001/0000000000800000_00000000008e9000.wal".to_string(),
+                s3fs.file_key(42, file_type),
+            ] {
+                assert_eq!(try_parse_sst_file_id(&file_key), None);
+            }
+
+            for file_id in [0, 42, 0x1_0000_0000, 0xffff_ffff_ffff_ffff] {
+                let file_key = s3fs.file_key(file_id, file_type);
+                assert_eq!(
+                    try_parse_other_file_id(&file_key),
+                    Some((file_id, file_type))
+                );
+                assert_eq!(try_parse_all_file_id(&file_key), Some((file_id, file_type)));
+            }
+        }
+
+        for file_key in [
+            "".to_string(),
+            "cse/0000000000000001/e00000001/0000000000800000_00000000008e9000.wal".to_string(),
+            s3fs.file_key(42, FileType::Sst),
+        ] {
+            assert_eq!(try_parse_other_file_id(&file_key), None);
+        }
     }
 }

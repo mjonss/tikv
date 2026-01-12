@@ -13,7 +13,6 @@ use bytes::Bytes;
 use cloud_encryption::KeyspaceEncryptionConfig;
 use cloud_worker::broadcast_schema_update_to_all_stores;
 use collections::HashSet;
-use engine_traits::ObjectStorage;
 use kvengine::{
     dfs::{DFSConfig, Dfs, FileType, Options, S3Fs},
     table::{
@@ -731,15 +730,15 @@ fn test_restore_archived_keyspace_impl(
                     old_wal_rlog_keys.push(format!("{}/{}", s3fs.get_prefix(), old_rlog_key));
                 }
                 let old_wal_chunk_prefix = rfengine::wal_chunk_file_prefix(store_id, epoch_id);
-                let old_wal_chunk_keys = s3fs
-                    .list_objects("", Some(&old_wal_chunk_prefix), None)
-                    .map(|(objects, _)| {
-                        objects
-                            .iter()
-                            .map(|object| object.key.clone())
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap();
+                let old_wal_chunk_keys =
+                    Dfs::list_objects(s3fs.as_ref(), "", Some(&old_wal_chunk_prefix), None)
+                        .map(|(objects, _)| {
+                            objects
+                                .iter()
+                                .map(|object| object.key.clone())
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap();
                 old_wal_chunks_len += old_wal_chunk_keys.len();
                 old_wal_rlog_keys.extend(old_wal_chunk_keys)
             }

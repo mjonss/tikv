@@ -5,9 +5,7 @@ use std::{
     fmt::{self, Formatter},
     fs,
     fs::OpenOptions,
-    io,
-    io::BufWriter,
-    ops,
+    io, ops,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -20,12 +18,12 @@ use bstr::ByteSlice;
 use bytes::{Buf, Bytes, BytesMut};
 use chrono::{NaiveTime, Utc};
 use collections::HashMap;
-use engine_traits::{GetObjectOptions, ObjectCacheWithHook, ObjectStorage};
+use engine_traits::{GetObjectOptions, ObjectCacheWithHook};
 use etcd_client::{ConnectOptions, OpenSslClientConfig};
 use grpcio::EnvBuilder;
 use http::{Request, StatusCode};
 use hyper::Body;
-use kvengine::dfs::{self, Dfs, S3Fs};
+use kvengine::dfs::{self, Dfs};
 use kvproto::{metapb, metapb::Store};
 use pd_client::{PdClient, RpcClient};
 use protobuf::Message;
@@ -301,25 +299,29 @@ macro_rules! step_error( ($($args:tt)+) => {
     }
 };);
 
-pub fn retain_sst_files(files: Vec<TableFile>, s3fs: &S3Fs) -> Result<usize> {
+pub fn retain_sst_files(files: Vec<TableFile>, dfs: Arc<dyn Dfs>) -> Result<usize> {
     let mut idx = 0;
     let mut total_cnt = 0;
     while idx < files.len() {
         let end_idx = std::cmp::min(files.len(), idx + MAX_S3_REQ_BATCH_SIZE);
-        total_cnt += retain_sst_files_in_batch(&files[idx..end_idx], s3fs, idx == 0)?;
+        total_cnt += retain_sst_files_in_batch(&files[idx..end_idx], dfs.clone(), idx == 0)?;
         idx = end_idx;
     }
     Ok(total_cnt)
 }
 
-fn retain_sst_files_in_batch(files: &[TableFile], s3fs: &S3Fs, first_batch: bool) -> Result<usize> {
-    let runtime = s3fs.get_runtime();
+fn retain_sst_files_in_batch(
+    files: &[TableFile],
+    dfs: Arc<dyn Dfs>,
+    first_batch: bool,
+) -> Result<usize> {
+    let runtime = dfs.get_runtime();
     let file_cnt = files.len();
     let mut handles = Vec::with_capacity(file_cnt);
     for f in files {
-        let s3fs = s3fs.clone();
-        let file_key = s3fs.file_key(f.id, f.ftype);
-        handles.push(runtime.spawn(async move { s3fs.retain_file(&file_key).await }));
+        let dfs = dfs.clone();
+        let file_key = dfs.file_key(f.id, f.ftype);
+        handles.push(runtime.spawn(async move { dfs.retain_file(&file_key).await }));
     }
     // To avoid too much request to cause s3 SlowDown issue.
     if !first_batch {
@@ -374,7 +376,7 @@ async fn fetch_rfengine_wal_chunk(
 
 pub struct ReplayWalLogsContext<'a> {
     pub pd_client: Arc<dyn PdClient>,
-    pub dfs: Arc<S3Fs>,
+    pub dfs: Arc<dyn Dfs>,
     pub store_id: u64,
     pub cluster_backup: &'a ClusterBackupMeta,
     pub rf_engine: &'a RfEngine,
@@ -461,7 +463,7 @@ fn replay_wal_logs_from_archive(
     let wal_addrs = get_archived_wal_addresses(&store_meta)?;
     for (epoch, addrs) in wal_addrs {
         let chunks =
-            get_archived_wals_from_addresses(&ctx.dfs, date, addrs, ctx.cache_dir.clone())?;
+            get_archived_wals_from_addresses(ctx.dfs.clone(), date, addrs, ctx.cache_dir.clone())?;
         replay_wal_chunks(tag, ctx, chunks, None, epoch, backup_epoch, backup_offset)?;
     }
 
@@ -470,7 +472,7 @@ fn replay_wal_logs_from_archive(
 
 pub struct CollectWalChunksContext {
     pub pd_client: Arc<dyn PdClient>,
-    pub dfs: Arc<S3Fs>,
+    pub dfs: Arc<dyn Dfs>,
     pub store_id: u64,
     pub complete_wal_chunks: bool,
     pub fetch_wal_timeout: Duration,
@@ -533,14 +535,14 @@ pub fn collect_wal_chunks_with_retry(
         || {
             if let Some(cache_dir) = &ctx.cache_dir {
                 collect_all_chunk_files_with_cache_dir(
-                    ctx.dfs.as_ref(),
+                    ctx.dfs.clone(),
                     epoch_id,
                     chunk_metas.clone(),
                     cache_dir,
                 )
             } else {
                 collect_all_chunk_files(
-                    ctx.dfs.as_ref(),
+                    ctx.dfs.clone(),
                     epoch_id,
                     chunk_metas.clone(),
                     ctx.wal_chunks_cache.as_ref(),
@@ -776,7 +778,7 @@ fn collect_wal_chunk_metas_with_online_rfengine(
 // size about 512MB (see `target_file_size`) at most, so it's safe to keep all
 // data in memory.
 fn collect_all_chunk_files(
-    dfs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     epoch_id: u32,
     chunk_metas: Vec<WalChunkMeta>,
     wal_chunks_cache: Option<&ObjectCacheWithHook>,
@@ -788,7 +790,7 @@ fn collect_all_chunk_files(
 
     let runtime = dfs.get_runtime();
     let mut chunks = runtime.block_on(get_objects_with_cache(
-        dfs,
+        dfs.clone(),
         chunk_metas_with_option,
         wal_chunks_cache,
     ))?;
@@ -809,7 +811,7 @@ fn collect_all_chunk_files(
 }
 
 fn collect_all_chunk_files_with_cache_dir(
-    dfs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     epoch_id: u32,
     chunk_metas: Vec<WalChunkMeta>,
     cache_dir: &Path,
@@ -821,7 +823,7 @@ fn collect_all_chunk_files_with_cache_dir(
 
     let runtime = dfs.get_runtime();
     let mut chunks = runtime.block_on(get_objects_to_files(
-        dfs,
+        dfs.clone(),
         chunk_metas_with_option,
         cache_dir,
     ))?;
@@ -943,7 +945,7 @@ fn replay_wal_chunks(
 }
 
 pub fn collect_snapshot_meta_rlog_files(
-    dfs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     prefix: &str,
     cluster_backup: &ClusterBackupMeta,
     store_id: u64,
@@ -1119,15 +1121,15 @@ impl fmt::Debug for StoreRlog {
 pub fn collect_store_wal_rlog_files(
     tag: &str,
     pd_client: Arc<dyn PdClient>,
-    s3fs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     cluster_backup: &ClusterBackupMeta,
     store_id: u64,
     timeout: Duration,
 ) -> Result<StoreWalRlog> {
     // collect snap files.
     let store_rlog = collect_snapshot_meta_rlog_files(
-        s3fs.clone(),
-        &s3fs.get_prefix(),
+        dfs.clone(),
+        &dfs.get_prefix(),
         cluster_backup,
         store_id,
         None,
@@ -1144,7 +1146,7 @@ pub fn collect_store_wal_rlog_files(
     let mut wals = Vec::with_capacity((backup_epoch - store_rlog.snap_epoch) as usize);
     let ctx = CollectWalChunksContext {
         pd_client,
-        dfs: s3fs,
+        dfs,
         store_id,
         complete_wal_chunks: true,
         fetch_wal_timeout: timeout,
@@ -1180,7 +1182,7 @@ pub fn collect_store_wal_rlog_files(
 ///
 /// Note: The `start_date + start_time` are inclusive.
 pub async fn get_all_incremental_backups(
-    s3fs: &S3Fs,
+    dfs: &dyn Dfs,
     start_date: &chrono::NaiveDate,
     start_time: Option<&NaiveTime>,
     max_count: usize,
@@ -1199,7 +1201,7 @@ pub async fn get_all_incremental_backups(
     let mut reach_limit = false;
     loop {
         // TODO: pass in `max_count` for limit.
-        match s3fs.list(&start_key, Some(prefix), None).await {
+        match dfs.list(&start_key, Some(prefix), None).await {
             Ok((backup_files, more, next_start_after)) => {
                 let mut inc_files = backup_files
                     .into_iter()
@@ -1224,17 +1226,17 @@ pub async fn get_all_incremental_backups(
 }
 
 // If backup exist, return the latest one, else create a new ClusterBackupMeta.
-pub async fn get_latest_backup_meta(s3fs: &S3Fs, cluster_id: u64) -> Result<ClusterBackupMeta> {
+pub async fn get_latest_backup_meta(dfs: &dyn Dfs, cluster_id: u64) -> Result<ClusterBackupMeta> {
     let now = Utc::now();
-    let (files, _) = get_all_incremental_backups(s3fs, &now.date_naive(), None, usize::MAX).await?;
+    let (files, _) = get_all_incremental_backups(dfs, &now.date_naive(), None, usize::MAX).await?;
     if files.is_empty() {
         return Err(Error::MetaNotFound(cluster_id));
     }
     // Incremental backup file name is generated with `backup_file_full_path` named
     // by creation time. The last should be the latest one.
     let last_file = files.last().unwrap();
-    let full_path = last_file.full_path(&s3fs.get_prefix());
-    let object = s3fs
+    let full_path = last_file.full_path(&dfs.get_prefix());
+    let object = dfs
         .get_object(
             full_path.clone(),
             full_path.clone(),
@@ -1256,11 +1258,11 @@ pub async fn get_latest_backup_meta(s3fs: &S3Fs, cluster_id: u64) -> Result<Clus
     Ok(meta)
 }
 
-pub fn check_store_id_exists(s3fs: &S3Fs, store_id: u64) -> Result<bool> {
+pub fn check_store_id_exists(dfs: &dyn Dfs, store_id: u64) -> Result<bool> {
     let prefix = format!("store_backup/{:016x}/", store_id);
-    let (files, ..) = s3fs
+    let (files, ..) = dfs
         .get_runtime()
-        .block_on(s3fs.list("", Some(&prefix), None))?;
+        .block_on(dfs.list("", Some(&prefix), None))?;
     Ok(!files.is_empty())
 }
 
@@ -1485,7 +1487,7 @@ impl ObjectMeta for WalChunkMeta {
 
 // Note: The order of metas in result will change.
 pub async fn get_objects_to_files<M>(
-    dfs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     metas: Vec<(M, GetObjectOptions)>,
     dir: &Path,
 ) -> Result<Vec<(M, TempLocalObject)>>
@@ -1498,18 +1500,17 @@ where
         let path = dir.join(meta_key.replace('/', "_"));
         let dfs = dfs.clone();
         async move {
-            let build_writer = move || -> io::Result<_> {
-                let temp_obj = TempLocalObject::create(path.clone())?;
-                Ok(BufWriter::new(temp_obj))
-            };
             match dfs
-                .get_object_to_writer(full_key, meta_key, opts, build_writer)
+                .get_object_to_path(full_key, meta_key, opts, &path)
                 .await
             {
-                Ok((writer, len)) => {
-                    let temp_obj = box_try!(writer.into_inner()); // Writer will flush here.
-                    debug_assert_eq!(temp_obj.len, len);
-                    Ok((meta, temp_obj))
+                Ok(len) => {
+                    let local_obj = LocalObject {
+                        file: None,
+                        path: Arc::new(path),
+                        len,
+                    };
+                    Ok((meta, TempLocalObject::from(local_obj)))
                 }
                 Err(err) => Err(Error::DfsError(err)),
             }
@@ -1538,7 +1539,7 @@ where
 // Note: The order of metas in result will change.
 // TODO: eliminate duplicated codes with `get_objects_to_files`.
 pub async fn get_objects_with_cache<M>(
-    dfs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     metas: Vec<(M, GetObjectOptions)>,
     cache: Option<&ObjectCacheWithHook>,
 ) -> Result<Vec<(M, Bytes)>>

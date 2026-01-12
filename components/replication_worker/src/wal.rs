@@ -4,7 +4,7 @@ use std::{cmp, collections::VecDeque, sync::Arc, time::Duration};
 
 use chrono::NaiveDateTime;
 use collections::{HashMap, HashMapExt, HashSet};
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::Dfs;
 use kvproto::metapb;
 use merged_engine::StoreProgress;
 use native_br::{
@@ -77,7 +77,7 @@ pub(crate) struct WalProgressFetcher {
     timeout: Duration,
     tolerate_store_err: bool,
     thread_pool: tokio::runtime::Handle,
-    fs: Arc<S3Fs>,
+    fs: Arc<dyn Dfs>,
     http_client: HttpClient,
 
     skip_store_addr_keywords: Vec<String>,
@@ -102,7 +102,7 @@ impl WalProgressFetcher {
         timeout: Duration,
         config: &ReplicationWorkerConfig,
         thread_pool: tokio::runtime::Handle,
-        fs: Arc<S3Fs>,
+        fs: Arc<dyn Dfs>,
         targets: WalProgressTargets,
     ) {
         let interval = config.sync_interval.0;
@@ -157,7 +157,7 @@ impl WalProgressFetcher {
         timeout: Duration,
         tolerate_store_err: bool,
         thread_pool: tokio::runtime::Handle,
-        fs: Arc<S3Fs>,
+        fs: Arc<dyn Dfs>,
         skip_store_addr_keywords: Vec<String>,
         min_target_time_span: Duration,
         max_target_time_span: Duration,
@@ -408,7 +408,7 @@ impl WalProgressFetcher {
 
         let (files, _) = box_try!(
             get_all_incremental_backups(
-                &self.fs,
+                self.fs.as_ref(),
                 &start_datetime.date(),
                 Some(&start_datetime.time()),
                 SEARCH_BACKUPS_LIMIT,

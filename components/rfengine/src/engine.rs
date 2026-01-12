@@ -21,9 +21,8 @@ use std::{
 
 use api_version::ApiV2;
 use bytes::{Buf, Bytes};
-use engine_traits::ObjectStorage;
 use file_system::{open_direct_file, IoRateLimitMode, IoRateLimiter};
-use kvengine::dfs::{Dfs, S3Fs};
+use kvengine::dfs::Dfs;
 use kvproto::raft_serverpb::{RegionLocalState, StoreIdent};
 use protobuf::Message;
 use raft_proto::eraftpb;
@@ -224,16 +223,11 @@ impl RfEngineCore {
                 None
             };
 
-            let lightweight_backup_args: Option<(LightweightBackupConfig, Arc<S3Fs>)> = if cfg
+            let lightweight_backup_args: Option<(LightweightBackupConfig, Arc<dyn Dfs>)> = if cfg
                 .lightweight_backup
                 && dfs.is_some()
             {
-                let s3fs = dfs.unwrap().get_s3fs();
-                if s3fs.is_none() {
-                    warn!("lightweight backup is enabled, but dfs is not configured for S3");
-                    None
-                } else if data_dir.is_some() && panic_mark_dfs_worker_file_exists(data_dir.unwrap())
-                {
+                if data_dir.is_some() && panic_mark_dfs_worker_file_exists(data_dir.unwrap()) {
                     // If panic_mark_dfs_worker_file exists, skip init dfs worker thread.
                     en.dfs_worker_healthy.set_unhealthy();
                     error!(
@@ -250,7 +244,7 @@ impl RfEngineCore {
                         cfg.rlog_cache_size_threshold.0 as usize,
                         cfg.dfs_worker_memory_limit.as_memory_size() as usize,
                     );
-                    Some((cfg, s3fs.unwrap()))
+                    Some((cfg, dfs.unwrap()))
                 }
             } else {
                 None
@@ -598,7 +592,7 @@ fn restore_all_raft_logs_with_snap_rlog_file(
 }
 
 pub fn find_latest_snapshot(
-    object_storage: Arc<dyn ObjectStorage>,
+    dfs: Arc<dyn Dfs>,
     prefix: &str,
     store_id: u64,
     epoch_id: u32,
@@ -610,7 +604,7 @@ pub fn find_latest_snapshot(
     };
 
     // Find the latest snapshot smaller than cluster_backup epoch.
-    let snapshot = match object_storage.list_objects(
+    let snapshot = match dfs.list_objects(
         &snapshot_rlog_key_suffix(start_epoch - 1),
         Some(&snapshot_rlog_key_prefix(store_id)),
         Some(MAX_EPOCH_BACKWARD),

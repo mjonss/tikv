@@ -151,4 +151,8 @@ impl Dfs for RemoteCachedDfs {
     fn get_runtime(&self) -> &Runtime {
         self.inner.get_runtime()
     }
+
+    fn get_prefix(&self) -> String {
+        self.inner.get_prefix()
+    }
 }

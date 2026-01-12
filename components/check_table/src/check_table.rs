@@ -91,7 +91,7 @@ pub fn execute_check_table(config: CheckTableConfig, params: CheckTableParams) {
         with_pool_size(TXN_CHUNK_WORKER_POOL_SIZE),
         TxnChunkManagerConfig::default(),
     );
-    let cluster_backup = get_cluster_backup_meta(&s3fs, config.backup_name.clone());
+    let cluster_backup = get_cluster_backup_meta(s3fs.as_ref(), config.backup_name.clone());
     let mut keyspace_ids = if config.all {
         if cluster_backup.keyspace_meta.is_empty() {
             panic!("check table: No keyspace meta in backup");
@@ -514,12 +514,12 @@ impl BackupReader {
         ts: u64,
         kv: Engine,
         metas: Vec<ShardMeta>,
-        s3fs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         master_key: MasterKey,
         txn_chunk_manager: TxnChunkManager,
     ) -> Self {
         let snap_ctx = SnapCtx {
-            dfs: s3fs as _,
+            dfs,
             master_key,
             block_cache: BlockCache::None,
             vector_index_cache: None,

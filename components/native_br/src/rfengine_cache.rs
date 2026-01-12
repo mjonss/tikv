@@ -9,7 +9,7 @@ use std::{
 };
 
 use engine_traits::ObjectCache;
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::Dfs;
 use pd_client::PdClient;
 use rfengine::{RfEngine, RfEngineConfig};
 use rfenginepb::{ClusterBackupMeta, StoreBackupMeta};
@@ -38,7 +38,7 @@ impl RfEngineCache {
     pub fn new(
         path: PathBuf,
         config: RestoreConfig,
-        dfs: Arc<S3Fs>,
+        dfs: Arc<dyn Dfs>,
         pd_client: Arc<dyn PdClient>,
     ) -> Self {
         Self {
@@ -60,7 +60,7 @@ impl RfEngineCache {
 struct RfEngineCacheCore {
     path: PathBuf,
     config: RestoreConfig,
-    dfs: Arc<S3Fs>,
+    dfs: Arc<dyn Dfs>,
     pd_client: Arc<dyn PdClient>,
     backup_ts: u64,
     conservative_safe_ts: u64,
@@ -169,7 +169,7 @@ impl RfEngineCache {
             return Ok(());
         }
         let Ok((_, backup_meta)) =
-            get_cluster_backup_file_and_meta(&core.dfs, backup_name.to_string())
+            get_cluster_backup_file_and_meta(core.dfs.as_ref(), backup_name.to_string())
         else {
             return Err(Error::BackupError("failed to get backup meta".to_string()));
         };

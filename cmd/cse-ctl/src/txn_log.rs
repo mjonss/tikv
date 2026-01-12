@@ -71,7 +71,7 @@ pub(crate) fn execute_show_txn_log(args: ShowTxnLogArgs) {
     let config = ShowTxnLogConfig::from_args(&args);
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
     let s3fs = Arc::new(S3Fs::new_from_config(config.dfs));
-    let mut cluster_backup = get_cluster_backup_meta(&s3fs, args.backup_name.clone());
+    let mut cluster_backup = get_cluster_backup_meta(s3fs.as_ref(), args.backup_name.clone());
     let restore_conf = RestoreConfig {
         security: config.security.clone(),
         ..Default::default()

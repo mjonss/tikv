@@ -18,7 +18,7 @@ use clap::Args;
 use engine_traits::ListObjectContent;
 use kvengine::{
     dfs,
-    dfs::{DFSConfig, Dfs, FileType, S3Fs},
+    dfs::{try_parse_all_file_id, DFSConfig, Dfs, FileType, S3Fs},
 };
 use kvproto::metapb::Store;
 use native_br::{
@@ -398,8 +398,7 @@ impl GcWorker {
             let file_objs = files
                 .into_iter()
                 .filter_map(|obj| {
-                    self.s3fs
-                        .try_parse_all_file_id(&obj.key)
+                    try_parse_all_file_id(&obj.key)
                         .map(|(file_id, ftype)| {
                             S3Object::from_list_object_content(file_id, ftype, obj)
                         })

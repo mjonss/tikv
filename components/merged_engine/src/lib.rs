@@ -26,7 +26,7 @@ use collections::{HashMap, HashMapExt, HashSet};
 pub use error::{Error, Result};
 use file_system::{IoRateLimitMode, IoRateLimiter};
 use kvengine::{
-    dfs::{Dfs, S3Fs},
+    dfs::Dfs,
     ia::util::IaConfig,
     limiter::StoreLimiter,
     table::tiny_meta::{CompactKeeper, MetaPackConfig, MetaPacker},
@@ -112,7 +112,7 @@ const ALL_KV_ENGINE_META_KEYS: &[&[u8]] = &[
 #[derive(Clone)]
 pub struct MergedEngineContext {
     pub pd: Arc<dyn PdClient>,
-    pub fs: Arc<S3Fs>,
+    pub fs: Arc<dyn Dfs>,
     pub local_dir: PathBuf,
     pub master_key: MasterKey,
     pub config: MergedEngineConfig,
@@ -682,7 +682,7 @@ impl MergedEngine {
         let runtime = ctx.fs.get_runtime();
         let start_time = Instant::now_coarse();
         while start_time.saturating_elapsed() < ctx.config.get_latest_backup_timeout.0 {
-            match runtime.block_on(get_latest_backup_meta(&ctx.fs, cluster_id)) {
+            match runtime.block_on(get_latest_backup_meta(ctx.fs.as_ref(), cluster_id)) {
                 Ok(x) => return Ok(x),
                 Err(BrError::MetaNotFound(_)) => {
                     warn!("get_latest_backup: not ready");
