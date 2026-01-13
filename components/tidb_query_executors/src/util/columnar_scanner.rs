@@ -11,7 +11,10 @@ use api_version::{api_v2::KEYSPACE_PREFIX_LEN, ApiV2, KeyMode, KvFormat};
 use bytes::{buf::Buf, Bytes};
 use kvengine::{
     read::Iterator,
-    table::columnar::{filter::TableScanCtx, Block, ColumnarFilterReader, HANDLE_COL_ID},
+    table::{
+        columnar::{filter::TableScanCtx, Block, ColumnarFilterReader, HANDLE_COL_ID},
+        fts,
+    },
     LOCK_CF,
 };
 use kvproto::{coprocessor::KeyRange, kvrpcpb::IsolationLevel};
@@ -366,24 +369,46 @@ fn build_columnar_scanner_internal(
     );
     check_locks(&mut lock_iter, start_ts)?;
 
-    let fts_query_info = fts_query.map(|q| Arc::new(q.clone()));
-    if fts_query_info.is_some() {
-        return match snap.new_fts_columnar_mvcc_reader(
-            table_id,
-            table_scan.get_columns(),
-            None,
-            start_ts,
-            fts_query_info.unwrap(),
-        )? {
-            Some(r) => Ok(Some(ColumnarScanner::new(
-                Box::new(r),
-                get_output_offsets(table_scan),
-                keyspace_id,
-                key_range.start.clone(),
-                (start_handle, end_handle),
-            ))),
-            None => Err(StorageError(anyhow!("failed to build fts scanner")).into()),
+    if let Some(fts_query) = fts_query {
+        // `SnapAccessCore::new_fts_reader` blocks on a small async stub (to cooperate
+        // with `maybe_async`), so we must have a Tokio runtime handle here. If
+        // there is no runtime in the current context, fall back to row-based
+        // scan by returning `None`.
+        let runtime = match tokio::runtime::Handle::try_current() {
+            Ok(rt) => rt,
+            Err(_) => return Ok(None),
         };
+        let query = fts::wrap_fts_pb(fts_query.clone())
+            .map_err(|e| ErrorInner::Evaluate(EvaluateError::Other(e.to_string())))?;
+        fts::validate_schema(&schema, &query)
+            .map_err(|e| ErrorInner::Evaluate(EvaluateError::Other(e.to_string())))?;
+        // For `SnapAccessCore::new_fts_reader` bounds:
+        // - int handles are taken from the *row key* bytes (memcomparable i64)
+        // - common handles are taken from the *row key* bytes (raw handle)
+        let fts_start_handle = start_table_key
+            .get(PREFIX_LEN..)
+            .filter(|pk| !pk.is_empty())
+            .map(Bytes::copy_from_slice);
+        let fts_end_handle = end_table_key
+            .get(PREFIX_LEN..)
+            .filter(|pk| !pk.is_empty())
+            .map(Bytes::copy_from_slice);
+        let reader = snap.new_fts_reader(
+            &runtime,
+            table_id,
+            query,
+            schema.clone(),
+            start_ts,
+            fts_start_handle,
+            fts_end_handle,
+        )?;
+        return Ok(Some(ColumnarScanner::new(
+            reader,
+            get_output_offsets(table_scan),
+            keyspace_id,
+            key_range.start.clone(),
+            (start_handle, end_handle),
+        )));
     }
 
     if ann_query.is_none() {

@@ -12,6 +12,7 @@ use crate::{
     table::{
         columnar::{ColumnarFileCache, ColumnarMetaCache},
         file::File,
+        fts::{FtsCache, FtsDeltaCache},
         schema_file::SchemaFile,
         sstable::BlockCache,
         vector_index::VectorIndexCache,
@@ -26,6 +27,8 @@ pub struct SnapCtx {
     pub block_cache: BlockCache,
     pub vector_index_cache: Option<VectorIndexCache>,
     pub columnar_file_cache: Option<ColumnarFileCache>,
+    pub fts_cache: FtsCache,
+    pub fts_delta_cache: FtsDeltaCache,
     pub schema_files: Option<Arc<DashMap<u64, SchemaFile>>>,
     pub txn_chunk_manager: TxnChunkManager,
     pub ia_ctx: IaCtx,

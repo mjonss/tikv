@@ -21,6 +21,7 @@ use kvengine::{
             new_int_handle_column_info, new_version_column_info, Block, ColumnarFilterReader,
             ColumnarMetaCache, VectorIndexDef,
         },
+        fts::{FtsCache, FtsDeltaCache},
         schema_file::{build_schema_file, Schema, SchemaBuf},
         sstable::BlockCache,
         vector_index::{VectorIndexCache, VectorIndexConfig, VIRTUAL_DISTANCE_COLUMN_ID},
@@ -244,6 +245,8 @@ fn test_build_vector_index() {
         block_cache: BlockCache::None,
         vector_index_cache: Some(vector_index_cache.clone()),
         columnar_file_cache: None,
+        fts_cache: FtsCache::disabled(),
+        fts_delta_cache: FtsDeltaCache::disabled(),
         schema_files: Some(schema_files.clone()),
         txn_chunk_manager: kvengine.get_txn_chunk_manager(),
         ia_ctx,
@@ -574,6 +577,7 @@ fn build_empty_schema(table_id: i64) -> Schema {
     let version_column = new_version_column_info();
     let columns = vec![];
     let vector_indexes = vec![];
+    let fulltext_indexes = vec![];
     SchemaBuf::new(
         table_id,
         handle_column,
@@ -582,7 +586,7 @@ fn build_empty_schema(table_id: i64) -> Schema {
         pk_col_ids,
         0,
         vector_indexes,
-        vec![],
+        fulltext_indexes,
         StorageClassSpec::default(),
         None,
     )

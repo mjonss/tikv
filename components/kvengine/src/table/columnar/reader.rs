@@ -654,6 +654,18 @@ pub trait ColumnarFilterReader: Send {
     ) -> crate::table::Result<()>;
     fn get_schema(&self) -> &Schema;
 
+    fn reset(&mut self) {}
+
+    async fn prefetch_ia_remote_segments(
+        &mut self,
+        _tag: &str,
+        _ia_mgr: &IaManager,
+        _keyspace_id: u32,
+        _timeout: Duration,
+    ) -> crate::table::Result<Option<f64>> {
+        Ok(None)
+    }
+
     // Try read block, return the number of rows read and whether the reader is
     // drained.
     async fn try_read_block(
@@ -667,15 +679,31 @@ pub trait ColumnarFilterReader: Send {
     async fn read_block(&mut self, block: &mut Block, limit: usize) -> crate::table::Result<usize> {
         loop {
             let (read_row, drained) = self.try_read_block(block, limit).await?;
-            if drained {
-                return Ok(0);
-            }
             if read_row > 0 {
                 return Ok(read_row);
+            }
+            if drained {
+                return Ok(0);
             }
             // If all rows are filtered, we should try to read next block.
             continue;
         }
+    }
+
+    #[cfg(any(test, feature = "testexport"))]
+    async fn read_all(&mut self) -> Block {
+        let schema = self.get_schema().clone();
+        let mut out = Block::new(&schema);
+        let mut buf = Block::new(&schema);
+        loop {
+            buf.reset();
+            let read = self.read_block(&mut buf, 1024).await.unwrap();
+            if read == 0 {
+                break;
+            }
+            out.append(&buf, 0, read);
+        }
+        out
     }
 
     async fn set_unbounded_handle_range(&mut self) -> crate::table::Result<()> {
@@ -776,12 +804,41 @@ impl ColumnarMvccReader {
             prev_common_handle: vec![],
         }
     }
+}
 
-    pub fn reset(&mut self) {
+#[async_trait]
+impl ColumnarFilterReader for ColumnarMvccReader {
+    async fn set_handle_range(
+        &mut self,
+        start_handle: &[u8],
+        end_handle: &[u8],
+    ) -> crate::table::Result<()> {
+        self.end_handle = end_handle.to_vec();
+        self.src.seek(start_handle).await?;
+        self.filter.clear();
+        Ok(())
+    }
+
+    async fn set_int_handle_range(
+        &mut self,
+        start_handle: i64,
+        end_handle: Option<i64>,
+    ) -> crate::table::Result<()> {
+        self.end_int_handle = end_handle;
+        self.src.seek(&start_handle.to_le_bytes()).await?;
+        self.filter.clear();
+        Ok(())
+    }
+
+    fn get_schema(&self) -> &Schema {
+        self.src.schema()
+    }
+
+    fn reset(&mut self) {
         self.src.reset().unwrap();
     }
 
-    pub async fn prefetch_ia_remote_segments(
+    async fn prefetch_ia_remote_segments(
         &mut self,
         tag: &str,
         ia_mgr: &IaManager,
@@ -826,35 +883,6 @@ impl ColumnarMvccReader {
                 tag
             ))),
         }
-    }
-}
-
-#[async_trait]
-impl ColumnarFilterReader for ColumnarMvccReader {
-    async fn set_handle_range(
-        &mut self,
-        start_handle: &[u8],
-        end_handle: &[u8],
-    ) -> crate::table::Result<()> {
-        self.end_handle = end_handle.to_vec();
-        self.src.seek(start_handle).await?;
-        self.filter.clear();
-        Ok(())
-    }
-
-    async fn set_int_handle_range(
-        &mut self,
-        start_handle: i64,
-        end_handle: Option<i64>,
-    ) -> crate::table::Result<()> {
-        self.end_int_handle = end_handle;
-        self.src.seek(&start_handle.to_le_bytes()).await?;
-        self.filter.clear();
-        Ok(())
-    }
-
-    fn get_schema(&self) -> &Schema {
-        self.src.schema()
     }
 
     async fn try_read_block(
@@ -980,6 +1008,15 @@ impl ColumnarFilterReader for ColumnarCompactReader {
         self.src.schema()
     }
 
+    fn reset(&mut self) {
+        self.end_handle.clear();
+        self.end_int_handle = None;
+        self.prev_int_handle = None;
+        self.prev_common_handle.clear();
+        self.filter.clear();
+        self.src.reset().unwrap();
+    }
+
     async fn try_read_block(
         &mut self,
         block: &mut Block,
@@ -1093,6 +1130,13 @@ impl ColumnarFilterReader for ColumnarTruncateTsReader {
 
     fn get_schema(&self) -> &Schema {
         self.src.schema()
+    }
+
+    fn reset(&mut self) {
+        self.end_handle.clear();
+        self.end_int_handle = None;
+        self.filter.clear();
+        self.src.reset().unwrap();
     }
 
     async fn try_read_block(
@@ -1393,7 +1437,7 @@ impl ColumnarReader for ColumnarMergeReader {
     }
 }
 
-fn parse_default_val(col_info: &ColumnInfo) -> Option<Vec<u8>> {
+pub(crate) fn parse_default_val(col_info: &ColumnInfo) -> Option<Vec<u8>> {
     let mut default_val = col_info.get_default_val();
     if default_val.is_empty() {
         return None;
@@ -2003,9 +2047,13 @@ pub fn decode_decimal_as_int(col_info: &ColumnInfo, decimal: &Decimal) -> Vec<u8
 }
 
 #[cfg(test)]
+pub use tests::MockColumnarFilterReader;
+
+#[cfg(test)]
 pub mod tests {
     use std::sync::Arc;
 
+    use async_trait::async_trait;
     use futures::executor::block_on;
     use proptest::{arbitrary::any, proptest};
     use rand::Rng;
@@ -2038,6 +2086,60 @@ pub mod tests {
         },
         UserMeta, WRITE_CF,
     };
+
+    /// A simple `ColumnarFilterReader` implementation for tests that returns a
+    /// prebuilt block once.
+    pub struct MockColumnarFilterReader {
+        schema: Schema,
+        block: Option<Block>,
+    }
+
+    impl MockColumnarFilterReader {
+        pub fn new(schema: Schema, block: Block) -> Self {
+            Self {
+                schema,
+                block: Some(block),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ColumnarFilterReader for MockColumnarFilterReader {
+        async fn set_handle_range(
+            &mut self,
+            _start_handle: &[u8],
+            _end_handle: &[u8],
+        ) -> crate::table::Result<()> {
+            Ok(())
+        }
+
+        async fn set_int_handle_range(
+            &mut self,
+            _start_handle: i64,
+            _end_handle: Option<i64>,
+        ) -> crate::table::Result<()> {
+            Ok(())
+        }
+
+        fn get_schema(&self) -> &Schema {
+            &self.schema
+        }
+
+        async fn try_read_block(
+            &mut self,
+            block: &mut Block,
+            _limit: usize,
+        ) -> crate::table::Result<(usize, bool)> {
+            block.reset();
+            if let Some(data) = self.block.take() {
+                let rows = data.length();
+                block.append(&data, 0, rows);
+                Ok((rows, true))
+            } else {
+                Ok((0, true))
+            }
+        }
+    }
 
     #[derive(Default, Clone)]
     pub struct RefRow {

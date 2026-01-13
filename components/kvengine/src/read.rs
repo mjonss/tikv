@@ -52,7 +52,10 @@ use crate::{
             ColumnarMergeReader, ColumnarMvccReader, ColumnarReader, ColumnarRowTableReader,
             ColumnarTableReader, GLOBAL_COMMON_HANDLE_END, HANDLE_COL_ID,
         },
-        fts_index::FtsBruteForceReader,
+        fts::{
+            validate_schema, FtsBruteForceCondReader, FtsBruteForceReader, FtsDeltaCache,
+            FtsDropScoreNullableReader, FtsJoinReader,
+        },
         memtable::{CfTable, Hint, SkipList, WriteBatch},
         schema_file::{Schema, SchemaBuf, SchemaFile},
         sstable::SsTable,
@@ -142,6 +145,17 @@ impl SnapAccess {
     pub fn new(shard: &Shard) -> Self {
         let core = Arc::new(SnapAccessCore::new(shard));
         Self { core }
+    }
+
+    /// Test-only constructor that injects an [`FtsDeltaCache`] into the
+    /// snapshot.
+    #[cfg(test)]
+    pub fn new_with_fts_delta_cache(shard: &Shard, fts_delta_cache: FtsDeltaCache) -> Self {
+        let mut core = SnapAccessCore::new(shard);
+        core.fts_delta_cache = fts_delta_cache;
+        Self {
+            core: Arc::new(core),
+        }
     }
 
     pub async fn from_change_set(
@@ -361,6 +375,7 @@ pub struct SnapAccessCore {
     blob_table_prefetch_size: usize,
     deleting_prefixes: Arc<DeletePrefixes>,
     encryption_key: Option<EncryptionKey>,
+    fts_delta_cache: FtsDeltaCache,
     is_sync: bool,
     read_columnar: bool,
 }
@@ -383,6 +398,7 @@ impl SnapAccessCore {
             blob_table_prefetch_size: shard.opt.blob_prefetch_size,
             deleting_prefixes: shard.get_del_prefixes(),
             encryption_key: shard.encryption_key.clone(),
+            fts_delta_cache: FtsDeltaCache::disabled(),
             is_sync,
             read_columnar: shard.opt.read_columnar,
         }
@@ -396,7 +412,9 @@ impl SnapAccessCore {
         write_cf_only: bool,
     ) -> Result<Self> {
         let shard = Shard::from_change_set(tag, ctx, change_set, mem_tbls, write_cf_only).await?;
-        Ok(Self::new(&shard))
+        let mut ret = Self::new(&shard);
+        ret.fts_delta_cache = ctx.fts_delta_cache.clone();
+        Ok(ret)
     }
 
     #[maybe_async::both]
@@ -1015,8 +1033,64 @@ impl SnapAccessCore {
         for index in self.data.vector_indexes.get_all() {
             vector_indexes.push(index.to_vector_index_pb());
         }
-
         let vector_indexes_count = vector_indexes.iter().map(|v| v.files.len()).sum::<usize>();
+
+        let fts_tracked_indexes = snap.mut_fts_indexes();
+        for (table_id, index_ids) in self.data.fts_levels.iter_tracked_indexes() {
+            for index_id in index_ids {
+                let mut tbl_idx_id = pb::fts::TableIndexId::new();
+                tbl_idx_id.set_table_id(*table_id);
+                tbl_idx_id.set_index_id(*index_id);
+                fts_tracked_indexes.push(tbl_idx_id);
+            }
+        }
+
+        let fts_l0_files = snap.mut_fts_l0_files();
+        for file in self.data.fts_levels.l0() {
+            count += 1;
+            let file_bound = file.data_bound();
+            if !range_bounds
+                .iter()
+                .any(|bound| bound.overlap_bound(file_bound))
+            {
+                continue;
+            }
+            overlapped_count += 1;
+            fts_l0_files.push(file.build_info());
+        }
+
+        let fts_l1_files = snap.mut_fts_l1_files();
+        for file in self.data.fts_levels.l1() {
+            count += 1;
+            let file_bound = file.data_bound();
+            if !range_bounds
+                .iter()
+                .any(|bound| bound.overlap_bound(file_bound))
+            {
+                continue;
+            }
+            overlapped_count += 1;
+            fts_l1_files.push(file.build_info());
+        }
+
+        let fts_l2_files = snap.mut_fts_l2_files();
+        for files in self.data.fts_levels.l2().values() {
+            for file in files {
+                count += 1;
+                let file_bound = file.data_bound();
+                if !range_bounds
+                    .iter()
+                    .any(|bound| bound.overlap_bound(file_bound))
+                {
+                    continue;
+                }
+                overlapped_count += 1;
+                fts_l2_files.push(file.build_info());
+            }
+        }
+        snap.set_fts_pending_l0_ids(self.data.fts_levels.pending_columnar_l0_ids().to_vec());
+        snap.set_fts_l0_snap_version(self.data.fts_levels.l0_snap_version.into_inner());
+
         info!(
             "{} convert snap access to change set, total {}, overlapped {}, unconverted_l0s {}, columnar {}, vector {}",
             self.get_tag(),
@@ -1613,70 +1687,6 @@ impl SnapAccessCore {
         Ok(Some(mvcc_reader))
     }
 
-    /// `new_fts_columnar_mvcc_reader` will try to construct a reader in
-    /// columnar mode. If `None` is returned, normal tikv row reading will
-    /// be used.
-    /// In `FtsBruteForceReader`, the matching fts_col may be filtered to return
-    /// only the matching rows.
-    pub fn new_fts_columnar_mvcc_reader(
-        &self,
-        table_id: i64,
-        columns: &[ColumnInfo],
-        scan_ctx: Option<&TableScanCtx>,
-        read_ts: u64,
-        fts_query: Arc<FtsQueryInfo>,
-    ) -> Result<Option<FtsBruteForceReader>> {
-        let Some(schema) = self.new_schema_from_columns(table_id, columns) else {
-            return Ok(None);
-        };
-
-        let filter_op = scan_ctx.map(|ctx| ctx.to_filter_operator());
-
-        // Fts index is not supported yet, so no matter for FtsQueryTypeNoScore or
-        // FtsQueryTypeWithScore, we need to read the fts_col column to
-        // perform fts matching or calculate scores. Therefore, we need to
-        // insert fts_col at the end of the schema if fts_col does not exist.
-        let schema_to_read = FtsBruteForceReader::generate_inner_schema(&schema, &fts_query)?;
-
-        let mut readers = self.collect_column_row_readers(&schema_to_read);
-
-        for columnar_level in &self.data.col_levels.levels {
-            if columnar_level.level == 2 {
-                let concat_reader = ColumnarConcatReader::new(
-                    &columnar_level.files,
-                    schema_to_read.clone(),
-                    filter_op.clone(),
-                    self.encryption_key.clone(),
-                );
-                readers.push(Box::new(concat_reader));
-            } else {
-                for col_file in &columnar_level.files {
-                    if !col_file.has_table(schema_to_read.table_id) {
-                        continue;
-                    }
-                    let col_reader = ColumnarTableReader::new(
-                        col_file,
-                        schema_to_read.clone(),
-                        filter_op.clone(),
-                        self.encryption_key.clone(),
-                    );
-                    readers.push(Box::new(col_reader));
-                }
-            }
-        }
-
-        let merged_reader: Box<dyn ColumnarReader> =
-            Box::new(ColumnarMergeReader::new(schema_to_read.clone(), readers));
-
-        let inner_mvcc_reader = ColumnarMvccReader::new(merged_reader, &schema_to_read, read_ts);
-        let fts_mvcc_reader = FtsBruteForceReader::new(
-            Box::new(inner_mvcc_reader),
-            schema.clone(),
-            fts_query.clone(),
-        )?;
-        Ok(Some(fts_mvcc_reader))
-    }
-
     fn collect_column_row_readers(&self, schema: &Schema) -> Vec<Box<dyn ColumnarReader>> {
         let mut readers: Vec<Box<dyn ColumnarReader>> = vec![];
 
@@ -1713,6 +1723,176 @@ impl SnapAccessCore {
             }
         }
         readers
+    }
+
+    /// Construct a FTS reader for fallback purpose: It will always fulfill the
+    /// FTS query request but the performance is not optimal. This function
+    /// is used when:
+    /// - Columnar storage is disabled.
+    /// - No FTS index is found for the given query.
+    ///
+    /// IMPORTANT: schema and query must be first validated before calling this
+    /// function.
+    fn new_fts_reader_fallback(
+        &self,
+        query: &clara_fts::Query,
+        schema: Schema,
+        read_ts: u64,
+    ) -> Result<FtsBruteForceReader<ColumnarMvccReader>> {
+        let schema_row = FtsBruteForceReader::build_inner_schema(&schema, query)?;
+        let mut r_row = self.collect_column_row_readers(&schema_row);
+        for columnar_level in &self.data.col_levels.levels {
+            if columnar_level.level == 2 {
+                let concat_reader = ColumnarConcatReader::new(
+                    &columnar_level.files,
+                    schema_row.clone(),
+                    None,
+                    self.encryption_key.clone(),
+                );
+                r_row.push(Box::new(concat_reader));
+            } else {
+                for col_file in &columnar_level.files {
+                    if !col_file.has_table(schema_row.table_id) {
+                        continue;
+                    }
+                    let col_reader = ColumnarTableReader::new(
+                        col_file,
+                        schema_row.clone(),
+                        None,
+                        self.encryption_key.clone(),
+                    );
+                    r_row.push(Box::new(col_reader));
+                }
+            }
+        }
+        let r_merged = ColumnarMergeReader::new(schema_row.clone(), r_row);
+        let r_mvcc = ColumnarMvccReader::new(Box::new(r_merged), &schema_row, read_ts);
+        Ok(FtsBruteForceReader::new(r_mvcc, &schema, query)?)
+    }
+
+    fn new_fts_reader_inner(
+        &self,
+        runtime: &Handle,
+        table_id: i64,
+        query: clara_fts::Query,
+        output_schema: Schema,
+        read_ts: u64,
+        // Optional handle bounds for pruning FTS index search.
+        //
+        // NOTE: int handles are encoded in TiDB row-key format (memcomparable i64,
+        // i.e. `IntPk::encode`), NOT the columnar in-block format (i64 little-endian).
+        // Common handles are raw bytes.
+        start_handle: Option<Bytes>,
+        end_handle: Option<Bytes>,
+    ) -> Result<Option<Box<dyn ColumnarFilterReader>>> {
+        if !self.read_columnar {
+            return Ok(None);
+        }
+        if !self
+            .data
+            .fts_levels
+            .has_tracked_index(table_id, query.info().get_index_id())
+        {
+            return Ok(None);
+        }
+        validate_schema(&output_schema, &query).map_err(|e| Error::Other(e.into()))?;
+
+        // FTS reader chain overview (handles are int/common depending on schema):
+        //
+        //   A) Indexed hits (Text=NULL, Score=from index)
+        //      FtsIndexReader -> FtsIndexColumnarReader
+        //
+        //   B) Unindexed data (Text=from data, Score=NULL)
+        //      memtables + unconverted row L0s + untracked columnar L0s
+        //
+        //   (A + B) -> ColumnarMergeReader
+        //      -> ColumnarMvccReader
+        //      -> FtsBruteForceCondReader  (fill Score for rows with Score=NULL)
+        //      -> FtsDropScoreNullableReader     (Score becomes NOT NULL)
+        //      -> FtsJoinReader            (fill missing/NULL columns from row iter)
+        //
+        // Reader schema flow:
+        //   inner: (NullableText, NullableScore)
+        //   join output: `output_schema`
+        //
+        // Note: FTS index only covers columnar L0s up to `fts_levels.l0_snap_version`,
+        // except `fts_levels.pending_l0_ids` which are explicitly not covered.
+        //
+        // (NullableText, NullableScore)
+        let read_row_schema = FtsBruteForceCondReader::build_inner_schema(&output_schema, &query);
+        let readers = crate::table::fts::build_fts_delta_readers(
+            &self.fts_delta_cache,
+            &self.tag,
+            table_id,
+            &query,
+            read_row_schema.clone(),
+            read_ts,
+            Arc::clone(&self.data.fts_levels),
+            &self.data.mem_tbls,
+            &self.data.col_levels.unconverted_l0s,
+            &self.data.col_levels.levels[0].files,
+            self.data.blob_tbl_map.clone(),
+            self.encryption_key.clone(),
+            start_handle,
+            end_handle,
+        )?;
+
+        // Merge + MVCC filtering.
+        let merged = ColumnarMergeReader::new(read_row_schema.clone(), readers);
+        let mvcc = ColumnarMvccReader::new(Box::new(merged), &read_row_schema, read_ts);
+
+        // Do a conditional brute force after MVCC, drop nullable score, then join to
+        // output schema.
+        let cond = FtsBruteForceCondReader::new(mvcc, &query)?;
+        let drop_score_null = FtsDropScoreNullableReader::new(cond)?;
+
+        let row_iter =
+            runtime.block_on(self.new_table_iterator_async(WRITE_CF, false, false, None));
+        let join = FtsJoinReader::new(
+            drop_score_null,
+            vec![row_iter],
+            output_schema,
+            self.data.blob_tbl_map.clone(),
+            self.encryption_key.clone(),
+        )?;
+
+        Ok(Some(Box::new(join)))
+    }
+
+    pub fn new_fts_reader(
+        &self,
+        runtime: &Handle,
+        table_id: i64,
+        query: clara_fts::Query,
+        schema: Schema,
+        read_ts: u64,
+        // Optional handle bounds for pruning FTS index search.
+        //
+        // NOTE: int handles are encoded in TiDB row-key format (memcomparable i64,
+        // i.e. `IntPk::encode`), NOT the columnar in-block format (i64 little-endian).
+        // Common handles are raw bytes.
+        start_handle: Option<Bytes>,
+        end_handle: Option<Bytes>,
+    ) -> Result<Box<dyn ColumnarFilterReader>> {
+        if let Some(fts_reader) = self.new_fts_reader_inner(
+            runtime,
+            table_id,
+            query.clone(),
+            schema.clone(),
+            read_ts,
+            start_handle,
+            end_handle,
+        )? {
+            Ok(fts_reader)
+        } else {
+            warn!(
+                "{} fallback to brute-force FTS reader for table_id {}",
+                self.tag, table_id
+            );
+            Ok(Box::new(
+                self.new_fts_reader_fallback(&query, schema, read_ts)?,
+            ))
+        }
     }
 
     pub fn new_vector_index_reader(
@@ -2257,7 +2437,8 @@ pub struct CloudColumnarReaders {
     tables: Vec<TableCtx>,
     columns: Arc<Vec<ColumnInfo>>,
     scan_ctx: TableScanCtx,
-    ann_query_info: Arc<tipb::AnnQueryInfo>,
+    ann_query: Option<Arc<tipb::AnnQueryInfo>>,
+    fts_query: Option<clara_fts::Query>,
     ia_ctx: IaCtx,
     start_ts: u64,
     concurrency: usize,
@@ -2275,11 +2456,12 @@ impl CloudColumnarReaders {
         tables: Vec<TableCtx>,
         columns: Vec<ColumnInfo>,
         scan_ctx: TableScanCtx,
-        ann_query_info: tipb::AnnQueryInfo,
+        ann_query_info: Option<tipb::AnnQueryInfo>,
+        fts_query_info: Option<FtsQueryInfo>,
         ia_ctx: IaCtx,
         start_ts: u64,
         concurrency: usize,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut table_ids = tables
             .iter()
             .map(|table| table.table_id)
@@ -2295,13 +2477,23 @@ impl CloudColumnarReaders {
         } else {
             0
         };
-        Self {
+
+        let ann_query = ann_query_info.map(Arc::new);
+        let fts_query = fts_query_info
+            .map(crate::table::fts::wrap_fts_pb)
+            .transpose()
+            .map_err(|e| {
+                crate::Error::Other(format!("wrap_fts_pb failed: {e}").to_string().into())
+            })?;
+
+        Ok(Self {
             runtime,
             snap_access,
             tables,
             columns: Arc::new(columns),
             scan_ctx,
-            ann_query_info: Arc::new(ann_query_info),
+            ann_query,
+            fts_query,
             ia_ctx,
             start_ts,
             concurrency,
@@ -2310,7 +2502,7 @@ impl CloudColumnarReaders {
             current_block: None,
             read_limit: None,
             finished: false,
-        }
+        })
     }
 
     fn need_concurrency(&self) -> bool {
@@ -2436,22 +2628,25 @@ impl CloudColumnarReaders {
         let queue = Arc::new(Mutex::new(VecDeque::from(tables)));
         let worker_count = std::cmp::min(self.concurrency, table_count);
         let active_workers = Arc::new(AtomicUsize::new(worker_count));
-        let ann_query_info = Arc::clone(&self.ann_query_info);
+        let ann_query = self.ann_query.clone();
         let columns = Arc::clone(&self.columns);
         let start_ts = self.start_ts;
 
         for _ in 0..worker_count {
             let tx_clone = tx.clone();
             let queue_clone = Arc::clone(&queue);
-            let ann_query = Arc::clone(&ann_query_info);
+            let ann_query = ann_query.clone();
+            let fts_query = self.fts_query.clone();
             let columns = Arc::clone(&columns);
             let snap_access = self.snap_access.clone();
             let ia_ctx = self.ia_ctx.clone();
             let scan_ctx = self.scan_ctx.clone();
             let active_workers = Arc::clone(&active_workers);
+            let runtime = self.runtime.clone();
 
             self.runtime.spawn_blocking(move || {
                 let send_finished = Self::worker_loop(
+                    &runtime,
                     &queue_clone,
                     &tx_clone,
                     &snap_access,
@@ -2459,6 +2654,7 @@ impl CloudColumnarReaders {
                     &columns,
                     &scan_ctx,
                     &ann_query,
+                    &fts_query,
                     start_ts,
                     read_limit,
                 );
@@ -2475,18 +2671,21 @@ impl CloudColumnarReaders {
     }
 
     fn worker_loop(
+        runtime: &Handle,
         queue: &Arc<Mutex<VecDeque<TableCtx>>>,
         tx: &mpsc::Sender<ReadResult>,
         snap_access: &SnapAccess,
         ia_ctx: &IaCtx,
         columns: &Arc<Vec<ColumnInfo>>,
         scan_ctx: &TableScanCtx,
-        ann_query: &Arc<tipb::AnnQueryInfo>,
+        ann_query: &Option<Arc<tipb::AnnQueryInfo>>,
+        fts_query: &Option<clara_fts::Query>,
         start_ts: u64,
         read_limit: usize,
     ) -> bool {
         while let Some(table_ctx) = Self::pop_table(queue) {
             if !Self::process_table(
+                runtime,
                 table_ctx,
                 read_limit,
                 tx,
@@ -2495,6 +2694,7 @@ impl CloudColumnarReaders {
                 columns,
                 scan_ctx,
                 ann_query,
+                fts_query,
                 start_ts,
             ) {
                 return false;
@@ -2509,6 +2709,7 @@ impl CloudColumnarReaders {
     }
 
     fn process_table(
+        runtime: &Handle,
         table_ctx: TableCtx,
         read_limit: usize,
         tx: &mpsc::Sender<ReadResult>,
@@ -2516,17 +2717,20 @@ impl CloudColumnarReaders {
         ia_ctx: &IaCtx,
         columns: &Arc<Vec<ColumnInfo>>,
         scan_ctx: &TableScanCtx,
-        ann_query: &Arc<tipb::AnnQueryInfo>,
+        ann_query: &Option<Arc<tipb::AnnQueryInfo>>,
+        fts_query: &Option<clara_fts::Query>,
         start_ts: u64,
     ) -> bool {
         let mut reader = match CloudColumnarReader::new(
+            runtime.clone(),
             snap_access.clone(),
             ia_ctx.clone(),
             table_ctx.table_id,
             table_ctx.ranges.clone(),
             columns,
             scan_ctx,
-            Arc::clone(ann_query),
+            ann_query.clone(),
+            fts_query.clone(),
             start_ts,
         ) {
             Ok(reader) => reader,
@@ -2574,13 +2778,15 @@ impl CloudColumnarReaders {
             let table_ctx = self.tables.remove(0);
             self.reader = Some(
                 CloudColumnarReader::new(
+                    self.runtime.clone(),
                     self.snap_access.clone(),
                     self.ia_ctx.clone(),
                     table_ctx.table_id,
                     table_ctx.ranges.clone(),
                     &self.columns,
                     &self.scan_ctx,
-                    Arc::clone(&self.ann_query_info),
+                    self.ann_query.clone(),
+                    self.fts_query.clone(),
                     self.start_ts,
                 )
                 .map_err(|e| crate::table::Error::Other(e.to_string()))?,
@@ -2596,13 +2802,15 @@ impl CloudColumnarReaders {
                 let table_ctx = self.tables.remove(0);
                 self.reader = Some(
                     CloudColumnarReader::new(
+                        self.runtime.clone(),
                         self.snap_access.clone(),
                         self.ia_ctx.clone(),
                         table_ctx.table_id,
                         table_ctx.ranges.clone(),
                         &self.columns,
                         &self.scan_ctx,
-                        Arc::clone(&self.ann_query_info),
+                        self.ann_query.clone(),
+                        self.fts_query.clone(),
                         self.start_ts,
                     )
                     .map_err(|e| crate::table::Error::Other(e.to_string()))?,
@@ -2678,8 +2886,9 @@ enum ReadResult {
 }
 
 pub struct CloudColumnarReader {
+    runtime: Handle,
     tag: String,
-    reader: Box<ColumnarMvccReader>,
+    reader: Box<dyn ColumnarFilterReader>,
     ranges: Vec<tipb::KeyRange>,
     block: Block,
     schema: Schema,
@@ -2693,16 +2902,73 @@ pub struct CloudColumnarReader {
 
 impl CloudColumnarReader {
     pub fn new(
+        runtime: Handle,
         snap_access: SnapAccess,
         ia_ctx: IaCtx,
         table_id: i64,
         ranges: Vec<tipb::KeyRange>,
         columns: &[ColumnInfo],
         scan_ctx: &TableScanCtx,
-        ann_query: Arc<tipb::AnnQueryInfo>,
+        ann_query: Option<Arc<tipb::AnnQueryInfo>>,
+        fts_query: Option<clara_fts::Query>,
         start_ts: u64,
     ) -> Result<Self> {
-        let mvcc_reader = if ann_query.get_query_type() != tipb::AnnQueryType::InvalidQueryType {
+        let reader: Box<dyn ColumnarFilterReader> = if let Some(query) = fts_query {
+            let schema = snap_access
+                .new_schema_from_columns(table_id, columns)
+                .ok_or(crate::Error::Other(
+                    "construct schema from columns failed".to_string().into(),
+                ))?;
+            validate_schema(&schema, &query).map_err(|e| {
+                crate::Error::Other(format!("validate_schema failed: {e}").to_string().into())
+            })?;
+
+            // Optional bounds for pruning the FTS index search.
+            //
+            // NOTE: These are extracted from the *row key* bytes (memcomparable int-handle
+            // or raw common-handle), not the columnar in-block handle format.
+            let pk_off = KEYSPACE_PREFIX_LEN + tidb_query_datatype::codec::table::PREFIX_LEN;
+            let fts_start_handle = ranges
+                .iter()
+                .try_fold(None::<&[u8]>, |best, range| -> std::result::Result<_, ()> {
+                    let pk = range.get_low().get(pk_off..).ok_or(())?;
+                    if pk.is_empty() {
+                        return Err(());
+                    }
+                    Ok(Some(match best {
+                        Some(best) if best <= pk => best,
+                        _ => pk,
+                    }))
+                })
+                .ok()
+                .flatten()
+                .map(Bytes::copy_from_slice);
+            let fts_end_handle = ranges
+                .iter()
+                .try_fold(None::<&[u8]>, |best, range| -> std::result::Result<_, ()> {
+                    let pk = range.get_high().get(pk_off..).ok_or(())?;
+                    if pk.is_empty() {
+                        return Err(());
+                    }
+                    Ok(Some(match best {
+                        Some(best) if best >= pk => best,
+                        _ => pk,
+                    }))
+                })
+                .ok()
+                .flatten()
+                .map(Bytes::copy_from_slice);
+
+            snap_access.new_fts_reader(
+                &runtime,
+                table_id,
+                query,
+                schema,
+                start_ts,
+                fts_start_handle,
+                fts_end_handle,
+            )?
+        } else if let Some(ann_query) = ann_query {
             let index_id = ann_query.get_index_id();
             let target = ann_query
                 .get_ref_vec_f32()
@@ -2732,29 +2998,33 @@ impl CloudColumnarReader {
                 Arc::clone(&ann_query),
             )?;
             if let Some(reader) = vector_reader_result {
-                reader
+                Box::new(reader)
             } else {
                 warn!("no vector index reader available, use columnar reader instead");
-                snap_access
-                    .new_columnar_mvcc_reader(
-                        table_id,
-                        columns,
-                        Some(scan_ctx),
-                        start_ts,
-                        Some(Arc::clone(&ann_query)),
-                    )?
-                    .ok_or(crate::Error::Other(
-                        "no vector index reader available after fallback"
-                            .to_string()
-                            .into(),
-                    ))?
+                Box::new(
+                    snap_access
+                        .new_columnar_mvcc_reader(
+                            table_id,
+                            columns,
+                            Some(scan_ctx),
+                            start_ts,
+                            Some(Arc::clone(&ann_query)),
+                        )?
+                        .ok_or(crate::Error::Other(
+                            "no vector index reader available after fallback"
+                                .to_string()
+                                .into(),
+                        ))?,
+                )
             }
         } else {
-            snap_access
-                .new_columnar_mvcc_reader(table_id, columns, Some(scan_ctx), start_ts, None)?
-                .ok_or(crate::Error::Other(
-                    "no columnar available".to_string().into(),
-                ))?
+            Box::new(
+                snap_access
+                    .new_columnar_mvcc_reader(table_id, columns, Some(scan_ctx), start_ts, None)?
+                    .ok_or(crate::Error::Other(
+                        "no columnar available".to_string().into(),
+                    ))?,
+            )
         };
         let schema_file = snap_access.get_schema_file().unwrap();
         let table_schema = schema_file.get_table(table_id).unwrap();
@@ -2776,8 +3046,9 @@ impl CloudColumnarReader {
         let block = Block::new(&schema);
 
         let reader = Self {
+            runtime,
             tag: snap_access.get_tag().to_string(),
-            reader: Box::new(mvcc_reader),
+            reader,
             ranges,
             block,
             schema: schema.clone(),
@@ -2793,20 +3064,26 @@ impl CloudColumnarReader {
 
     fn init(&mut self) -> Result<()> {
         if let IaCtx::Enabled(ia_mgr, _) = &self.ia_ctx {
+            let ia_mgr = ia_mgr.clone();
             let start = Instant::now_coarse();
-            let prefetch = futures::executor::block_on(self.reader.prefetch_ia_remote_segments(
-                &self.tag,
-                ia_mgr,
-                self.keyspace_id,
-                Duration::from_secs(600), // 10 minutes is enough for prefetching one region.
-            ))
-            .map_err(|e| {
-                crate::Error::Other(format!("prefetch_ia_remote_segments failed: {:?}", e).into())
-            })?;
+            let prefetch = self
+                .runtime
+                .block_on(self.reader.prefetch_ia_remote_segments(
+                    &self.tag,
+                    &ia_mgr,
+                    self.keyspace_id,
+                    Duration::from_secs(600), // 10 minutes is enough for prefetching one region.
+                ))
+                .map_err(|e| {
+                    crate::Error::Other(
+                        format!("prefetch_ia_remote_segments failed: {:?}", e).into(),
+                    )
+                })?;
             COLUMNAR_PREFETCH_HISTOGRAM.observe(start.saturating_elapsed_secs());
             COLUMNAR_PREFETCH_CACHE_HIT_HISTOGRAM.observe(prefetch.unwrap_or(1.0) * 100.0);
         }
-        futures::executor::block_on(self.update_range_handle());
+        let rt = self.runtime.clone();
+        rt.block_on(self.update_range_handle());
         self.inited = true;
         Ok(())
     }
@@ -2854,7 +3131,8 @@ impl CloudColumnarReader {
         }
         self.block.reset();
         let start = Instant::now_coarse();
-        let ret = futures::executor::block_on(self.read_block_with_range(read_limit));
+        let rt = self.runtime.clone();
+        let ret = rt.block_on(self.read_block_with_range(read_limit));
         self.read_block_cost += start.saturating_elapsed_secs();
         ret
     }
@@ -2934,6 +3212,25 @@ impl CloudColumnarReader {
 
     pub fn physical_table_id(&self) -> i64 {
         self.schema.table_id
+    }
+
+    #[cfg(any(test, feature = "testexport"))]
+    pub fn read_all_for_test(&mut self) -> Result<Block> {
+        if !self.inited {
+            self.init()?;
+        }
+        let schema = self.schema.clone();
+        let mut out = Block::new(&schema);
+        let rt = self.runtime.clone();
+        loop {
+            self.block.reset();
+            let read = rt.block_on(self.read_block_with_range(1024))?;
+            if read == 0 {
+                break;
+            }
+            out.append(&self.block, 0, read);
+        }
+        Ok(out)
     }
 }
 
@@ -3037,6 +3334,7 @@ mod tests {
             self,
             columnar::ColumnarMetaCache,
             file::InMemFile,
+            fts::{FtsCache, FtsDeltaCache},
             memtable::CfTable,
             sstable::{test_util::build_test_table_with_kvs, BlockCache},
             InnerKey, OwnedInnerKey, TxnChunk, TxnChunkBuilder, TxnCtx, TxnFile, TxnFileId, OP_PUT,
@@ -3267,6 +3565,8 @@ mod tests {
                 block_cache: BlockCache::None,
                 vector_index_cache: None,
                 columnar_file_cache: None,
+                fts_cache: FtsCache::disabled(),
+                fts_delta_cache: FtsDeltaCache::disabled(),
                 schema_files: None,
                 txn_chunk_manager,
                 ia_ctx: IaCtx::Disabled,

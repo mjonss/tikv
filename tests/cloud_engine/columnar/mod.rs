@@ -1,7 +1,6 @@
 // Copyright 2024 TiKV Project Authors. Licensed under Apache-2.0.
 
 mod copr;
-mod fts_index;
 mod vector_index;
 
 use std::{
@@ -32,6 +31,7 @@ use kvengine::{
             filter::TableScanCtx, new_int_handle_column_info, new_version_column_info,
             ColumnarFilterReader, ColumnarMetaCache,
         },
+        fts::{FtsCache, FtsDeltaCache},
         schema_file::{build_schema_file, Schema, SchemaBuf},
         sstable::{BlockCache, BlockCacheType},
     },
@@ -675,6 +675,8 @@ fn test_get_snapshot_from_leader_by_status_api() {
         block_cache: BlockCache::None,
         vector_index_cache: None,
         columnar_file_cache: None,
+        fts_cache: FtsCache::disabled(),
+        fts_delta_cache: FtsDeltaCache::disabled(),
         schema_files: Some(schema_files.clone()),
         txn_chunk_manager: kvengine.get_txn_chunk_manager(),
         ia_ctx: IaCtx::Disabled,
@@ -1215,6 +1217,8 @@ fn test_columnar_ia_file() {
         block_cache: BlockCache::None,
         vector_index_cache: None,
         columnar_file_cache: None,
+        fts_cache: FtsCache::disabled(),
+        fts_delta_cache: FtsDeltaCache::disabled(),
         schema_files: Some(schema_files.clone()),
         txn_chunk_manager: kvengine.get_txn_chunk_manager(),
         ia_ctx,

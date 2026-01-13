@@ -790,6 +790,36 @@ impl ColumnarFile {
         self.core.tables.keys().cloned().collect()
     }
 
+    /// Build a minimal [`Schema`] for reading this columnar file.
+    ///
+    /// This schema only contains handle/version columns (and empty `columns`),
+    /// which is sufficient for debugging handle/version/delete information.
+    pub fn infer_table_schema(&self, table_id: i64) -> crate::table::Result<Schema> {
+        use schema::schema::StorageClassSpec;
+
+        use crate::table::schema_file::SchemaBuf;
+
+        let table_meta = self.try_get_table(table_id)?;
+        let handle_column: ColumnInfo = table_meta.handle_column.col_info.clone();
+        let version_column: ColumnInfo = table_meta.version_column.col_info.clone();
+        let max_col_id = handle_column
+            .get_column_id()
+            .max(version_column.get_column_id());
+        let schema_buf = SchemaBuf::new(
+            table_id,
+            handle_column,
+            version_column,
+            vec![],
+            vec![],
+            max_col_id,
+            vec![],
+            vec![],
+            StorageClassSpec::default(),
+            None,
+        );
+        Ok(Schema::new(schema_buf))
+    }
+
     /// The offset of first table meta (index).
     #[inline]
     pub fn get_meta_offset(&self) -> u32 {
@@ -986,6 +1016,25 @@ impl ColumnBuffer {
             let start = idx * self.fixed_size;
             let end = (idx + 1) * self.fixed_size;
             &self.data_buf[start..end]
+        }
+    }
+
+    pub fn mut_not_null_value(&mut self, idx: usize) -> &mut [u8] {
+        debug_assert!(
+            !self.nullable || self.nulls[idx] == 0,
+            "id: {}, nulls: {:?}, idx {}",
+            self.col_id,
+            self.nulls,
+            idx
+        );
+        if self.fixed_size == 0 {
+            let start = self.offsets[idx] as usize;
+            let end = self.offsets[idx + 1] as usize;
+            &mut self.data_buf[start..end]
+        } else {
+            let start = idx * self.fixed_size;
+            let end = (idx + 1) * self.fixed_size;
+            &mut self.data_buf[start..end]
         }
     }
 
@@ -1553,6 +1602,135 @@ impl Block {
             }
         }
         unreachable!()
+    }
+
+    /// Compare all columns for tests.
+    #[cfg(any(test, feature = "testexport"))]
+    pub fn eq(&self, other: &Block) -> bool {
+        fn col_eq(lhs: &ColumnBuffer, rhs: &ColumnBuffer) -> bool {
+            lhs.col_id == rhs.col_id
+                && lhs.nullable == rhs.nullable
+                && lhs.fixed_size == rhs.fixed_size
+                && lhs.data_buf == rhs.data_buf
+                && lhs.offsets == rhs.offsets
+                && lhs.nulls == rhs.nulls
+        }
+
+        col_eq(&self.handles, &other.handles)
+            && col_eq(&self.versions, &other.versions)
+            && self.columns.len() == other.columns.len()
+            && self
+                .columns
+                .iter()
+                .zip(other.columns.iter())
+                .all(|(lhs, rhs)| col_eq(lhs, rhs))
+    }
+
+    /// Compares selected columns by column id for tests.
+    ///
+    /// It always compares row count. Handles & version comparison is
+    /// controlled by `compare_handles`. Only columns whose ids are listed in
+    /// `compare_col_ids` are compared; other columns are ignored.
+    #[cfg(any(test, feature = "testexport"))]
+    pub fn cols_eq(&self, other: &Block, compare_handles: bool, compare_col_ids: &[i64]) -> bool {
+        fn col_eq(lhs: &ColumnBuffer, rhs: &ColumnBuffer) -> bool {
+            lhs.col_id == rhs.col_id
+                && lhs.nullable == rhs.nullable
+                && lhs.fixed_size == rhs.fixed_size
+                && lhs.data_buf == rhs.data_buf
+                && lhs.offsets == rhs.offsets
+                && lhs.nulls == rhs.nulls
+        }
+
+        if self.length() != other.length() {
+            return false;
+        }
+        if compare_handles {
+            if !col_eq(&self.handles, &other.handles) {
+                return false;
+            }
+            if !col_eq(&self.versions, &other.versions) {
+                return false;
+            }
+        }
+
+        for &col_id in compare_col_ids {
+            let lhs = self.columns.iter().find(|c| c.col_id() as i64 == col_id);
+            let rhs = other.columns.iter().find(|c| c.col_id() as i64 == col_id);
+            match (lhs, rhs) {
+                (Some(lhs), Some(rhs)) => {
+                    if !col_eq(lhs, rhs) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+
+        true
+    }
+
+    /// Sort rows by handle then version for tests.
+    /// Not implemented in efficient way, only for test use.
+    #[cfg(any(test, feature = "testexport"))]
+    pub fn sort(&mut self) {
+        let len = self.length();
+        if len <= 1 {
+            return;
+        }
+
+        let int_handle = self.handles.get_fixed_size() == 8;
+        let mut order: Vec<usize> = (0..len).collect();
+        order.sort_by(|&a, &b| {
+            let handle_cmp = if int_handle {
+                let lhs = self.handles.get_int_handle_value(a);
+                let rhs = self.handles.get_int_handle_value(b);
+                lhs.cmp(&rhs)
+            } else {
+                self.handles
+                    .get_not_null_value(a)
+                    .cmp(self.handles.get_not_null_value(b))
+            };
+            if handle_cmp != std::cmp::Ordering::Equal {
+                return handle_cmp;
+            }
+            self.versions
+                .get_version(a)
+                .cmp(&self.versions.get_version(b))
+        });
+
+        let mut sorted_handles = ColumnBuffer::new(
+            self.handles.col_id(),
+            self.handles.get_fixed_size(),
+            self.handles.is_nullable(),
+        );
+        let mut sorted_versions = ColumnBuffer::new(
+            self.versions.col_id(),
+            self.versions.get_fixed_size(),
+            self.versions.is_nullable(),
+        );
+        let mut sorted_columns: Vec<ColumnBuffer> = self
+            .columns
+            .iter()
+            .map(|col| ColumnBuffer::new(col.col_id(), col.get_fixed_size(), col.is_nullable()))
+            .collect();
+
+        for &idx in &order {
+            sorted_handles.push_value(self.handles.get_not_null_value(idx));
+            sorted_versions
+                .push_version(self.versions.get_version(idx), self.versions.is_null(idx));
+            for (src, dst) in self.columns.iter().zip(sorted_columns.iter_mut()) {
+                if src.is_nullable() && src.is_null(idx) {
+                    dst.push_null();
+                } else {
+                    dst.push_value(src.get_not_null_value(idx));
+                }
+            }
+        }
+
+        self.handles = sorted_handles;
+        self.versions = sorted_versions;
+        self.columns = sorted_columns;
     }
 }
 

@@ -1233,6 +1233,7 @@ dependencies = [
  "stable_deref_trait",
  "tantivy",
  "tempfile",
+ "tipb",
 ]
 
 [[package]]
@@ -9181,6 +9182,7 @@ dependencies = [
  "api_version",
  "async-trait",
  "bytes",
+ "clara_fts",
  "codec",
  "collections",
  "fail 0.5.0",
@@ -9202,6 +9204,7 @@ dependencies = [
  "tikv_util",
  "tipb",
  "tipb_helper",
+ "tokio",
  "txn_types",
  "yatp",
 ]

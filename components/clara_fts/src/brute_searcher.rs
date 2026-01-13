@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
-
-use anyhow::{bail, Result};
+use anyhow::Result;
 use tantivy::tokenizer::TextAnalyzer;
 
 /// Search for a specified query within a dataset without any index.
@@ -29,17 +27,12 @@ pub struct BruteScoredSearcher {
     /// TODO: Support using different tokenizers for source text and query text.
     text_tokenizer: TextAnalyzer,
 
-    /// Pre-tokenized query.
-    query_tokens: HashMap<String, /* token_index */ usize>,
+    /// Whether the caller needs scores (true) or only matching doc ids (false).
+    need_score: bool,
+
+    query: crate::Query,
 
     // Fields below are for BM25 statistics.
-    // Tantivy is calculating BM25 by summing token scores and if there are duplicate tokens in the
-    // query, they will be counted multiple times. We provide the same score as Tantivy.
-    /// The number of occurs for each token in the query: `[Token0, Token1,
-    /// ...]` if there are duplicate token in one query they will be counted
-    /// here.
-    token_occurs: Vec<u32>,
-
     /// Number of tokens each row: `[Row0, Row1, ...]`
     /// Here we do not store the actual tokens number, but store "fieldnorm id"
     /// (which maps u32 length to u8 id). This is not for saving memory, but
@@ -60,48 +53,21 @@ pub struct BruteScoredSearcher {
 }
 
 impl BruteScoredSearcher {
-    pub fn new(tokenizer_name: &str, query: &str) -> Result<Self> {
-        use std::collections::hash_map::Entry;
-
-        let tokenizers = crate::tokenizer::TOKENIZERS.clone();
-        let tokenizer = tokenizers.get(tokenizer_name);
-        if tokenizer.is_none() {
-            bail!("Tokenizer {:?} not found", tokenizer_name);
-        }
-
-        let mut token_occurs = Vec::new();
-        let mut token_idx = 0;
-        let mut query_tokenizer = tokenizer.clone().unwrap();
-        let mut query_tokens = query_tokenizer.token_stream(query);
-        let mut ret_query_tokens = HashMap::new();
-        while query_tokens.advance() {
-            let token = query_tokens.token_mut();
-            let text = std::mem::take(&mut token.text);
-            let entry = ret_query_tokens.entry(text);
-            match entry {
-                Entry::Occupied(e) => {
-                    token_occurs[*e.get()] += 1;
-                }
-                Entry::Vacant(e) => {
-                    e.insert(token_idx);
-                    token_idx += 1;
-                    token_occurs.push(1);
-                }
-            }
-        }
-
-        assert_eq!(token_occurs.len(), ret_query_tokens.len());
-        let uniq_tokens_n = ret_query_tokens.len();
-
+    /// Creates a brute-force searcher based on a parsed FTS query.
+    ///
+    /// The query parsing work is shared with the indexed path (see
+    /// `query/mod.rs` and `IndexReader`), so callers don't need to re-tokenize
+    /// or reinterpret query strings differently for brute-force search.
+    pub fn new(query: &crate::Query) -> Result<Self> {
         Ok(Self {
-            text_tokenizer: tokenizer.unwrap(),
-            query_tokens: ret_query_tokens,
-            token_occurs,
+            text_tokenizer: query.tokenizer().clone(),
+            need_score: query.info().get_query_type() == tipb::FtsQueryType::FtsQueryTypeWithScore,
+            query: query.clone(),
             per_row_n_tokens: Vec::new(),
             total_tokens: 0,
             per_row_per_token_hits: Vec::new(),
-            per_token_doc_hits: vec![0; uniq_tokens_n],
-            buf_per_token_hits: Vec::new(),
+            per_token_doc_hits: vec![0; query.query_tokens().len()],
+            buf_per_token_hits: vec![0; query.query_tokens().len()],
         })
     }
 
@@ -115,7 +81,7 @@ impl BruteScoredSearcher {
     pub fn reserve(&mut self, additional: usize) {
         self.per_row_n_tokens.reserve(additional);
         self.per_row_per_token_hits
-            .reserve(additional * self.query_tokens.len());
+            .reserve(additional * self.query.query_tokens().len());
     }
 
     pub fn clear(&mut self) {
@@ -129,15 +95,14 @@ impl BruteScoredSearcher {
         // We don't actually store the tokenlized data, only store metadata,
         // which is enough.
 
-        self.buf_per_token_hits.clear();
-        self.buf_per_token_hits.resize(self.query_tokens.len(), 0);
+        self.buf_per_token_hits.fill(0);
 
         let mut this_doc_tokens = 0u32;
         let mut src_tokens = self.text_tokenizer.token_stream(body);
         while src_tokens.advance() {
             let token = src_tokens.token();
             this_doc_tokens += 1;
-            let token_idx_ = self.query_tokens.get(&token.text);
+            let token_idx_ = self.query.query_tokens().get(&token.text);
             if let Some(token_idx) = token_idx_ {
                 // Token occurs in the query.
                 self.buf_per_token_hits[*token_idx] += 1;
@@ -158,10 +123,62 @@ impl BruteScoredSearcher {
         }
     }
 
+    /// Scores a single document using globally prepared BM25 weights.
+    ///
+    /// This is used by readers that need to score unindexed rows while keeping
+    /// scores comparable to indexed hits.
+    ///
+    /// Returns 0.0 when the document is empty or does not match any query term.
+    pub fn score_document(&mut self, body: &str) -> f32 {
+        debug_assert!(
+            self.need_score,
+            "score_document should only be used for WithScore queries"
+        );
+        debug_assert!(
+            self.query.prepared_bm25().is_some(),
+            "score_document requires prepared BM25 statistics"
+        );
+        let prepared = self.query.prepared_bm25().unwrap();
+        debug_assert_eq!(
+            prepared.weights_by_token_idx().len(),
+            self.query.query_tokens().len(),
+            "PreparedBm25 must be aligned to query_tokens"
+        );
+
+        self.buf_per_token_hits.fill(0);
+
+        let mut dl = 0u32;
+        let mut token_stream = self.text_tokenizer.token_stream(body);
+        while token_stream.advance() {
+            let token = token_stream.token();
+            dl += 1;
+            if let Some(&idx) = self.query.query_tokens().get(token.text.as_str()) {
+                self.buf_per_token_hits[idx] += 1;
+            }
+        }
+        if dl == 0 {
+            return 0.0;
+        }
+
+        let fieldnorm_id = crate::fieldnorm_to_id(dl);
+        let weights = prepared.weights_by_token_idx();
+        let token_occurs = self.query.token_occurs();
+
+        let mut score = 0.0f32;
+        for idx in 0..weights.len() {
+            let tf = self.buf_per_token_hits[idx];
+            if tf == 0 {
+                continue;
+            }
+            score += weights[idx].score(fieldnorm_id, tf) * (token_occurs[idx] as f32);
+        }
+        score
+    }
+
     pub fn add_null(&mut self) {
         self.per_row_n_tokens.push(0);
         self.per_row_per_token_hits.resize(
-            self.per_row_per_token_hits.len() + self.query_tokens.len(),
+            self.per_row_per_token_hits.len() + self.query.query_tokens().len(),
             0,
         );
     }
@@ -171,48 +188,41 @@ impl BruteScoredSearcher {
     ///
     /// This function contains heavy computation and the result won't change if
     /// there is no new doc.
-    #[allow(clippy::needless_range_loop)]
-    pub fn search(
-        &self,
-        filter: &crate::BitmapFilter<'_>,
-        results: &mut Vec<super::ScoredResult>,
-    ) -> Result<()> {
+    #[inline]
+    pub fn search(&self, results: &mut Vec<super::ScoredResult>) -> Result<()> {
+        if self.need_score {
+            self.search_scored(results)
+        } else {
+            self.search_no_scored(results)
+        }
+    }
+
+    fn search_scored(&self, results: &mut Vec<super::ScoredResult>) -> Result<()> {
         results.clear();
 
         let total_num_docs = self.per_row_n_tokens.len();
-        let uniq_tokens = self.query_tokens.len();
+        let uniq_tokens = self.query.query_tokens().len();
 
-        if total_num_docs == 0 {
+        if total_num_docs == 0 || uniq_tokens == 0 {
             return Ok(());
         }
 
-        if !filter.match_all && total_num_docs != filter.match_partial.len() {
-            bail!(
-                "Invalid bitmap filter, expected length {}, got {}",
-                total_num_docs,
-                filter.match_partial.len()
+        let avg_fieldnorm = self.total_tokens as f32 / total_num_docs as f32;
+        let mut weights_per_token = Vec::with_capacity(uniq_tokens);
+        for i in 0..uniq_tokens {
+            let term_doc_freq = self.per_token_doc_hits[i];
+            let weight = tantivy::query::Bm25Weight::for_one_term(
+                term_doc_freq as u64,
+                total_num_docs as u64,
+                avg_fieldnorm,
             );
+            weights_per_token.push(weight);
         }
 
-        let mut weights_per_token = Vec::with_capacity(uniq_tokens);
-        {
-            let avg_fieldnorm = self.total_tokens as f32 / total_num_docs as f32;
-            for i in 0..uniq_tokens {
-                let term_doc_freq = self.per_token_doc_hits[i];
-                let weight = tantivy::query::Bm25Weight::for_one_term(
-                    term_doc_freq as u64,
-                    total_num_docs as u64,
-                    avg_fieldnorm,
-                );
-                weights_per_token.push(weight);
-            }
-        }
+        let token_occurs = self.query.token_occurs();
 
         results.reserve(total_num_docs);
         for doc_id in 0..total_num_docs {
-            if !filter.match_all && filter.match_partial[doc_id] == 0 {
-                continue;
-            }
             let doc_id_mul_tokens = doc_id * uniq_tokens;
             let mut score = 0.0;
             for token_idx in 0..uniq_tokens {
@@ -224,7 +234,7 @@ impl BruteScoredSearcher {
                     self.per_row_n_tokens[doc_id], //
                     term_freq,
                 );
-                score += token_score * (self.token_occurs[token_idx] as f32);
+                score += token_score * (token_occurs[token_idx] as f32);
             }
             if score > 0.0 {
                 results.push(super::ScoredResult {
@@ -236,29 +246,67 @@ impl BruteScoredSearcher {
 
         Ok(())
     }
+
+    fn search_no_scored(&self, results: &mut Vec<super::ScoredResult>) -> Result<()> {
+        results.clear();
+
+        let total_num_docs = self.per_row_n_tokens.len();
+        let uniq_tokens = self.query.query_tokens().len();
+
+        if total_num_docs == 0 || uniq_tokens == 0 {
+            return Ok(());
+        }
+
+        results.reserve(total_num_docs);
+        for doc_id in 0..total_num_docs {
+            let doc_id_mul_tokens = doc_id * uniq_tokens;
+            for token_idx in 0..uniq_tokens {
+                if self.per_row_per_token_hits[doc_id_mul_tokens + token_idx] != 0 {
+                    results.push(super::ScoredResult {
+                        doc_id: doc_id as u32,
+                        score: 1.0,
+                    });
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
 
     use super::*;
+    use crate::query::test_util::{make_scored_query, make_unscored_query, PlainFtsQueryInfo};
 
     fn is_index_match(src: &str, query: &str) -> Result<bool> {
-        let mut index_writer = crate::IndexWriterInMemory::new("STANDARD_V1")?;
-        index_writer.add_document(src)?;
-        let buffer = index_writer.finalize()?;
-        let index_reader = crate::IndexReader::new_memory(buffer)?;
+        let idx = crate::index_for_test(&[src])?.finalize()?;
+        let index_reader = crate::IndexReader::from_tantivy_index(idx)?;
         let mut results = Vec::new();
-        index_reader.search_no_score(query, &crate::BitmapFilter::all_match(), &mut results)?;
+        index_reader.search(
+            &make_unscored_query(&PlainFtsQueryInfo {
+                query: query.to_string(),
+                tokenizer: "STANDARD_V1".to_string(),
+                ..Default::default()
+            }),
+            &mut results,
+        )?;
         Ok(!results.is_empty())
     }
 
     fn assert_match_eq(src: &str, query: &str) -> Result<()> {
         let index_match_result = is_index_match(src, query)?;
-        let mut searcher = BruteScoredSearcher::new("STANDARD_V1", query)?;
+        let query_obj = make_unscored_query(&PlainFtsQueryInfo {
+            query: query.to_string(),
+            tokenizer: "STANDARD_V1".to_string(),
+            ..Default::default()
+        });
+        let mut searcher = BruteScoredSearcher::new(&query_obj)?;
         searcher.add_document(src);
         let mut results = Vec::new();
-        searcher.search(&crate::BitmapFilter::all_match(), &mut results)?;
+        searcher.search(&mut results)?;
         let noindex_match_result = !results.is_empty();
         assert_eq!(
             index_match_result, noindex_match_result,
@@ -321,21 +369,22 @@ mod tests {
     ];
 
     fn assert_scores_eq(query: &str) -> Result<()> {
-        let mut index_writer = crate::IndexWriterInMemory::new("STANDARD_V1")?;
-        for doc in SCORE_SAMPLE_DOCS {
-            index_writer.add_document(doc)?;
-        }
-        let buffer = index_writer.finalize()?;
-        let index_reader = crate::IndexReader::new_memory(buffer)?;
+        let idx = crate::index_for_test(SCORE_SAMPLE_DOCS)?.finalize()?;
+        let index_reader = crate::IndexReader::from_tantivy_index(idx)?;
         let mut results_index = Vec::new();
-        index_reader.search_scored(query, &crate::BitmapFilter::all_match(), &mut results_index)?;
+        let query_obj = make_scored_query(&PlainFtsQueryInfo {
+            query: query.to_string(),
+            tokenizer: "STANDARD_V1".to_string(),
+            ..Default::default()
+        });
+        index_reader.search(&query_obj, &mut results_index)?;
 
-        let mut searcher = BruteScoredSearcher::new("STANDARD_V1", query)?;
+        let mut searcher = BruteScoredSearcher::new(&query_obj)?;
         for doc in SCORE_SAMPLE_DOCS {
             searcher.add_document(doc);
         }
         let mut results_noindex = Vec::new();
-        searcher.search(&crate::BitmapFilter::all_match(), &mut results_noindex)?;
+        searcher.search(&mut results_noindex)?;
 
         assert_eq!(
             results_index.len(),
@@ -385,6 +434,43 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn test_score_document_same_as_index_with_prepared_stats() -> Result<()> {
+        let idx = crate::index_for_test(SCORE_SAMPLE_DOCS)?.finalize()?;
+        let index_reader = crate::IndexReader::from_tantivy_index(idx)?;
+
+        let query_obj = make_scored_query(&PlainFtsQueryInfo {
+            query: "machine learning machine learning".to_string(),
+            tokenizer: "STANDARD_V1".to_string(),
+            ..Default::default()
+        });
+
+        let mut results_index = Vec::new();
+        index_reader.search(&query_obj, &mut results_index)?;
+        let index_score = results_index
+            .iter()
+            .find(|r| r.doc_id == 0)
+            .map(|r| r.score)
+            .expect("doc 0 should match query");
+        assert!(index_score.is_finite());
+        assert!(index_score > 0.0);
+
+        let mut stats = crate::Bm25Stats::empty(&query_obj);
+        index_reader.accumulate_bm25_stats(&query_obj, &mut stats)?;
+        assert!(query_obj.prepare_bm25_once(stats)?);
+
+        let mut brute = BruteScoredSearcher::new(&query_obj)?;
+        let brute_score = brute.score_document(SCORE_SAMPLE_DOCS[0]);
+        assert!(brute_score.is_finite());
+        assert!(
+            (brute_score - index_score).abs() < 0.001,
+            "Score mismatch: index={} brute={}",
+            index_score,
+            brute_score
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -392,6 +478,7 @@ mod benches {
     use std::{fs, hint::black_box, io};
 
     use super::*;
+    use crate::query::test_util::{make_scored_query, PlainFtsQueryInfo};
 
     fn prepare_bench_data() -> Vec<String> {
         use io::BufRead;
@@ -420,15 +507,19 @@ mod benches {
     #[ignore]
     fn bench_scored_brute_search(b: &mut test::Bencher) {
         let data = prepare_bench_data();
+        let query_obj = make_scored_query(&PlainFtsQueryInfo {
+            query: "sewing machine".to_string(),
+            tokenizer: "STANDARD_V1".to_string(),
+            ..Default::default()
+        });
 
         let mut results = Vec::new();
         b.iter(|| {
-            let mut s = BruteScoredSearcher::new("STANDARD_V1", "sewing machine").unwrap();
+            let mut s = BruteScoredSearcher::new(&query_obj).unwrap();
             for d in &data {
                 s.add_document(d);
             }
-            s.search(&crate::BitmapFilter::all_match(), &mut results)
-                .unwrap();
+            s.search(&mut results).unwrap();
             let matches = results.len();
             black_box(matches);
             assert_eq!(4, matches);
@@ -448,14 +539,14 @@ mod benches {
         let idx_reader = crate::IndexReader::from_tantivy_index(idx).unwrap();
 
         let mut results = Vec::new();
+        let query_obj = make_scored_query(&PlainFtsQueryInfo {
+            query: "sewing machine".to_string(),
+            tokenizer: "STANDARD_V1".to_string(),
+            ..Default::default()
+        });
+
         b.iter(|| {
-            idx_reader
-                .search_scored(
-                    "sewing machine",
-                    &crate::BitmapFilter::all_match(),
-                    &mut results,
-                )
-                .unwrap();
+            idx_reader.search(&query_obj, &mut results).unwrap();
             let matches = results.len();
             black_box(matches);
             assert_eq!(4, matches);
@@ -469,19 +560,19 @@ mod benches {
         let data_str = data.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
         let mut results = Vec::new();
+        let query_obj = make_scored_query(&PlainFtsQueryInfo {
+            query: "sewing machine".to_string(),
+            tokenizer: "STANDARD_V1".to_string(),
+            ..Default::default()
+        });
+
         b.iter(|| {
             let idx = crate::index_for_test(&data_str)
                 .unwrap()
                 .finalize()
                 .unwrap();
             let idx_reader = crate::IndexReader::from_tantivy_index(idx).unwrap();
-            idx_reader
-                .search_scored(
-                    "sewing machine",
-                    &crate::BitmapFilter::all_match(),
-                    &mut results,
-                )
-                .unwrap();
+            idx_reader.search(&query_obj, &mut results).unwrap();
             let matches = results.len();
             black_box(matches);
             assert_eq!(4, matches);

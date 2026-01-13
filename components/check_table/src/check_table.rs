@@ -17,7 +17,11 @@ use futures::executor::block_on;
 use kvengine::{
     context::{new_meta_file_cache, IaCtx, PrepareType, SnapCtx},
     dfs::{DFSConfig, Dfs, S3Fs},
-    table::{columnar::ColumnarMetaCache, sstable::BlockCache},
+    table::{
+        columnar::ColumnarMetaCache,
+        fts::{FtsCache, FtsDeltaCache},
+        sstable::BlockCache,
+    },
     txn_chunk_manager::{with_pool_size, TxnChunkManager, TxnChunkManagerConfig},
     Engine, Shard, ShardMeta, SnapAccess, UserMeta,
 };
@@ -524,6 +528,8 @@ impl BackupReader {
             block_cache: BlockCache::None,
             vector_index_cache: None,
             columnar_file_cache: None,
+            fts_cache: FtsCache::disabled(),
+            fts_delta_cache: FtsDeltaCache::disabled(),
             schema_files: None,
             txn_chunk_manager,
             ia_ctx: IaCtx::Disabled,

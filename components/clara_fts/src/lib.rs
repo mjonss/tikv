@@ -20,6 +20,15 @@ extern crate test;
 
 mod tantivy_compat;
 
+/// Converts a document length (token count) to Tantivy's `fieldnorm_id` (u8).
+///
+/// This matches Tantivy's internal fieldnorm encoding and is used to compute
+/// BM25 scores compatible with Tantivy's scorer.
+pub use tantivy_compat::fieldnorm_code::fieldnorm_to_id;
+
+mod query;
+pub use query::*;
+
 mod directory;
 pub use directory::*;
 mod index_writer;

@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use clara_fts::BitmapFilter;
+use clara_fts::test_util::{make_unscored_query, PlainFtsQueryInfo};
 
 use super::{lp_key, merge_fts_l0_l1, PackedFileMergeOpt};
 use crate::table::fts::{
@@ -32,9 +32,12 @@ fn index_doc_count<Pk: PkType>(lp: &PackedFileLp<Pk>) -> Result<u32> {
 
 fn search_doc_ids<Pk: PkType>(lp: &PackedFileLp<Pk>, term: &str) -> Result<Vec<u32>> {
     let reader = lp.cached_read_index()?;
+    let mut info = PlainFtsQueryInfo::default();
+    info.query = term.to_owned();
+    let query = make_unscored_query(&info);
     let mut results = Vec::new();
-    reader.search_no_score(term, &BitmapFilter::all_match(), &mut results)?;
-    Ok(results)
+    reader.search(&query, &mut results)?;
+    Ok(results.into_iter().map(|r| r.doc_id).collect())
 }
 
 #[tokio::test]

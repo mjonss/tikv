@@ -3,6 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
+use clara_fts::test_util::{make_unscored_query, PlainFtsQueryInfo};
 
 use super::merge_fts_l2_files;
 use crate::table::{
@@ -114,9 +115,12 @@ impl File for DelayFile {
 }
 
 fn search_doc_ids(reader: &clara_fts::IndexReader, term: &str) -> Result<Vec<u32>> {
+    let mut info = PlainFtsQueryInfo::default();
+    info.query = term.to_owned();
+    let query = make_unscored_query(&info);
     let mut results = Vec::new();
-    reader.search_no_score(term, &clara_fts::BitmapFilter::all_match(), &mut results)?;
-    Ok(results)
+    reader.search(&query, &mut results)?;
+    Ok(results.into_iter().map(|r| r.doc_id).collect())
 }
 
 #[tokio::test]

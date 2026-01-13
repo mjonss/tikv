@@ -22,6 +22,7 @@ use kvengine::{
     table::{
         columnar::{Block, ColumnarFilterReader, ColumnarMetaCache, GLOBAL_COMMON_HANDLE_END},
         file::FdCache,
+        fts::{FtsCache, FtsDeltaCache},
         schema_file::{Schema, SchemaFile},
         sstable::BlockCache,
     },
@@ -433,6 +434,8 @@ async fn request_snapshot_from_shard(
         block_cache: BlockCache::None,
         vector_index_cache: None,
         columnar_file_cache: None,
+        fts_cache: FtsCache::disabled(),
+        fts_delta_cache: FtsDeltaCache::disabled(),
         meta_file_cache: new_meta_file_cache(0),
         schema_files: None,
         txn_chunk_manager,

@@ -29,6 +29,7 @@ use crate::{
             dedicated_file::{DedicatedFileBuilder, DedicatedFileBuilderOptions, EDedicatedFile},
             iter::{CommonPk, IntPk, PkType},
             packed_file::{PackedFile, PackedFileBuilder, PackedFileBuilderOptions},
+            reader::VIRTUAL_SCORE_COLUMN_ID,
             FtsCache,
         },
         memtable::{CfTable, WriteBatch},
@@ -49,6 +50,7 @@ use crate::{
 /// let schema = SchemaBuilder::<IntPk>::new(table_id)
 ///     .column(1, FieldTypeTp::LongLong)
 ///     .column(2, FieldTypeTp::String)
+///     .fts_score_column(false)
 ///     .schema();
 /// ```
 pub struct SchemaBuilder<Pk: PkType> {
@@ -113,6 +115,17 @@ impl<Pk: PkType> SchemaBuilder<Pk> {
 
     pub fn pk_col_ids(mut self, pk_col_ids: Vec<i64>) -> Self {
         self.pk_col_ids = pk_col_ids;
+        self
+    }
+
+    pub fn fts_score_column(mut self, nullable: bool) -> Self {
+        let mut col = ColumnInfo::new();
+        col.set_column_id(VIRTUAL_SCORE_COLUMN_ID);
+        col.set_tp(FieldTypeTp::Float as i32);
+        if !nullable {
+            col.set_flag(FieldTypeFlag::NOT_NULL.bits() as i32);
+        }
+        self.columns.push(col);
         self
     }
 

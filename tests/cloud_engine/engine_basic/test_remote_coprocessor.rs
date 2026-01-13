@@ -13,6 +13,7 @@ use kvengine::{
     },
     table::{
         columnar::ColumnarMetaCache,
+        fts::{FtsCache, FtsDeltaCache},
         sstable::{BlockCache, BlockCacheType},
     },
     txn_chunk_manager::{with_pool_size, TxnChunkManager, TxnChunkManagerConfig},
@@ -2453,6 +2454,8 @@ impl<'a> DagTest<'a> {
             block_cache,
             vector_index_cache: None,
             columnar_file_cache: None,
+            fts_cache: FtsCache::disabled(),
+            fts_delta_cache: FtsDeltaCache::disabled(),
             schema_files: None,
             txn_chunk_manager,
             ia_ctx: IaCtx::Disabled,

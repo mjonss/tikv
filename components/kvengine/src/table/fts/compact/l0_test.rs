@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use clara_fts::BitmapFilter;
+use clara_fts::test_util::{make_unscored_query, PlainFtsQueryInfo};
 use kvenginepb::fts::FullTextIndexDef;
 use tidb_query_datatype::FieldTypeTp;
 
@@ -91,14 +91,22 @@ async fn test_columnar_l0_to_fts_basic() -> Result<()> {
 
     // Test searching for "abc" - rows above embed "abc" so the query should
     // succeed.
-    reader.search_no_score("abc", &BitmapFilter::all_match(), &mut results)?;
+    let query = make_unscored_query(&PlainFtsQueryInfo {
+        query: "abc".to_string(),
+        ..Default::default()
+    });
+    reader.search(&query, &mut results)?;
     assert!(
         !results.is_empty(),
         "Should find documents containing 'abc' from generated test data"
     );
 
     // Test searching for a term that doesn't exist
-    reader.search_no_score("nonexistent", &BitmapFilter::all_match(), &mut results)?;
+    let query = make_unscored_query(&PlainFtsQueryInfo {
+        query: "nonexistent".to_string(),
+        ..Default::default()
+    });
+    reader.search(&query, &mut results)?;
     assert_eq!(
         results.len(),
         0,
@@ -175,8 +183,12 @@ async fn test_columnar_l0_to_fts_invalid_utf8_should_not_fail() -> Result<()> {
     let lp = lp.as_int_lp().unwrap();
 
     let reader = lp.cached_read_index()?;
+    let query = make_unscored_query(&PlainFtsQueryInfo {
+        query: "hello".to_string(),
+        ..Default::default()
+    });
     let mut results = Vec::new();
-    reader.search_no_score("hello", &BitmapFilter::all_match(), &mut results)?;
+    reader.search(&query, &mut results)?;
     assert!(!results.is_empty(), "Should still index valid UTF-8 rows");
 
     Ok(())
@@ -490,8 +502,14 @@ async fn test_multiple_indexes_per_table() -> Result<()> {
 
     let mut results_1 = Vec::new();
     let mut results_3 = Vec::new();
-    reader_1.search_no_score("abc", &BitmapFilter::all_match(), &mut results_1)?;
-    reader_3.search_no_score("abc", &BitmapFilter::all_match(), &mut results_3)?;
+
+    let query = make_unscored_query(&PlainFtsQueryInfo {
+        query: "abc".to_string(),
+        ..Default::default()
+    });
+
+    reader_1.search(&query, &mut results_1)?;
+    reader_3.search(&query, &mut results_3)?;
 
     // Both should find results since they index the same data
     assert!(!results_1.is_empty(), "Index 1 should find search results");
@@ -586,7 +604,13 @@ async fn test_multiple_columnar_files() -> Result<()> {
     // Test MVCC with different versions
     let reader = lp.cached_read_index()?;
     let mut results = Vec::new();
-    reader.search_no_score("abc", &BitmapFilter::all_match(), &mut results)?;
+
+    let query = make_unscored_query(&PlainFtsQueryInfo {
+        query: "abc".to_string(),
+        ..Default::default()
+    });
+
+    reader.search(&query, &mut results)?;
     assert!(!results.is_empty(), "Should find documents in merged index");
 
     // Test MVCC version checking with overlapping versions
@@ -763,7 +787,13 @@ async fn test_index_id_filtering() -> Result<()> {
     // Verify search works on index 2
     let reader = lp_2.cached_read_index()?;
     let mut results = Vec::new();
-    reader.search_no_score("abc", &BitmapFilter::all_match(), &mut results)?;
+
+    let query = make_unscored_query(&PlainFtsQueryInfo {
+        query: "abc".to_string(),
+        ..Default::default()
+    });
+
+    reader.search(&query, &mut results)?;
     assert!(!results.is_empty(), "Search should find results in index 2");
 
     Ok(())

@@ -36,6 +36,7 @@ use crate::{
         blobtable::blobtable::BlobTable,
         columnar::{ColumnarLevel, ColumnarLevels, VectorIndexDef},
         file::InMemFile,
+        fts::FtsLevels,
         get_local_dir,
         memtable::{self, CfTable},
         schema_file::SchemaFile,
@@ -1862,6 +1863,7 @@ pub(crate) struct ShardDataBuilder {
     columnar_levels: Option<ColumnarLevels>,
     vector_indexes: Option<VectorIndexes>,
     columnar_table_ids: Option<Vec<i64>>,
+    fts_levels: Option<FtsLevels>,
     persisted_version: Option<SnapVersion>,
 }
 
@@ -1882,6 +1884,7 @@ impl ShardDataBuilder {
             columnar_levels: None,
             vector_indexes: None,
             columnar_table_ids: None,
+            fts_levels: None,
             persisted_version: None,
         }
     }
@@ -2011,6 +2014,9 @@ impl ShardDataBuilder {
             self.columnar_table_ids
                 .take()
                 .unwrap_or_else(|| self.old.columnar_table_ids.clone()),
+            self.fts_levels
+                .take()
+                .unwrap_or_else(|| (*self.old.fts_levels).clone()),
             self.persisted_version
                 .take()
                 .unwrap_or(self.old.persisted_version),
@@ -2082,6 +2088,7 @@ impl ShardData {
             ColumnarLevels::new(),
             VectorIndexes::default(),
             vec![],
+            FtsLevels::default(),
             SnapVersion::zero(),
         )
     }
@@ -2103,6 +2110,7 @@ impl ShardData {
         col_levels: ColumnarLevels,
         vector_indexes: VectorIndexes,
         columnar_table_ids: Vec<i64>,
+        fts_levels: FtsLevels,
         persisted_version: SnapVersion,
     ) -> Self {
         assert!(!mem_tbls.is_empty());
@@ -2125,6 +2133,7 @@ impl ShardData {
                 col_levels,
                 vector_indexes,
                 columnar_table_ids,
+                fts_levels: Arc::new(fts_levels),
                 persisted_version,
             }),
         }
@@ -2160,6 +2169,7 @@ pub(crate) struct ShardDataCore {
     // columnar_table_ids is the list of columnar table ids that have been columnar major
     // compacted.
     pub(crate) columnar_table_ids: Vec<i64>,
+    pub(crate) fts_levels: Arc<FtsLevels>,
     pub(crate) persisted_version: SnapVersion,
 }
 

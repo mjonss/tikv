@@ -10,6 +10,7 @@ anyhow = "1.0"
 api_version = { path = "../api_version", default-features = false }
 async-trait = "0.1"
 bytes = "1.2.1"
+clara_fts = { path = "../clara_fts" }
 codec = { workspace = true }
 collections = { workspace = true }
 fail = "0.5"
@@ -29,6 +30,7 @@ tidb_query_datatype = { workspace = true }
 tidb_query_expr = { workspace = true }
 tikv_util = { workspace = true }
 tipb = { workspace = true }
+tokio = { version = "1.5", features = ["rt"] }
 txn_types = { workspace = true }
 yatp = { workspace = true }
 
