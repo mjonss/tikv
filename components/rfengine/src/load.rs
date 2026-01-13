@@ -4,7 +4,7 @@ use std::{
     fs,
     os::unix::fs::FileExt,
     path::Path,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
 };
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -56,8 +56,8 @@ impl RfEngineCore {
         let mut async_wal_offset = None;
         for epoch in first_wal_epoch..=sync_epoch {
             let send_rotate = epoch > first_wal_epoch;
-            let send_write = async_epoch.map_or(false, |async_epoch| epoch >= async_epoch);
-            let is_async_epoch = async_epoch.map_or(false, |async_epoch| epoch == async_epoch);
+            let send_write = async_epoch.is_some_and(|async_epoch| epoch >= async_epoch);
+            let is_async_epoch = async_epoch == Some(epoch);
             let is_sync_epoch = epoch == sync_epoch;
             if send_rotate {
                 self.try_send_task(ServiceTask::Rotate {

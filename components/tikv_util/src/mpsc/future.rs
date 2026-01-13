@@ -12,7 +12,7 @@ use crossbeam::{
     channel::{SendError, TryRecvError},
     queue::{ArrayQueue, SegQueue},
 };
-use futures::{task::AtomicWaker, Stream, StreamExt};
+use futures::{Stream, StreamExt, task::AtomicWaker};
 
 enum QueueType<T> {
     Unbounded(SegQueue<T>),
@@ -274,8 +274,9 @@ where
 mod tests {
     use std::{
         sync::{
+            Arc, Mutex,
             atomic::{AtomicBool, AtomicUsize},
-            mpsc, Arc, Mutex,
+            mpsc,
         },
         thread, time,
     };

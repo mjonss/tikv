@@ -5,8 +5,8 @@ use std::{
     io::Cursor,
     path::Path,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -17,12 +17,12 @@ use tikv_util::codec::number::NumberEncoder;
 
 use super::*;
 use crate::table::{
+    ChecksumType,
     file::{File, InMemFile},
     fts::{
-        iter::{CommonPk, IntPk, PkReader},
         FtsCache,
+        iter::{CommonPk, IntPk, PkReader},
     },
-    ChecksumType,
 };
 
 #[cfg(any(test, feature = "testexport"))]
@@ -190,7 +190,8 @@ async fn test_handle_rank() -> Result<()> {
     let stride = iblock.get_hblock_handle_rank_stride() as usize;
     assert_eq!(stride, 1);
     let ranks = iblock.get_hblock_handle_rank();
-    let expected = ((dedicated_file.props().get_pk_total() as usize + stride - 1) / stride) + 1;
+    let total = dedicated_file.props().get_pk_total() as usize;
+    let expected = total.div_ceil(stride) + 1;
     assert_eq!(ranks.len(), expected);
     assert_eq!(
         ranks.last().copied(),

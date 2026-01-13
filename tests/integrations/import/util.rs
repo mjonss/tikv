@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, thread, time::Duration};
 
-use futures::{executor::block_on, stream, SinkExt};
+use futures::{SinkExt, executor::block_on, stream};
 use grpcio::{ChannelBuilder, Environment, Result, WriteFlags};
 use kvproto::{import_sstpb::*, kvrpcpb::*, tikvpb::*};
 use security::SecurityConfig;

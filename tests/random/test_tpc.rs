@@ -5,7 +5,7 @@ use std::{path::PathBuf, str::FromStr, sync::atomic::Ordering, time::Duration};
 use test_cloud_server::{keyspace::KeyspaceManager, tidb::TidbCluster, tpc::Tpc};
 use tikv_util::{info, time::Instant};
 
-use crate::{env_param, Running, TPCC_COUNTER};
+use crate::{Running, TPCC_COUNTER, env_param};
 
 const TPCC_WAREHOUSES: usize = 2;
 const TPCC_MAX_PROCS: usize = 1;

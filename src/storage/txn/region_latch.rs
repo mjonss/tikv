@@ -8,7 +8,7 @@ use kvengine::table::TxnFile;
 use parking_lot::{Mutex, MutexGuard};
 use tikv_util::deadline::Deadline;
 
-use crate::storage::txn::{latch::Latch, Lock};
+use crate::storage::txn::{Lock, latch::Latch};
 
 #[derive(Debug)]
 pub struct WakeupTask {
@@ -194,10 +194,10 @@ impl RegionTxnLatch {
     fn acquire_txn_lock(&mut self, lock: &mut Lock, who: u64) -> bool {
         debug!("acquire_txn_lock {}", who; "lock" => ?lock);
         debug_assert!(lock.txn_file.is_some());
-        if !self
+        if self
             .waiting_tasks
             .first()
-            .is_some_and(|latch| latch.cid == who)
+            .is_none_or(|latch| latch.cid != who)
         {
             self.waiting_tasks.push(TxnFileLatch::from_lock(lock, who));
         }
@@ -260,12 +260,12 @@ impl RegionTxnLatch {
 mod tests {
     use api_version::ApiV2;
     use kvengine::{
+        GLOBAL_SHARD_END_KEY, UserMeta,
         table::{
-            file::InMemFile, sstable::BlockCache, InnerKey, TxnChunk, TxnChunkBuilder, TxnCtx,
-            TxnFileId, OP_PUT,
+            InnerKey, OP_PUT, TxnChunk, TxnChunkBuilder, TxnCtx, TxnFileId, file::InMemFile,
+            sstable::BlockCache,
         },
         util::test_util::KeyBuilder,
-        UserMeta, GLOBAL_SHARD_END_KEY,
     };
     use txn_types::Key;
 

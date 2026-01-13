@@ -4,13 +4,13 @@ use std::mem;
 
 use byteorder::{ByteOrder, LittleEndian};
 use bytes::{Buf, BufMut};
-use kvengine::{table::SnapVersion, IdVer};
+use kvengine::{IdVer, table::SnapVersion};
 use kvenginepb::get_any_snap_from_changeset;
 use kvproto::raft_cmdpb::{CustomRequest, RaftCmdRequest};
 use protobuf::Message;
 use tikv_util::{codec::number::U64_SIZE, warn};
 
-use crate::store::{is_change_set_affect_mem_table, PeerTag};
+use crate::store::{PeerTag, is_change_set_affect_mem_table};
 
 pub fn get_custom_log(req: &RaftCmdRequest) -> Option<CustomRaftLog<'_>> {
     if !req.has_custom_request() {

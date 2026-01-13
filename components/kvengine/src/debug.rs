@@ -10,7 +10,7 @@ use crossbeam::queue::ArrayQueue;
 use dashmap::DashMap;
 use log_wrappers::hex_encode;
 
-use crate::{table::memtable, Shard};
+use crate::{Shard, table::memtable};
 
 const RAFT_LOG_QUEUE_CAP: usize = 1024;
 const MEM_TABLE_ACTION_QUEUE_CAP_PER_REGION: usize = 512;

@@ -11,13 +11,13 @@ use std::{
 use clap::Args;
 use futures::future::join_all;
 use kvengine::{
+    IoContext,
     dfs::{DFSConfig, Dfs, FileType, Options, S3Fs},
     table::{
         blobtable::{blobtable::BlobTable, builder::BlobFooter},
         file::{File, InMemFile},
         sstable::{BlockCache, Footer, L0Footer, L0Table, SsTable},
     },
-    IoContext,
 };
 
 #[derive(Args)]
@@ -243,7 +243,7 @@ fn iterate_dir(path: &Path, rt: &tokio::runtime::Runtime) -> Vec<tokio::task::Jo
 }
 
 fn handle_table_file(path: &Path) {
-    if !path.extension().is_some_and(|ext| ext == OsStr::new("sst")) {
+    if path.extension().is_none_or(|ext| ext != OsStr::new("sst")) {
         // TODO: support other file types
         return;
     }

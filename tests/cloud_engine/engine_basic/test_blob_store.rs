@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use api_version::ApiV2;
-use kvengine::{KvEnginePerKeyspaceConfig, CF_LEVELS, WRITE_CF};
+use kvengine::{CF_LEVELS, KvEnginePerKeyspaceConfig, WRITE_CF};
 use kvproto::{
     metapb::Store,
     pdpb::CheckPolicy,

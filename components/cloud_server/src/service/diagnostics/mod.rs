@@ -21,7 +21,7 @@ use kvproto::diagnosticspb::{
 };
 use lazy_static::lazy_static;
 use tikv_util::{
-    sys::{ioload, SystemExt},
+    sys::{SystemExt, ioload},
     timer::GLOBAL_TIMER_HANDLE,
 };
 use tokio::runtime::Handle;

@@ -5,7 +5,7 @@
 use std::{convert::TryInto, sync::Arc};
 
 use engine_traits::CF_DEFAULT;
-use file_system::{get_io_rate_limiter, IoPriority, IoType};
+use file_system::{IoPriority, IoType, get_io_rate_limiter};
 use online_config::{ConfigChange, ConfigManager, ConfigValue, Result as CfgResult};
 use strum::IntoEnumIterator;
 use tikv_kv::Engine;
@@ -13,7 +13,7 @@ use tikv_util::config::ReadableSize;
 
 use crate::{
     server::CONFIG_ROCKSDB_GAUGE,
-    storage::{lock_manager::LockManager, txn::flow_controller::FlowController, TxnScheduler},
+    storage::{TxnScheduler, lock_manager::LockManager, txn::flow_controller::FlowController},
 };
 
 pub struct StorageConfigManger<E: Engine, L: LockManager> {

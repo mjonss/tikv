@@ -2,16 +2,16 @@
 
 use std::{convert::TryFrom, io::Cursor};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::Bytes;
 
 use super::merge_utils::{compute_merge_mapping, merge_tantivy_indexes};
 use crate::table::fts::{
+    FtsBuildOptions, IntPk,
     dedicated_file::{
         DedicatedFile, DedicatedFileBuilder, DedicatedFileBuilderOptions, EDedicatedFile,
     },
     iter::{CommonPk, OrderedPkIterator, PkReader, PkType},
-    FtsBuildOptions, IntPk,
 };
 
 async fn advance_iter_to_doc<I: OrderedPkIterator>(
@@ -289,7 +289,7 @@ pub fn pick_l2_merge_files(
 
 #[cfg(test)]
 mod tests {
-    use super::{pick_l2_merge_files, LogMergeCandidate};
+    use super::{LogMergeCandidate, pick_l2_merge_files};
     use crate::table::fts::FtsBuildOptions;
 
     fn ids_vec(ids: &[u64]) -> Vec<u64> {

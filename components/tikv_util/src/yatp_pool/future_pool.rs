@@ -6,8 +6,8 @@
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -128,7 +128,7 @@ impl PoolInner {
             max_tasks: 100,
         }));
 
-        if self.max_tasks == std::usize::MAX {
+        if self.max_tasks == usize::MAX {
             return Ok(());
         }
 
@@ -209,8 +209,9 @@ impl std::error::Error for Full {
 mod tests {
     use std::{
         sync::{
+            Mutex,
             atomic::{AtomicUsize, Ordering},
-            mpsc, Mutex,
+            mpsc,
         },
         thread,
         time::Duration,
@@ -219,7 +220,7 @@ mod tests {
     use futures::executor::block_on;
 
     use super::{
-        super::{DefaultTicker, PoolTicker, YatpPoolBuilder as Builder, TICK_INTERVAL},
+        super::{DefaultTicker, PoolTicker, TICK_INTERVAL, YatpPoolBuilder as Builder},
         *,
     };
 

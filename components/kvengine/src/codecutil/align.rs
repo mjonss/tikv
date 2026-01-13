@@ -11,7 +11,7 @@ pub fn next_aligned_offset(offset: usize, align: usize) -> usize {
     if align == 0 {
         panic!("Alignment must be greater than zero");
     }
-    (offset + align - 1) / align * align
+    offset.div_ceil(align) * align
 }
 
 #[cfg(test)]

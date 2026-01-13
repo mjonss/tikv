@@ -5,23 +5,22 @@ use std::{collections::HashMap, io::Cursor, mem::size_of, sync::Arc};
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clara_fts::{IndexReader as ClaraIndexReader, TantivyIndexWriter};
-use quick_cache::{sync::Cache, Weighter};
+use quick_cache::{Weighter, sync::Cache};
 use tikv_util::sys::SysQuota;
 
 use super::util::{build_stringify_fn, empty_stringify_fn};
 use crate::table::{
+    ChecksumType, SnapVersion,
     blobtable::blobtable::BlobTable,
     columnar::{Block, ColumnarReader, ColumnarRowTableReader, ColumnarTableReader},
     file::InMemFile,
     fts::{
-        compact,
+        FtsCache, PackedFile, compact,
         packed_file::{EPackedFileLp, PackedFileBuilder, PackedFileBuilderOptions},
-        FtsCache, PackedFile,
     },
     memtable::CfTable,
     schema_file::Schema,
     sstable::L0Table,
-    ChecksumType, SnapVersion,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

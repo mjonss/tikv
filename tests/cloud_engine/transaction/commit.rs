@@ -2,9 +2,9 @@
 
 use kvproto::kvrpcpb;
 use test_cloud_server::{
+    ServerCluster,
     client::{Error, TxnMutations},
     util::Mutation,
-    ServerCluster,
 };
 use tikv_util::info;
 use txn_types::{LockType, WriteType};

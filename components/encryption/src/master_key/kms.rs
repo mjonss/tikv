@@ -12,10 +12,10 @@ use tikv_util::{
 };
 use tokio::runtime::{Builder, Runtime};
 
-use super::{metadata::MetadataKey, Backend, MemAesGcmBackend};
+use super::{Backend, MemAesGcmBackend, metadata::MetadataKey};
 use crate::{
-    crypter::{Iv, PlainKey},
     Error, Result,
+    crypter::{Iv, PlainKey},
 };
 
 #[async_trait]

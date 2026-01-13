@@ -8,8 +8,8 @@ use std::{
     fs, io, iter,
     result::Result as StdResult,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime},
 };
@@ -17,18 +17,18 @@ use std::{
 use bstr::ByteSlice;
 use bytes::Bytes;
 use http::{Method, Request, StatusCode};
-use hyper::{client::HttpConnector, server::conn::AddrIncoming, Body, Uri};
+use hyper::{Body, Uri, client::HttpConnector, server::conn::AddrIncoming};
 use hyper_rustls::{HttpsConnector, TlsAcceptor};
 use rustls::{
+    SignatureScheme,
     client::ResolvesClientCert,
     server::{AllowAnyAnonymousOrAuthenticatedClient, ClientHello, ResolvesServerCert},
-    sign::{any_supported_type, CertifiedKey},
-    SignatureScheme,
+    sign::{CertifiedKey, any_supported_type},
 };
 use rustls_pemfile::Item;
-use tikv_util::{debug, error, time::Instant, Either};
+use tikv_util::{Either, debug, error, time::Instant};
 
-use crate::{metrics::HYPER_RELOAD_CERT_COUNTER, SecurityConfig, SecurityManager};
+use crate::{SecurityConfig, SecurityManager, metrics::HYPER_RELOAD_CERT_COUNTER};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

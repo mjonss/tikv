@@ -6,17 +6,17 @@ use std::mem;
 use txn_types::{Key, LockType, ReqType, TimeStamp};
 
 use crate::storage::{
+    ProcessResult, Result as StorageResult, Snapshot,
     kv::WriteData,
     lock_manager::LockManager,
     mvcc::{MvccTxn, Result as MvccResult, SnapshotReader},
     txn::{
+        Result,
         commands::{
             Command, CommandExt, PessimisticRollbackReadPhase, ReaderWithStats, ReleasedLocks,
             ResponsePolicy, TypedCommand, WriteCommand, WriteContext, WriteResult,
         },
-        Result,
     },
-    ProcessResult, Result as StorageResult, Snapshot,
 };
 
 command! {
@@ -131,6 +131,7 @@ pub mod tests {
 
     use super::*;
     use crate::storage::{
+        TestEngineBuilder,
         kv::Engine,
         lock_manager::MockLockManager,
         mvcc::tests::*,
@@ -139,7 +140,6 @@ pub mod tests {
             scheduler::DEFAULT_EXECUTION_DURATION_LIMIT,
             tests::*,
         },
-        TestEngineBuilder,
     };
 
     pub fn must_success<E: Engine>(

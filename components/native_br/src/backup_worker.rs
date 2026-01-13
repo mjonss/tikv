@@ -24,7 +24,7 @@ use tikv_util::{
 use crate::{
     backup,
     backup::{
-        update_service_safe_point, BackupConfig, IncrementalBackupFile, Result, SharedResult,
+        BackupConfig, IncrementalBackupFile, Result, SharedResult, update_service_safe_point,
     },
     error::{Error, SharedError},
     metrics::{NATIVE_BR_BACKUP_BATCH_SIZE, NATIVE_BR_BACKUP_ERROR, NATIVE_BR_BACKUP_SUCCESS},
@@ -294,7 +294,7 @@ impl BackupRunner {
         let now = Instant::now_coarse();
         let mut batches = self
             .pending_batches
-            .extract_if(|x| x.backup_time + self.config.backup_delay.0 <= now)
+            .extract_if(.., |x| x.backup_time + self.config.backup_delay.0 <= now)
             .collect::<Vec<_>>();
         let mut last_batch = batches.pop()?;
         // Merge batch.
@@ -307,7 +307,7 @@ impl BackupRunner {
     }
 
     fn prepare_backup(&self) -> Result<u64 /* backup_ts */> {
-        backup::get_backup_ts(self.pd_client.as_ref()).map_err(Into::into)
+        backup::get_backup_ts(self.pd_client.as_ref())
     }
 
     fn do_lightweight_backup(&mut self, batch: BackupBatch) {

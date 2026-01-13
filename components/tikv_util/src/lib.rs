@@ -21,16 +21,16 @@ use std::{
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Duration,
 };
 
 use nix::{
-    sys::wait::{wait, WaitStatus},
-    unistd::{fork, ForkResult},
+    sys::wait::{WaitStatus, wait},
+    unistd::{ForkResult, fork},
 };
 use rand::rngs::ThreadRng;
 use tokio::task_local;
@@ -153,7 +153,7 @@ pub fn panic_mark_file_exists<P: AsRef<Path>>(data_dir: P) -> bool {
 }
 
 thread_local! {
-    static CURRENT_REGION: std::cell::Cell<u64> = std::cell::Cell::new(0);
+    static CURRENT_REGION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 task_local! {
@@ -609,7 +609,7 @@ pub fn set_panic_hook(panic_abort: bool, data_dir: &str) {
 
     let data_dir = data_dir.to_string();
 
-    panic::set_hook(Box::new(move |info: &panic::PanicInfo<'_>| {
+    panic::set_hook(Box::new(move |info: &panic::PanicHookInfo<'_>| {
         let msg = match info.payload().downcast_ref::<&'static str>() {
             Some(s) => *s,
             None => match info.payload().downcast_ref::<String>() {

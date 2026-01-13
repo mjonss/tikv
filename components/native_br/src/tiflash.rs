@@ -6,7 +6,7 @@ use api_version::ApiV2;
 use http::Request;
 use hyper::Body;
 use kvproto::metapb::Store;
-use pd_client::{pd_control::PdControl, util::get_tiflash_storage_stores, PdClient};
+use pd_client::{PdClient, pd_control::PdControl, util::get_tiflash_storage_stores};
 use security::SecurityManager;
 use slog_global::{error, info};
 use tikv_util::{box_err, retry::sleep_async, time::Instant};

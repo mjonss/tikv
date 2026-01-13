@@ -3,18 +3,17 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use clara_fts::test_util::{make_unscored_query, PlainFtsQueryInfo};
+use clara_fts::test_util::{PlainFtsQueryInfo, make_unscored_query};
 use kvenginepb::fts::FullTextIndexDef;
 use tidb_query_datatype::FieldTypeTp;
 
-use super::{columnar_to_fts_l0, ColumnarToFtsL0Opts};
+use super::{ColumnarToFtsL0Opts, columnar_to_fts_l0};
 use crate::table::{
-    fts::{
-        lp_key,
-        test_util::{new_columnar, new_schema_file, SchemaBuilder},
-        IntPk, PackedFile, PkReader,
-    },
     SnapVersion,
+    fts::{
+        IntPk, PackedFile, PkReader, lp_key,
+        test_util::{SchemaBuilder, new_columnar, new_schema_file},
+    },
 };
 
 #[tokio::test]

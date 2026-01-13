@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use test_cloud_server::{
-    client::{PrewriteExt, TxnMutations},
     ServerCluster,
+    client::{PrewriteExt, TxnMutations},
 };
 use txn_types::LockType;
 

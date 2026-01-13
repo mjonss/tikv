@@ -18,23 +18,22 @@ use log_wrappers::Value as LogValue;
 use protobuf::Message;
 use tikv_util::{
     box_try,
-    codec::number::{U32_SIZE, U64_SIZE, U8_SIZE},
+    codec::number::{U8_SIZE, U32_SIZE, U64_SIZE},
     config::ReadableSize,
-    mpsc::{paired_callback, Receiver, Sender},
+    mpsc::{Receiver, Sender, paired_callback},
     sys::thread::StdThreadBuildWrapper,
     time::Instant,
 };
 
 use crate::{
+    IoContext,
     dfs::FileType,
     error::Result as KvResult,
-    metrics::{META_PACKER_METAS_COUNT, META_PACK_ACTION_COUNTER_VEC},
+    metrics::{META_PACK_ACTION_COUNTER_VEC, META_PACKER_METAS_COUNT},
     table::{
-        sstable,
-        sstable::{validate_checksum, SsTable},
-        Error, Result,
+        Error, Result, sstable,
+        sstable::{SsTable, validate_checksum},
     },
-    IoContext,
 };
 
 const FORCE_COMPACT_WRITTEN_BYTES: u64 = 100 * 1024 * 1024; // 100MB
@@ -572,6 +571,12 @@ pub struct CompactKeeperCore {
 
 pub struct CompactPauseGuard(Arc<()>);
 
+impl CompactPauseGuard {
+    pub fn is_paused(&self) -> bool {
+        Arc::strong_count(&self.0) > 1
+    }
+}
+
 impl CompactKeeperCore {
     pub fn pause(&self) -> CompactPauseGuard {
         CompactPauseGuard(self.counter.clone())
@@ -941,16 +946,16 @@ mod tests {
 
     use super::*;
     use crate::{
+        STORAGE_CLASS_KEY, ShardCf, ShardCfBuilder, ShardDataBuilder,
         ia::{ia_file::IaFile, manager::IaManager, util::IaManagerOptionsBuilder},
         table::{
+            ChecksumType, InnerKey, NO_COMPRESSION, Value,
             file::InMemFile,
             sstable::{
-                builder::{Footer, FOOTER_SIZE, MAGIC_NUMBER, TABLE_FORMAT_V1},
                 BlockCache, SsTable,
+                builder::{FOOTER_SIZE, Footer, MAGIC_NUMBER, TABLE_FORMAT_V1},
             },
-            ChecksumType, InnerKey, Value, NO_COMPRESSION,
         },
-        ShardCf, ShardCfBuilder, ShardDataBuilder, STORAGE_CLASS_KEY,
     };
 
     #[test]

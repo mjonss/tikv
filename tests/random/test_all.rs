@@ -3,7 +3,7 @@
 use std::{
     io::Write as _,
     path::Path,
-    sync::{atomic::Ordering, Arc, RwLock},
+    sync::{Arc, RwLock, atomic::Ordering},
     time::Duration,
 };
 
@@ -14,7 +14,7 @@ use kvengine::{
     dfs::{self, DFSConfig, DFSConnOptions, FileType, S3Fs},
     ia::util::IaConfig,
     metrics::{ENGINE_IA_SYNC_READ_COUNTER, ENGINE_REMOTE_COMPACT_EXCEED_MEMORY_LIMIT_COUNTER},
-    table::{schema_file::build_schema_file, ChecksumType},
+    table::{ChecksumType, schema_file::build_schema_file},
 };
 use kvproto::pdpb::CheckPolicy;
 use load_data::task::LoadDataConfig;
@@ -25,13 +25,13 @@ use rfengine::RFENGINE_DFS_WORKER_BECOME_UNHEALTHY_COUNTER;
 use schema::schema::{StorageClass, StorageClassSpec};
 use security::SecurityConfig;
 use test_cloud_server::{
+    IA_DISK_CAP_DEF, IA_FREQ_UPDATE_INTERVAL_DEF, IA_MEM_CAP_DEF, ServerCluster,
+    ServerClusterBuilder, TikvWorkerOptions,
     client::ClusterClientOptions,
     keyspace::make_row_key,
-    oss::{prepare_builtin_dfs, prepare_dfs, ObjectStorageService},
+    oss::{ObjectStorageService, prepare_builtin_dfs, prepare_dfs},
     tidb::TidbCluster,
     util::broadcast_schema_file_request_and_check,
-    ServerCluster, ServerClusterBuilder, TikvWorkerOptions, IA_DISK_CAP_DEF,
-    IA_FREQ_UPDATE_INTERVAL_DEF, IA_MEM_CAP_DEF,
 };
 use test_pd_client::{PdClientExt, PdWrapper};
 use tikv::server::config::GrpcCompressionType;
@@ -45,7 +45,7 @@ use tikv_util::{
 use txn_types::Key;
 
 use crate::{
-    test_drop_table::*, test_load_data::*, test_native_br::*, test_txn_file::*, TikvConfig, *,
+    TikvConfig, test_drop_table::*, test_load_data::*, test_native_br::*, test_txn_file::*, *,
 };
 
 const MAX_IN_MEM_SIZE: usize = 10 * 1024; // 10KiB

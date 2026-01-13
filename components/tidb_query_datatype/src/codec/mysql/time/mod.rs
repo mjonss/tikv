@@ -21,14 +21,14 @@ use tipb::FieldType;
 
 pub use self::{extension::*, interval::IntervalUnit, tz::Tz, weekmode::WeekMode};
 use crate::{
+    FieldTypeAccessor, FieldTypeTp,
     codec::{
+        Error, Result, TEN_POW,
         convert::ConvertTo,
         data_type::Real,
-        mysql::{check_fsp, duration::*, Decimal, Duration, Res, DEFAULT_FSP, MAX_FSP},
-        Error, Result, TEN_POW,
+        mysql::{DEFAULT_FSP, Decimal, Duration, MAX_FSP, Res, check_fsp, duration::*},
     },
     expr::{EvalContext, Flag, SqlMode},
-    FieldTypeAccessor, FieldTypeTp,
 };
 
 const MIN_TIMESTAMP: i64 = 0;
@@ -2493,7 +2493,7 @@ impl Time {
             'X' => {
                 let (year, _) = self.year_week(WeekMode::from_bits_truncate(2));
                 if year < 0 {
-                    write!(output, "{}", u32::max_value()).unwrap();
+                    write!(output, "{}", u32::MAX).unwrap();
                 } else {
                     write!(output, "{:04}", year).unwrap();
                 }
@@ -2501,7 +2501,7 @@ impl Time {
             'x' => {
                 let (year, _) = self.year_week(WeekMode::from_bits_truncate(3));
                 if year < 0 {
-                    write!(output, "{}", u32::max_value()).unwrap();
+                    write!(output, "{}", u32::MAX).unwrap();
                 } else {
                     write!(output, "{:04}", year).unwrap();
                 }
@@ -2945,7 +2945,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        codec::mysql::{duration::*, MAX_FSP, UNSPECIFIED_FSP},
+        codec::mysql::{MAX_FSP, UNSPECIFIED_FSP, duration::*},
         expr::EvalConfig,
     };
 

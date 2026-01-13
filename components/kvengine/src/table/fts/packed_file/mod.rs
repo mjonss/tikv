@@ -5,20 +5,20 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::{Buf, Bytes};
 use hexhex::hex;
-use kvenginepb::{fts as ftspb, FtsPackedFileInfo};
+use kvenginepb::{FtsPackedFileInfo, fts as ftspb};
 use protobuf::Message;
 use xorf::{BinaryFuse8, Filter};
 
 use super::iter::{CommonPk, IntPk, PkType};
 use crate::{
-    codecutil::{next_aligned_offset, BytesExt},
+    codecutil::{BytesExt, next_aligned_offset},
     table::{
-        file::{File, FileMmapGuard, TtlCache},
-        fts::{dedicated_file::BytesDirRO, CacheKeyRef, FtsCache, FtsCacheValue},
         BoundedDataSet, ChecksumType, DataBound, InnerKey,
+        file::{File, FileMmapGuard, TtlCache},
+        fts::{CacheKeyRef, FtsCache, FtsCacheValue, dedicated_file::BytesDirRO},
     },
 };
 
@@ -48,8 +48,8 @@ pub const FTS_PACKED_FILE_FOOTER_SIZE: usize = 32;
 /// - 1 byte: checksum type
 /// - 6 bytes: reserved
 /// - 4 bytes: checksum footer
-///            > Calculated as the checksum of the whole footer (with checksum
-///            > footer set to 0)
+///   > Calculated as the checksum of the whole footer (with checksum
+///   > footer set to 0)
 /// - 4 bytes: checksum (remaining meta)
 /// - 4 bytes: index block offset
 /// - 4 bytes: lp (LogicalPartition) filter block offset
@@ -189,7 +189,7 @@ impl PackedFileFooter {
 ///
 /// FtsPackedFile layout:
 /// - Data blocks:     Each data block contains several LP entries
-///                    > Data block start offset is always 8-byte aligned
+///   > Data block start offset is always 8-byte aligned
 /// - Index block:     For quickly seeking a data block
 /// - LP filter block: For checking whether LPKey must not exist
 /// - Property block:  Some additional properties (in Protobuf)
@@ -867,13 +867,13 @@ impl EPackedFileLp {
         // This `if` will be eliminated during compilation because TypeId::of()
         // is const.
         if std::any::TypeId::of::<Pk>() == std::any::TypeId::of::<IntPk>() {
-            return self.as_int_lp().map(|lp| unsafe {
+            self.as_int_lp().map(|lp| unsafe {
                 std::mem::transmute::<&PackedFileLp<IntPk>, &PackedFileLp<Pk>>(lp)
-            });
+            })
         } else if std::any::TypeId::of::<Pk>() == std::any::TypeId::of::<CommonPk>() {
-            return self.as_common_lp().map(|lp| unsafe {
+            self.as_common_lp().map(|lp| unsafe {
                 std::mem::transmute::<&PackedFileLp<CommonPk>, &PackedFileLp<Pk>>(lp)
-            });
+            })
         } else {
             panic!("Unsupported Pk type");
         }

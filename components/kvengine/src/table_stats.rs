@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::table::{columnar::VectorIndexDef, SnapVersion};
+use crate::table::{SnapVersion, columnar::VectorIndexDef};
 
 /// Statistics about the columnar index coverage for a specific table and index
 #[derive(Debug, Default, Serialize, Deserialize)]

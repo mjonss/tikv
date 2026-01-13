@@ -5,24 +5,24 @@ use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},
     mem,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
 
 use api_version::{
-    api_v2::{is_one_or_multi_whole_keyspace_range, is_whole_keyspace_range},
     ApiV2,
+    api_v2::{is_one_or_multi_whole_keyspace_range, is_whole_keyspace_range},
 };
 use cloud_encryption::MasterKey;
 use concurrency_manager::ConcurrencyManager;
 #[cfg(feature = "failpoints")]
 use fail::fail_point;
-use futures::{compat::Future01CompatExt, FutureExt};
+use futures::{FutureExt, compat::Future01CompatExt};
 use kvengine::{
+    CF_NAMES, GLOBAL_SHARD_END_KEY,
     context::IaCtx,
     table::{DataBound, InnerKey},
     table_id::get_table_id_from_data_bound,
-    CF_NAMES, GLOBAL_SHARD_END_KEY,
 };
 use kvproto::{
     metapb,
@@ -36,15 +36,15 @@ use kvproto::{
     raft_serverpb::RaftMessage,
     replication_modepb::RegionReplicationStatus,
 };
-use pd_client::{merge_bucket_stats, metrics::*, BucketStat, PdClient, RegionStat};
+use pd_client::{BucketStat, PdClient, RegionStat, merge_bucket_stats, metrics::*};
 use prometheus::local::LocalHistogram;
-use raft::{eraftpb::ConfChangeType, StateRole};
-use raftstore::store::{util, util::ConfChangeKind, ReadStats, TxnExt, WriteStats};
+use raft::{StateRole, eraftpb::ConfChangeType};
+use raftstore::store::{ReadStats, TxnExt, WriteStats, util, util::ConfChangeKind};
 use resource_control::TransferLeaderLimiter;
 use tikv_util::{
     codec::bytes::decode_bytes,
     debug, error, info,
-    store::{find_peer, QueryStats},
+    store::{QueryStats, find_peer},
     sys::disk::get_disks_stats,
     time::UnixSecs,
     timer::GLOBAL_TIMER_HANDLE,
@@ -56,11 +56,11 @@ use txn_types::Key;
 use yatp::Remote;
 
 use crate::{
-    store::{
-        encode_split_flag_encryption_keys, raw_end_key, raw_start_key, Callback, CasualMessage,
-        CpuUtilCollector, PeerMsg, PeerTag, RegionIdVer, RegionMap, StoreInfo, StoreMsg,
-    },
     RaftRouter, RaftStoreRouter,
+    store::{
+        Callback, CasualMessage, CpuUtilCollector, PeerMsg, PeerTag, RegionIdVer, RegionMap,
+        StoreInfo, StoreMsg, encode_split_flag_encryption_keys, raw_end_key, raw_start_key,
+    },
 };
 
 type RecordPairVec = Vec<pdpb::RecordPair>;
@@ -649,7 +649,7 @@ impl PdRunner {
             let store_id = p.get_store_id();
             self.store_map
                 .get(&store_id)
-                .map_or(false, |is_tiflash| *is_tiflash)
+                .is_some_and(|is_tiflash| *is_tiflash)
         });
 
         // TODO: remove this after columnar kv size freshed.

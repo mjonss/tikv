@@ -9,7 +9,7 @@ use kvproto::{kvrpcpb::KeyRange, metapb, pdpb::QueryKind};
 use pd_client::BucketMeta;
 use prometheus::*;
 use prometheus_static_metric::*;
-use raftstore::store::{util::build_key_range, ReadStats};
+use raftstore::store::{ReadStats, util::build_key_range};
 
 use crate::{
     server::metrics::{GcKeysCF as ServerGcKeysCF, GcKeysDetail as ServerGcKeysDetail},

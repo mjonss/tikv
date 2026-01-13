@@ -2,7 +2,7 @@
 
 use std::{collections::HashSet, convert::TryFrom, io::Write};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::{BufMut, Bytes};
 use hexhex::hex;
 use kvenginepb::fts as ftspb;
@@ -14,8 +14,8 @@ use super::DedicatedFileFooter;
 use crate::{
     codecutil::next_aligned_offset,
     table::{
-        fts::iter::{CommonPk, IntPk, PkType},
         ChecksumType,
+        fts::iter::{CommonPk, IntPk, PkType},
     },
 };
 

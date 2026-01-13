@@ -7,11 +7,11 @@ use kvproto::{
     metapb::{self, Peer},
     pdpb::QueryKind,
 };
-use pd_client::{merge_bucket_stats, new_bucket_stats, BucketMeta, BucketStat};
+use pd_client::{BucketMeta, BucketStat, merge_bucket_stats, new_bucket_stats};
 use rand::Rng;
-use tikv_util::store::{is_read_query, QueryStats};
+use tikv_util::store::{QueryStats, is_read_query};
 
-use crate::store::worker::{split_config::get_sample_num, FlowStatistics};
+use crate::store::worker::{FlowStatistics, split_config::get_sample_num};
 
 // RegionInfo will maintain key_ranges with sample_num length by reservoir
 // sampling. And it will save qps num and peer.

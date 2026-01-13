@@ -11,7 +11,7 @@ use api_version::ApiV2;
 use bytes::{Buf, Bytes};
 use http::Request;
 use hyper::Body;
-use kvengine::{get_shard_property, ENCRYPTION_KEY};
+use kvengine::{ENCRYPTION_KEY, get_shard_property};
 use pd_client::PdClient;
 use protobuf::Message;
 use tikv_util::{
@@ -29,14 +29,14 @@ use crate::{
     },
     error::{Error, Result},
     kv::DuplicateEntry,
-    metrics::{remove_metrics, LOAD_DATA_GET_SHARD_META_FAILURES_COUNTER},
+    metrics::{LOAD_DATA_GET_SHARD_META_FAILURES_COUNTER, remove_metrics},
     task::{
         FlushResult, FlushStates, LoadDataConfig, LoadDataContext, LoadTaskMsg, LoadTaskScheduler,
         LoadTaskStates, PutChunkResult, TaskContext,
     },
     worker::{
-        get_common_prefix, get_leader_store, BuildingWorker, BuildingWorkerMsg, KvPairsWorker,
-        KvPairsWorkerMsg,
+        BuildingWorker, BuildingWorkerMsg, KvPairsWorker, KvPairsWorkerMsg, get_common_prefix,
+        get_leader_store,
     },
 };
 

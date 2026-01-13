@@ -11,26 +11,25 @@ use std::{
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use engine_traits::ListObjectContent;
 use file_system::{IoOp, IoRateLimitMode, IoRateLimiter, IoType};
-use futures::{future::ok, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, future::ok};
 use glob::glob;
 use hyper::{
-    header,
+    Body, HeaderMap, Method, Request, Response, Server, StatusCode, header,
     header::HeaderValue,
     service::{make_service_fn, service_fn},
-    Body, HeaderMap, Method, Request, Response, Server, StatusCode,
 };
-use kvengine::dfs::{CommonPrefix, DFSConfig, ListObjects, Tagging, STORAGE_CLASS_DEFAULT};
+use kvengine::dfs::{CommonPrefix, DFSConfig, ListObjects, STORAGE_CLASS_DEFAULT, Tagging};
 use regex::Regex;
 use tempfile::TempDir;
 use tikv_util::{debug, error, info, time::Instant};

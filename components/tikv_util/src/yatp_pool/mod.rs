@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use fail::fail_point;
 pub use future_pool::{Full, FuturePool};
-use prometheus::{local::LocalHistogram, Histogram};
+use prometheus::{Histogram, local::LocalHistogram};
 use yatp::{
-    pool::{CloneRunnerBuilder, Local, Runner},
-    queue::{multilevel, QueueType, TaskCell as _},
-    task::future::{Runner as FutureRunner, TaskCell},
     ThreadPool,
+    pool::{CloneRunnerBuilder, Local, Runner},
+    queue::{QueueType, TaskCell as _, multilevel},
+    task::future::{Runner as FutureRunner, TaskCell},
 };
 
 use crate::{
@@ -79,7 +79,7 @@ impl Config {
     pub fn default_for_test() -> Self {
         Self {
             workers: 2,
-            max_tasks_per_worker: std::usize::MAX,
+            max_tasks_per_worker: usize::MAX,
             stack_size: 2_000_000,
         }
     }
@@ -194,7 +194,7 @@ impl<T: PoolTicker> YatpPoolBuilder<T> {
             core_thread_count: 1,
             max_thread_count: 1,
             stack_size: 0,
-            max_tasks: std::usize::MAX,
+            max_tasks: usize::MAX,
         }
     }
 

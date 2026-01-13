@@ -7,8 +7,8 @@ use pd_client::PdClient;
 use security::SecurityConfig;
 
 use crate::{
-    bootstrap, util::new_keyspace_pd_client, KeyspaceService, KeyspaceStates,
-    ReplicationWorkerConfig, Result,
+    KeyspaceService, KeyspaceStates, ReplicationWorkerConfig, Result, bootstrap,
+    util::new_keyspace_pd_client,
 };
 
 pub(crate) struct KeyspaceProvisionedService {
@@ -84,7 +84,7 @@ pub mod local_provider {
 
     use futures::executor::block_on;
     use nix::{
-        sys::signal::{kill, Signal},
+        sys::signal::{Signal, kill},
         unistd::Pid,
     };
     use pd_client::pd_control::PdControl;

@@ -3,6 +3,6 @@
 mod kv;
 
 pub use self::kv::{
-    batch_commands_request, batch_commands_response, GrpcRequestDuration, MeasuredBatchResponse,
-    MeasuredSingleResponse,
+    GrpcRequestDuration, MeasuredBatchResponse, MeasuredSingleResponse, batch_commands_request,
+    batch_commands_response,
 };

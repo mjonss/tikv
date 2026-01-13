@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::Result;
 use clara_fts::IndexReader as ClaraIndexReader;
-use quick_cache::{sync::Cache, Equivalent, Weighter};
+use quick_cache::{Equivalent, Weighter, sync::Cache};
 use tikv_util::sys::SysQuota;
 
 use crate::table::{
@@ -487,7 +487,7 @@ impl LendTypedKey for TypedKey {
     }
 }
 
-impl<'a> LendTypedKey for TypedKeyRef<'a> {
+impl LendTypedKey for TypedKeyRef<'_> {
     #[inline]
     fn lend(&self) -> TypedKeyRef<'_> {
         TypedKeyRef(self.0, self.1)
@@ -535,7 +535,7 @@ mod tests {
     struct Foo(u32);
 
     #[derive(Debug)]
-    struct Bar(u32);
+    struct Bar;
 
     #[tokio::test]
     async fn cache_entries_are_type_isolated() -> Result<()> {
@@ -757,7 +757,7 @@ mod tests {
         guard_valid.store(false, Ordering::SeqCst);
 
         tokio::time::timeout(Duration::from_secs(1), async {
-            while cache.0.as_deref().unwrap().cache.len() > 0 {
+            while !cache.0.as_deref().unwrap().cache.is_empty() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })

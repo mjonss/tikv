@@ -4,17 +4,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tidb_query_datatype::{
-    codec::mysql::{VectorFloat32Decoder, VectorFloat32Ref},
     FieldTypeTp,
+    codec::mysql::{VectorFloat32Decoder, VectorFloat32Ref},
 };
 use tipb::{AnnQueryInfo, ColumnInfo};
 
 use crate::{
     ia::types::FileSegmentIdent,
     table::{
+        Error, Result,
         columnar::{Block, ColumnBuffer, ColumnarReader},
         schema_file::{Schema, SchemaBuf},
-        Error, Result,
     },
 };
 
@@ -190,7 +190,7 @@ impl ColumnarReader for VectorDistanceProjector {
         if block
             .columns
             .last()
-            .map_or(true, |c| c.col_id != VIRTUAL_DISTANCE_COLUMN_ID as i32)
+            .is_none_or(|c| c.col_id != VIRTUAL_DISTANCE_COLUMN_ID as i32)
         {
             return Err(Error::Other(
                 "block schema does not match VectorDistanceProjector schema".into(),

@@ -9,16 +9,14 @@ use log_wrappers::Value as LogValue;
 use tikv_util::codec::number::{NumberEncoder, U8_SIZE};
 
 use crate::{
-    table,
+    USER_META_SIZE, UserMeta, table,
     table::{
-        encode_val_to_outer_val_owner,
+        BoundedDataSet, ChecksumType, DataBound, Error, InnerKey, Iterator, OwnedInnerKey, Result,
+        Value, encode_val_to_outer_val_owner,
         file::{File, TtlCache},
         search,
-        sstable::{key_diff_idx, BlockCache, BlockCacheKey, EntrySlice},
-        BoundedDataSet, ChecksumType, DataBound, Error, InnerKey, Iterator, OwnedInnerKey, Result,
-        Value,
+        sstable::{BlockCache, BlockCacheKey, EntrySlice, key_diff_idx},
     },
-    UserMeta, USER_META_SIZE,
 };
 
 const TXN_FILE_PROP_CHECK_NON_EXIST_COUNT: &str = "check_ne";
@@ -1855,18 +1853,18 @@ mod tests {
     use txn_types::LockType;
 
     use crate::{
+        GLOBAL_SHARD_END_KEY, UserMeta,
         table::{
+            BlockBitmap, ConstraintChecker, DataBound, InnerKey, Iterator, OP_DELETE, OP_LOCK,
+            OwnedInnerKey, SkipOpTxnFileIterator, TxnCtx, TxnFile, TxnFileId, TxnFileIterator,
             file::InMemFile,
-            sstable::{test_util::get_test_value, BlockCache},
+            sstable::{BlockCache, test_util::get_test_value},
             txn_file::{
-                TxnChunk, TxnChunkBuilder, TxnChunkIterator, OP_CHECK_NOT_EXIST, OP_INSERT, OP_PUT,
+                OP_CHECK_NOT_EXIST, OP_INSERT, OP_PUT, TxnChunk, TxnChunkBuilder, TxnChunkIterator,
             },
-            BlockBitmap, ConstraintChecker, DataBound, InnerKey, Iterator, OwnedInnerKey,
-            SkipOpTxnFileIterator, TxnCtx, TxnFile, TxnFileId, TxnFileIterator, OP_DELETE, OP_LOCK,
         },
         tests::generate_encryption_key,
         util::test_util::KeyBuilder,
-        UserMeta, GLOBAL_SHARD_END_KEY,
     };
 
     const KEYSPACE_ID: u32 = 42;

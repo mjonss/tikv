@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use engine_traits::{iter_option, IterOptions, Peekable, ReadOptions, Result};
-use rocksdb::{DBIterator, Writable, DB};
+use engine_traits::{IterOptions, Peekable, ReadOptions, Result, iter_option};
+use rocksdb::{DB, DBIterator, Writable};
 
 use crate::{
-    db_vector::RocksDbVector, options::RocksReadOptions, r2e, util::get_cf_handle,
-    RocksEngineIterator, RocksSnapshot, RocksWriteBatchVec,
+    RocksEngineIterator, RocksSnapshot, RocksWriteBatchVec, db_vector::RocksDbVector,
+    options::RocksReadOptions, r2e, util::get_cf_handle,
 };
 
 #[derive(Clone, Debug)]
@@ -161,7 +161,7 @@ impl RocksEngine {
 
 #[cfg(test)]
 mod tests {
-    use engine_traits::{Peekable, CF_DEFAULT};
+    use engine_traits::{CF_DEFAULT, Peekable};
     use kvproto::metapb::Region;
     use tempfile::Builder;
 

@@ -7,13 +7,13 @@ use std::{
     iter::Iterator,
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering::*, *},
         Arc, RwLock,
+        atomic::{AtomicBool, AtomicU64, Ordering::*, *},
     },
     time::Duration,
 };
 
-use api_version::{api_v2::KEYSPACE_PREFIX_LEN, ApiV2};
+use api_version::{ApiV2, api_v2::KEYSPACE_PREFIX_LEN};
 use bytes::{Buf, BufMut, Bytes};
 use cloud_encryption::{EncryptionKey, MasterKey};
 use kvenginepb::{self as pb, TxnFileRef};
@@ -32,7 +32,7 @@ use crate::{
     limiter::RegionLimiter,
     metrics::ENGINE_COLUMNAR_TOO_MANY_UNCONVERTED_L0S,
     table::{
-        self,
+        self, BoundedDataSet, DataBound, InnerKey, OwnedInnerKey, SnapVersion, TxnFile,
         blobtable::blobtable::BlobTable,
         columnar::{ColumnarLevel, ColumnarLevels, VectorIndexDef},
         file::InMemFile,
@@ -44,9 +44,8 @@ use crate::{
         sstable::{L0Table, SsTable},
         tiny_meta::TypedTinyMeta,
         vector_index::{VectorIndex, VectorIndexes},
-        BoundedDataSet, DataBound, InnerKey, OwnedInnerKey, SnapVersion, TxnFile,
     },
-    util::{evenly_distribute, TxnFileRefPropertyHelper},
+    util::{TxnFileRefPropertyHelper, evenly_distribute},
     *,
 };
 
@@ -1188,9 +1187,7 @@ impl Shard {
         }
 
         // The vector index is removed from schema file, remove it.
-        let Some(schema_file) = data.schema_file.as_ref() else {
-            return None;
-        };
+        let schema_file = data.schema_file.as_ref()?;
         for vec_idx in data.vector_indexes.get_all() {
             if let Some(schema) = schema_file.get_table(vec_idx.table_id) {
                 if !schema
@@ -1592,7 +1589,7 @@ impl Shard {
 
     pub fn get_writable_mem_table(&self) -> memtable::CfTable {
         let guard = self.data.read().unwrap();
-        return guard.get_writable_mem_table().clone();
+        guard.get_writable_mem_table().clone()
     }
 
     pub fn get_mem_table_max_version(&self) -> SnapVersion {
@@ -1934,7 +1931,7 @@ impl ShardDataBuilder {
         debug_assert!(
             schema_file
                 .as_ref()
-                .map_or(true, |x| x.get_version() == schema_version)
+                .is_none_or(|x| x.get_version() == schema_version)
         );
         self.schema = Some((schema_version, restore_version, schema_file));
     }

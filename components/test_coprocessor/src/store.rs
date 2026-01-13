@@ -6,14 +6,14 @@ use collections::HashMap;
 use kvproto::kvrpcpb::Context;
 use test_storage::SyncTestStorageApiV1;
 use tidb_query_datatype::{
-    codec::{datum, table, Datum},
+    codec::{Datum, datum, table},
     expr::EvalContext,
 };
 use tikv::storage::{
+    StorageApiV1, TestStorageBuilderApiV1,
     kv::{Engine, RocksEngine},
     lock_manager::MockLockManager,
     txn::FixtureStore,
-    StorageApiV1, TestStorageBuilderApiV1,
 };
 use txn_types::{Key, Mutation, TimeStamp};
 
@@ -209,8 +209,7 @@ impl<E: Engine> Store<E> {
             )
             .unwrap()
             .into_iter()
-            .filter(Result::is_ok)
-            .map(Result::unwrap)
+            .flatten()
             .collect()
     }
 

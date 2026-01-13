@@ -8,7 +8,7 @@ use protobuf::Message;
 use slog_global::info;
 
 use crate::{
-    table::{self, memtable, InnerKey, SnapVersion, TxnFile},
+    table::{self, InnerKey, SnapVersion, TxnFile, memtable},
     util::TxnFileRefPropertyHelper,
     *,
 };

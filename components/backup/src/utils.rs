@@ -100,6 +100,7 @@ pub fn create_tokio_runtime(thread_count: usize, thread_name: &str) -> TokioResu
 
 #[derive(Debug, Copy, Clone)]
 pub struct KeyValueCodec {
+    #[allow(dead_code)]
     pub cur_api_ver: ApiVersion,
     pub dst_api_ver: ApiVersion,
 }

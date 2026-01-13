@@ -4,11 +4,10 @@ use std::{collections::HashMap, sync::Mutex, time::Duration};
 
 use bytes::Bytes;
 use kvengine::{
-    self,
+    self, STORAGE_CLASS_KEY,
     metrics::ENGINE_STORAGE_CLASS_TRANSITION_COUNTER,
-    table::{sstable::BlockCacheType, BoundedDataSet, DataBound},
+    table::{BoundedDataSet, DataBound, sstable::BlockCacheType},
     table_id::encode_table_prefix_key,
-    STORAGE_CLASS_KEY,
 };
 use kvproto::kvrpcpb;
 use pd_client::PdClient;
@@ -18,12 +17,12 @@ use schema::{
     schema::{StorageClass, StorageClassSpec, StorageClassTransitRule},
 };
 use test_cloud_server::{
+    ServerCluster, ServerClusterBuilder,
     client::ClusterClient,
     keyspace::CreateKeyspaceOptions,
     must_wait,
     oss::prepare_dfs,
-    util::{get_keyspace_split_keys, Mutation},
-    ServerCluster, ServerClusterBuilder,
+    util::{Mutation, get_keyspace_split_keys},
 };
 use test_pd_client::{PdClientExt, PdWrapper};
 use tidb_query_datatype::{codec::table::decode_table_id, expr::EvalContext};

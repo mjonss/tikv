@@ -9,16 +9,16 @@ use std::{
         Deref, DerefMut, Range,
     },
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     thread::{self, sleep},
     time::Duration,
 };
 
 use api_version::{
-    api_v2::{self, TXN_KEY_PREFIX},
     ApiV2, KeyMode, KvFormat,
+    api_v2::{self, TXN_KEY_PREFIX},
 };
 use bstr::ByteSlice;
 use bytes::Bytes;
@@ -36,16 +36,15 @@ use kvproto::{
 };
 use log_wrappers::Value;
 use pd_client::{
-    check_regions_boundary,
-    util::{compare_region_end_key, RegionLike},
-    PdClient,
+    PdClient, check_regions_boundary,
+    util::{RegionLike, compare_region_end_key},
 };
 use protobuf::ProtobufEnum;
 use rfstore::store::RegionIdVer;
 use test_pd_client;
 use tikv::storage::mvcc::TimeStamp;
 use tikv_client::{
-    proto::kvrpcpb::Mutation as KvMutation, CheckLevel, IntoOwnedRange, TransactionOptions,
+    CheckLevel, IntoOwnedRange, TransactionOptions, proto::kvrpcpb::Mutation as KvMutation,
 };
 use tikv_util::{
     box_err,

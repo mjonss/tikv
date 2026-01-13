@@ -11,7 +11,7 @@ use native_br::{
     backup::IncrementalBackupFile, common::get_all_incremental_backups, wal::AssembledWalData,
 };
 use parking_lot::Mutex;
-use pd_client::{util::get_all_stores_except_tiflash_async, PdClient};
+use pd_client::{PdClient, util::get_all_stores_except_tiflash_async};
 use protobuf::Message;
 use rfengine::service_worker::WalProgress;
 use security::HttpClient;
@@ -20,9 +20,9 @@ use tokio::task::JoinSet;
 use txn_types::TimeStamp;
 
 use crate::{
-    metrics::REP_FEATCH_WAL_TARGET_COUNTER,
-    util::{send_request_to_store, ArcTimeStamp},
     Error, ReplicationWorkerConfig, Result,
+    metrics::REP_FEATCH_WAL_TARGET_COUNTER,
+    util::{ArcTimeStamp, send_request_to_store},
 };
 
 const MAX_PENDING_TARGETS: usize = 64;

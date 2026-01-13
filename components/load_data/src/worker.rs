@@ -1,6 +1,6 @@
 // Copyright 2024 TiKV Project Authors. Licensed under Apache-2.0.
 use std::{
-    cmp::{max, min, Ordering},
+    cmp::{Ordering, max, min},
     collections::HashMap,
     fs,
     fs::File,
@@ -19,11 +19,11 @@ use http::Request;
 use hyper::Body;
 use keys::next_key;
 use kvengine::{
+    IdVer, ShardTag, UserMeta, WRITE_CF, WRITE_CF_BOTTOM_LEVEL,
     dfs::Options,
-    table::{sstable::Builder, InnerKey, Value},
+    table::{InnerKey, Value, sstable::Builder},
     table_id::encode_table_prefix_key,
     util::new_table_create_pb,
-    IdVer, ShardTag, UserMeta, WRITE_CF, WRITE_CF_BOTTOM_LEVEL,
 };
 use kvproto::{encryptionpb::EncryptionMethod, metapb, pdpb};
 use pd_client::PdClient;
@@ -31,7 +31,7 @@ use protobuf::Message;
 use rfengine::compress_lz4;
 use rfstore::store::{raw_end_key, raw_start_key};
 use tidb_query_datatype::codec::table::{
-    decode_table_id, ID_LEN, INDEX_PREFIX_SEP, RECORD_PREFIX_SEP, TABLE_PREFIX_KEY_LEN,
+    ID_LEN, INDEX_PREFIX_SEP, RECORD_PREFIX_SEP, TABLE_PREFIX_KEY_LEN, decode_table_id,
 };
 use tikv_util::{
     box_err,
@@ -79,6 +79,7 @@ pub enum KvPairsWorkerMsg {
         cb: Box<dyn FnOnce(PutChunkResult) + Send>,
     },
     Flush {
+        #[allow(dead_code)]
         writer_id: u64,
         flush_file_count: Option<usize>,
         cb: Box<dyn FnOnce(FlushStates) + Send>,
@@ -2215,7 +2216,7 @@ mod tests {
 
     #[test]
     fn test_get_common_prefix() {
-        let keys = vec![
+        let keys = [
             vec![b't', 128, 0, 0, 0, 0, 0, 0, 1, b'_', 1],
             vec![b't', 128, 0, 0, 0, 0, 0, 0, 1, b'_', 2],
             vec![b't', 128, 0, 0, 0, 0, 0, 0, 1, b'_', 3],

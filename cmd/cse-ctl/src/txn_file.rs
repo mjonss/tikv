@@ -6,7 +6,7 @@ use clap::Args;
 use kvengine::{
     dfs,
     dfs::{DFSConfig, Dfs, S3Fs},
-    table::{file::InMemFile, sstable::BlockCache, TxnChunk, TxnChunkIterator},
+    table::{TxnChunk, TxnChunkIterator, file::InMemFile, sstable::BlockCache},
 };
 use log_wrappers::Value;
 

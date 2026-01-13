@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use kvengine::{get_shard_property, STORAGE_CLASS_KEY};
+use kvengine::{STORAGE_CLASS_KEY, get_shard_property};
 use kvenginepb as pb;
 use kvproto::{metapb, metapb::PeerRole};
 use pd_client::PdClient;

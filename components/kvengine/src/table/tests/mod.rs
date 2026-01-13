@@ -215,7 +215,7 @@ impl Iterator for SimpleIterator {
         // So the `idx` out of bound is considered as not sync.
         // This also ensure the correctness of `ConcatIterator`.
         self.entry_idx_inner(idx, 0)
-            .map_or(false, |entry_idx| self.vals_is_sync[entry_idx])
+            .is_some_and(|entry_idx| self.vals_is_sync[entry_idx])
     }
 
     fn next_version(&mut self) -> bool {
@@ -248,7 +248,7 @@ impl Iterator for SimpleIterator {
         // Versions of the same key are usually in the same block (old block).
         // So the `ver_idx` out of bound is considered as sync.
         self.entry_idx_inner(self.idx, self.ver_idx + 1)
-            .map_or(true, |entry_idx| self.vals_is_sync[entry_idx])
+            .is_none_or(|entry_idx| self.vals_is_sync[entry_idx])
     }
 
     #[maybe_async]

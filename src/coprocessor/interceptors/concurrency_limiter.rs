@@ -106,7 +106,10 @@ where
                     return Poll::Pending;
                 }
             },
-            _ => {}
+            LimitationState::Acuqired(permit) => {
+                let _ = permit;
+            }
+            LimitationState::NotLimited => {}
         }
         let now = Instant::now();
         match this.fut.poll(cx) {

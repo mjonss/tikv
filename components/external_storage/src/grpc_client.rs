@@ -14,10 +14,10 @@ use tikv_util::time::Limiter;
 use tokio::runtime::{Builder, Runtime};
 
 use crate::{
-    request::{
-        anyhow_to_io_log_error, file_name_for_write, restore_sender, write_sender, DropPath,
-    },
     ExternalStorage,
+    request::{
+        DropPath, anyhow_to_io_log_error, file_name_for_write, restore_sender, write_sender,
+    },
 };
 
 struct ExternalStorageClient {

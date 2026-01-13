@@ -2,7 +2,7 @@
 
 use std::sync::atomic::*;
 
-use futures::{channel::mpsc, executor::block_on, FutureExt, SinkExt, StreamExt, TryFutureExt};
+use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt, channel::mpsc, executor::block_on};
 use grpcio::{self, *};
 use kvproto::brpb::*;
 use tikv_util::{error, info, worker::*};
@@ -113,7 +113,7 @@ mod tests {
 
     use external_storage_export::make_local_backend;
     use tikv::storage::txn::tests::{must_commit, must_prewrite_put};
-    use tikv_util::worker::{dummy_scheduler, ReceiverWrapper};
+    use tikv_util::worker::{ReceiverWrapper, dummy_scheduler};
     use txn_types::TimeStamp;
 
     use super::*;

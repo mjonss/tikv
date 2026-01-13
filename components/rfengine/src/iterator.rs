@@ -10,10 +10,10 @@ use bytes::{Buf, Bytes, BytesMut};
 use tikv_util::error;
 
 use crate::{
+    Error, Result, WriteBatch,
     compact_worker::wal_file_name,
     write_batch::PeerBatch,
-    writer::{DmaBuffer, WalHeader, BATCH_HEADER_SIZE},
-    Error, Result, WriteBatch,
+    writer::{BATCH_HEADER_SIZE, DmaBuffer, WalHeader},
 };
 
 pub struct WalIterator<R: Read> {

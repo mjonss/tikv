@@ -3,17 +3,17 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use clara_fts::test_util::{make_unscored_query, PlainFtsQueryInfo};
+use clara_fts::test_util::{PlainFtsQueryInfo, make_unscored_query};
 
 use super::merge_fts_l2_files;
 use crate::table::{
     file::{File, FileMmapGuard, InMemFile, MmapData},
     fts::{
+        FtsCache,
         dedicated_file::{DedicatedFile, DedicatedFileBuilderOptions, EDedicatedFile},
         iter::{IntPk, PkReader, PkType},
         lp_key,
         test_util::new_ded,
-        FtsCache,
     },
     table,
 };

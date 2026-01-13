@@ -14,7 +14,7 @@ use std::{
     os::unix::fs::FileExt,
     path::{Path, PathBuf},
     result,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{Arc, atomic::AtomicU64},
     time::Duration,
 };
 
@@ -33,14 +33,14 @@ use tikv_util::time::Instant;
 use tokio::runtime::Runtime;
 
 use crate::{
+    IoContext,
     table::{
+        TxnChunk,
         blobtable::blobtable::BlobTable,
         columnar::ColumnarFileFooter,
         schema_file::SchemaFileFooter,
         sstable::{L0Table, SsTable},
-        TxnChunk,
     },
-    IoContext,
 };
 
 // DFS represents a distributed file system.

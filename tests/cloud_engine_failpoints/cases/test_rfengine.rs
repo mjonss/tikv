@@ -2,7 +2,7 @@
 
 use rfengine::RFENGINE_DFS_WORKER_HEALTHY_GAUGE;
 use test_cloud_server::{
-    alloc_node_id_vec, client::MutateOptions, must_wait, oss::prepare_dfs, ServerCluster,
+    ServerCluster, alloc_node_id_vec, client::MutateOptions, must_wait, oss::prepare_dfs,
 };
 use tikv::config::TikvConfig;
 use tikv_util::{config::ReadableSize, info};

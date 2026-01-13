@@ -14,22 +14,22 @@ use kvengine::dfs::{DFSConfig, Dfs, S3Fs};
 use kvproto::raft_serverpb::StoreIdent;
 use pd_client::PdClient;
 use protobuf::Message;
-use rfengine::{load_store_ident, region_state_key, RfEngine, STORE_IDENT_KEY};
+use rfengine::{RfEngine, STORE_IDENT_KEY, load_store_ident, region_state_key};
 use rfenginepb::{ClusterBackupMeta, StoreBackupMeta};
 use rfstore::store::{load_raft_engine_meta, load_region_state};
 use security::{GetSecurityManager, SecurityConfig};
 use tikv::config::TikvConfig;
 use tikv_util::{
     box_try,
-    config::{ensure_dir_exist, ReadableDuration, ReadableSize},
+    config::{ReadableDuration, ReadableSize, ensure_dir_exist},
     debug, info, warn,
 };
 
 use crate::{
     backup::backup_file_full_path,
     common::{
-        check_store_id_exists, collect_snapshot_meta_rlog_files, generate_etcd_connect_opt,
-        get_latest_backup_meta, replay_wal_logs_from_backup, ReplayWalLogsContext,
+        ReplayWalLogsContext, check_store_id_exists, collect_snapshot_meta_rlog_files,
+        generate_etcd_connect_opt, get_latest_backup_meta, replay_wal_logs_from_backup,
     },
     error::{Error, Result},
     restore_keyspace::RESTORE_RFENGINE_CONCURRENCY,

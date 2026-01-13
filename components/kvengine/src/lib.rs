@@ -1,10 +1,6 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
-#![feature(pointer_is_aligned)]
-#![feature(hash_extract_if)]
-#![feature(is_sorted)]
 #![feature(core_intrinsics)]
-#![feature(extract_if)]
 #![feature(assert_matches)]
 #![feature(cell_update)]
 #![feature(let_chains)]
@@ -24,8 +20,8 @@ pub mod compaction;
 mod concat_iterator;
 pub mod config;
 pub use config::{
-    Config as KvEngineConfig, PerKeyspaceConfig as KvEnginePerKeyspaceConfig,
-    MEM_TABLE_MAX_SIZE as KV_ENGINE_MEM_TABLE_MAX_SIZE,
+    Config as KvEngineConfig, MEM_TABLE_MAX_SIZE as KV_ENGINE_MEM_TABLE_MAX_SIZE,
+    PerKeyspaceConfig as KvEnginePerKeyspaceConfig,
 };
 pub mod context;
 pub mod dfs;

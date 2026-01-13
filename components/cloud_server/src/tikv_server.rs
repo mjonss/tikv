@@ -21,10 +21,10 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, Once},
-    thread, u64,
+    thread,
 };
 
-use api_version::{dispatch_api_version, KvFormat};
+use api_version::{KvFormat, dispatch_api_version};
 use cloud_encryption::MasterKey;
 use concurrency_manager::ConcurrencyManager;
 use engine_rocks::from_rocks_compression_type;
@@ -36,10 +36,10 @@ use fs2::FileExt;
 use futures::executor::block_on;
 use grpcio::{EnvBuilder, Environment};
 use kvengine::{
+    IoContext,
     dfs::Dfs,
     ia::util::IaConfig,
     limiter::{LimiterOptions, StoreLimiter},
-    IoContext,
 };
 use kvproto::{
     brpb::create_backup, deadlock::create_deadlock, diagnosticspb_grpc::create_diagnostics,
@@ -47,22 +47,22 @@ use kvproto::{
 };
 use overload_protector::{OverloadProtector, OverloadProtectorWorker};
 use pd_client::{
-    metrics::STORE_SIZE_GAUGE_VEC, pd_control::PdControl, PdClient, RpcClient, INVALID_ID,
+    INVALID_ID, PdClient, RpcClient, metrics::STORE_SIZE_GAUGE_VEC, pd_control::PdControl,
 };
 use prometheus::labels;
 use protobuf::Message;
-use raftstore::{coprocessor::CoprocessorHost, RegionInfoAccessor};
+use raftstore::{RegionInfoAccessor, coprocessor::CoprocessorHost};
 use resource_control::{
     CpuType, ReadLimiter, ReadSubscriber, ResourceController, ResourceType, TransferLeaderLimiter,
     TransferLeaderSubscriber,
 };
 use rfengine::{RfEngine, STORE_IDENT_KEY};
 use rfstore::{
-    store::{
-        load_raft_engine_meta, BlackList, Engines, LocalReader, MetaChangeListener, PdIdAllocator,
-        RaftBatchSystem, StoreMeta, StoreMsg, PENDING_MSG_CAP,
-    },
     RaftRouter,
+    store::{
+        BlackList, Engines, LocalReader, MetaChangeListener, PENDING_MSG_CAP, PdIdAllocator,
+        RaftBatchSystem, StoreMeta, StoreMsg, load_raft_engine_meta,
+    },
 };
 use security::SecurityManager;
 use sst_importer::SstImporter;
@@ -71,25 +71,24 @@ use tikv::{
     coprocessor,
     read_pool::{build_tokio_pool, build_yatp_read_pool},
     server::{
-        config::Config as ServerConfig, lock_manager::LockManager, CPU_CORES_QUOTA_GAUGE,
-        DEFAULT_CLUSTER_ID,
+        CPU_CORES_QUOTA_GAUGE, DEFAULT_CLUSTER_ID, config::Config as ServerConfig,
+        lock_manager::LockManager,
     },
     storage::{
-        txn::flow_controller::{FlowController, CLOUD_MIN_THROTTLE_SPEED},
         SCHED_WRITE_FLOW_GAUGE,
+        txn::flow_controller::{CLOUD_MIN_THROTTLE_SPEED, FlowController},
     },
     tikv_build_version,
 };
 use tikv_util::{
-    check_environment_variables,
-    config::{ensure_dir_exist, ReadableDuration, ReadableSize, VersionTrack},
+    PANIC_REGION_FILE_PREFIX, check_environment_variables,
+    config::{ReadableDuration, ReadableSize, VersionTrack, ensure_dir_exist},
     get_panic_region_count, mpsc,
     quota_limiter::{QuotaLimitConfigManager, QuotaLimiter},
-    sys::{register_memory_usage_high_water, thread::ThreadBuildWrapper, SysQuota},
+    sys::{SysQuota, register_memory_usage_high_water, thread::ThreadBuildWrapper},
     thread_group::GroupProperties,
     time::{Duration, Instant, Monitor},
     worker::{Builder as WorkerBuilder, LazyWorker, Worker},
-    PANIC_REGION_FILE_PREFIX,
 };
 use tokio::runtime::Builder;
 
@@ -97,7 +96,7 @@ use crate::{
     node::*,
     raftkv::*,
     resolve,
-    server::{Server, GRPC_THREAD_PREFIX},
+    server::{GRPC_THREAD_PREFIX, Server},
     service::{DiagnosticsService, ImportSstService},
     setup::{initial_logger, initial_metric, validate_and_persist_config},
     status_server::StatusServer,

@@ -7,7 +7,7 @@ use kvproto::{metapb::Region, raft_serverpb::RegionLocalState};
 use protobuf::Message;
 use raft_proto::eraftpb::{Entry, EntryType};
 use rand::RngCore;
-use rfengine::{region_state_key, WriteBatch, MAX_EPOCH_BACKWARD};
+use rfengine::{MAX_EPOCH_BACKWARD, WriteBatch, region_state_key};
 use test_cloud_server::{must_wait, oss::prepare_dfs};
 use test_util::init_log_for_test;
 use tikv_util::config::{ReadableDuration, ReadableSize};

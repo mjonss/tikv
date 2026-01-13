@@ -9,7 +9,7 @@ use super::FtsIndexColumnarReader;
 use crate::table::{
     blobtable::blobtable::BlobTable,
     columnar::{ColumnarReader, ColumnarRowTableReader, ColumnarTableReader},
-    fts::{level::FtsLevels, FtsDeltaBuildSpec, FtsDeltaCache, FtsDeltaKind, FtsDeltaSource},
+    fts::{FtsDeltaBuildSpec, FtsDeltaCache, FtsDeltaKind, FtsDeltaSource, level::FtsLevels},
     memtable::CfTable,
     schema_file::Schema,
     sstable::L0Table,

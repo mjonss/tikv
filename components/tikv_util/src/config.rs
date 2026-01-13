@@ -9,16 +9,16 @@ use std::{
     path::{Path, PathBuf},
     str::{self, FromStr},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, RwLock, RwLockReadGuard,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use online_config::ConfigValue;
 use serde::{
-    de::{self, Unexpected, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
+    de::{self, Unexpected, Visitor},
 };
 use thiserror::Error;
 
@@ -218,7 +218,7 @@ impl<'de> Deserialize<'de> for ReadableSize {
     {
         struct SizeVisitor;
 
-        impl<'de> Visitor<'de> for SizeVisitor {
+        impl Visitor<'_> for SizeVisitor {
             type Value = ReadableSize;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -307,7 +307,7 @@ impl<'de> Deserialize<'de> for AbsoluteOrPercentSize {
     {
         struct SizeVisitor;
 
-        impl<'de> Visitor<'de> for SizeVisitor {
+        impl Visitor<'_> for SizeVisitor {
             type Value = AbsoluteOrPercentSize;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -646,7 +646,7 @@ impl<'de> Deserialize<'de> for ReadableDuration {
     {
         struct DurVisitor;
 
-        impl<'de> Visitor<'de> for DurVisitor {
+        impl Visitor<'_> for DurVisitor {
             type Value = ReadableDuration;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -926,7 +926,7 @@ mod check_data_dir {
 
     use lazy_static::lazy_static;
 
-    use super::{canonicalize_path, ConfigError};
+    use super::{ConfigError, canonicalize_path};
 
     #[derive(Debug, Default)]
     struct FsInfo {
@@ -1453,7 +1453,7 @@ impl TomlWriter {
     fn write_current_table(&mut self, change: &mut HashMap<String, String>) {
         let keys: Vec<_> = change
             .keys()
-            .filter_map(|k| k.split('.').last())
+            .filter_map(|k| k.split('.').next_back())
             .map(str::to_owned)
             .collect();
         for k in keys {
@@ -1501,7 +1501,7 @@ macro_rules! numeric_enum_serializing_mod {
             {
                 struct EnumVisitor;
 
-                impl<'de> Visitor<'de> for EnumVisitor {
+                impl Visitor<'_> for EnumVisitor {
                     type Value = $enum;
 
                     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1568,9 +1568,10 @@ macro_rules! numeric_enum_serializing_mod {
 /// States:
 ///   1. Init - Only source directory contains Raft data.
 ///   2. Migrating - A marker file contains the path of source directory. The
-/// source      directory contains a complete copy of Raft data. Target
-/// directory may exist.   3. Completed - Only target directory contains Raft
-/// data. Marker file may exist.
+///      source directory contains a complete copy of Raft data. Target
+///      directory may exist.
+///   3. Completed - Only target directory contains Raft data. Marker file may
+///      exist.
 pub struct RaftDataStateMachine {
     root: PathBuf,
     in_progress_marker: PathBuf,
@@ -2036,7 +2037,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn test_check_kernel() {
-        use super::check_kernel::{check_kernel_params, Checker};
+        use super::check_kernel::{Checker, check_kernel_params};
 
         // The range of vm.swappiness is from 0 to 100.
         let table: Vec<(&str, i64, Box<Checker>, bool)> = vec![

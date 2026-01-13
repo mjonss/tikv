@@ -3,7 +3,7 @@
 use futures::executor::block_on;
 use kvproto::metapb;
 use pd_client::PdClient;
-use test_cloud_server::{client::RequestOptions, try_wait, ServerCluster};
+use test_cloud_server::{ServerCluster, client::RequestOptions, try_wait};
 use tikv_util::{
     store::{find_peer, new_learner_peer},
     time::Instant,

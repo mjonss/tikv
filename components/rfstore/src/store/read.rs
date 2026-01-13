@@ -10,22 +10,22 @@ use kvproto::{
 };
 use pd_client::BucketMeta;
 use raftstore::store::{
+    TxnExt,
     util::{LeaseState, RemoteLease},
     worker_metrics::*,
-    TxnExt,
 };
 use tikv_util::{
     debug, error,
-    time::{monotonic_raw_now, ThreadReadId},
+    time::{ThreadReadId, monotonic_raw_now},
 };
 use time::Timespec;
 
 use crate::{
-    store::{
-        cf_name_to_num, cmd_resp, util, Callback, Peer, PeerMsg, RaftCommand, ReadResponse,
-        RegionSnapshot, RequestInspector, RequestPolicy,
-    },
     Error, RaftRouter, Result,
+    store::{
+        Callback, Peer, PeerMsg, RaftCommand, ReadResponse, RegionSnapshot, RequestInspector,
+        RequestPolicy, cf_name_to_num, cmd_resp, util,
+    },
 };
 
 #[derive(Debug)]
@@ -409,7 +409,7 @@ struct Inspector<'r> {
     delegate: &'r ReadDelegate,
 }
 
-impl<'r> RequestInspector for Inspector<'r> {
+impl RequestInspector for Inspector<'_> {
     fn has_applied_to_current_term(&mut self) -> bool {
         if self.delegate.applied_index_term == self.delegate.term {
             true

@@ -12,7 +12,7 @@ use tikv_util::{
 };
 use txn_types::TimeStamp;
 
-use crate::schema::{DbInfo, TableInfo, STATE_PUBLIC};
+use crate::schema::{DbInfo, STATE_PUBLIC, TableInfo};
 
 const M_DBS: &[u8] = b"mDBs";
 const M_TABLE_PREFIX: &[u8] = b"Table";

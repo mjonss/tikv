@@ -8,6 +8,7 @@ publish = false
 
 [features]
 testexport = ["kvengine/testexport"]
+failpoints = ["fail/failpoints"]
 
 [dependencies]
 api_version = { path = "../../components/api_version", default-features = false }

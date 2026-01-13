@@ -7,18 +7,18 @@ use std::{
 };
 
 use kvengine::{
-    table::{schema_file::SchemaFile, BoundedDataSet, OwnedInnerKey},
-    SchemaFileMeta, Shard, ShardMeta, STORAGE_CLASS_KEY,
+    STORAGE_CLASS_KEY, SchemaFileMeta, Shard, ShardMeta,
+    table::{BoundedDataSet, OwnedInnerKey, schema_file::SchemaFile},
 };
 use kvproto::{metapb, metapb::Region};
 use schema::schema::StorageClassSpec;
 use tikv_util::{
-    codec::bytes::encode_bytes, debug, info, time::Instant, warn, worker::Runnable, Either,
+    Either, codec::bytes::encode_bytes, debug, info, time::Instant, warn, worker::Runnable,
 };
 
 use crate::{
-    store::{Callback, CasualMessage, PeerMsg, PeerTag, RegionIdVer, StoreMsg},
     RaftRouter,
+    store::{Callback, CasualMessage, PeerMsg, PeerTag, RegionIdVer, StoreMsg},
 };
 
 pub enum SchemaTask {

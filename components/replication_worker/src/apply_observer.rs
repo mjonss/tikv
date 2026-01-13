@@ -4,8 +4,8 @@ use std::{collections::HashMap, fmt};
 
 use api_version::ApiV2;
 use kvengine::{
-    table::memtable::WriteBatchEntry, IdVer, ShardTag, SnapAccess, UserMeta, WriteBatch, LOCK_CF,
-    WRITE_CF,
+    IdVer, LOCK_CF, ShardTag, SnapAccess, UserMeta, WRITE_CF, WriteBatch,
+    table::memtable::WriteBatchEntry,
 };
 use kvproto::{cdcpb, raft_cmdpb::AdminRequest};
 use log_wrappers::Value as LogValue;

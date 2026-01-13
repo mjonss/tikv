@@ -5,8 +5,8 @@ use crossbeam::channel::TrySendError;
 use kvproto::{raft_cmdpb::RaftCmdRequest, raft_serverpb::RaftMessage};
 
 use crate::{
-    store::{Callback, PeerMsg, RaftCmdExtraOpts, SignificantMsg, SignificantRouter},
     DiscardReason, Error as RaftStoreError, Result as RaftStoreResult,
+    store::{Callback, PeerMsg, RaftCmdExtraOpts, SignificantMsg, SignificantRouter},
 };
 
 /// Routes messages to the raftstore.

@@ -6,13 +6,13 @@ use api_version::ApiV2;
 use bytes::{Buf, Bytes};
 use cloud_encryption::EncryptionKey;
 use dashmap::DashMap;
-use http::{header, request::Parts, Response, StatusCode};
+use http::{Response, StatusCode, header, request::Parts};
 use hyper::Body;
 use kvengine::{
+    ENCRYPTION_KEY,
     dfs::{self, Dfs},
     get_shard_property,
-    table::{txn_file::TxnChunkBuilder, ChecksumType, InnerKey},
-    ENCRYPTION_KEY,
+    table::{ChecksumType, InnerKey, txn_file::TxnChunkBuilder},
 };
 use load_data::dispatcher::get_shard_meta;
 use tikv_util::{box_err, warn};
@@ -37,7 +37,6 @@ pub(crate) const TARGET_BLOCK_SIZE_DEF: usize = 65536; // 64KB
 ///   chunk.
 ///
 ///   Return: { "chunk_id": <chunk_id> }
-
 pub(crate) async fn handle_txn_chunk(
     ctx: Arc<Context>,
     parts: Parts,
@@ -228,20 +227,19 @@ mod tests {
     use std::{ops::Deref, sync::Arc};
 
     use bytes::{Buf, BufMut};
-    use futures::{executor::block_on, StreamExt};
+    use futures::{StreamExt, executor::block_on};
     use http::Method;
     use kvengine::{
-        dfs,
+        GLOBAL_SHARD_END_KEY, Iterator, UserMeta, dfs,
         dfs::{Dfs, FileType, InMemFs},
         table::{
-            file::InMemFile, sstable::BlockCache, InnerKey, TxnChunk, TxnCtx, TxnFile, TxnFileId,
-            TxnFileIterator,
+            InnerKey, TxnChunk, TxnCtx, TxnFile, TxnFileId, TxnFileIterator, file::InMemFile,
+            sstable::BlockCache,
         },
-        Iterator, UserMeta, GLOBAL_SHARD_END_KEY,
     };
 
     use crate::txn_chunk::{
-        create_txn_chunk, CreateTxnChunkResp, KeyspaceInfo, TARGET_BLOCK_SIZE_DEF,
+        CreateTxnChunkResp, KeyspaceInfo, TARGET_BLOCK_SIZE_DEF, create_txn_chunk,
     };
 
     #[test]

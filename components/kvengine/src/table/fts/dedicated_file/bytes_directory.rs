@@ -7,12 +7,12 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bytes::Bytes;
 use tantivy::directory::{
-    error::{DeleteError, LockError, OpenReadError, OpenWriteError},
     Directory, DirectoryLock, FileHandle, FileSlice, Lock, OwnedBytes, WatchCallback, WatchHandle,
     WritePtr,
+    error::{DeleteError, LockError, OpenReadError, OpenWriteError},
 };
 
 // TODO: Move into clara_fts crate.
@@ -227,8 +227,8 @@ mod tests {
     use bytes::Bytes;
     use clara_fts::TrackedDirectory;
     use tantivy::{
-        directory::{error::OpenReadError, Directory, WatchCallback},
         HasLen,
+        directory::{Directory, WatchCallback, error::OpenReadError},
     };
 
     use super::*;

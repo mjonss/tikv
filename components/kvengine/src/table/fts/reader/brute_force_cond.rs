@@ -9,10 +9,10 @@ use tidb_query_datatype::{FieldTypeFlag, FieldTypeTp};
 use tipb::ColumnInfo;
 
 use crate::table::{
-    columnar::{Block, ColumnarFilterReader},
-    fts::util::{build_stringify_fn, empty_stringify_fn, StringifyFn},
-    schema_file::{Schema, SchemaBuf},
     Error, Result,
+    columnar::{Block, ColumnarFilterReader},
+    fts::util::{StringifyFn, build_stringify_fn, empty_stringify_fn},
+    schema_file::{Schema, SchemaBuf},
 };
 
 const TEXT_COLUMN_IDX: usize = 0;
@@ -525,20 +525,20 @@ mod tests {
     use bytes::Buf;
     use clara_fts::{
         index_for_test,
-        test_util::{make_scored_query, make_unscored_query, PlainFtsQueryInfo},
+        test_util::{PlainFtsQueryInfo, make_scored_query, make_unscored_query},
     };
     use tidb_query_datatype::FieldTypeTp;
 
     use super::{FtsBruteForceCondReader, SCORE_COLUMN_IDX};
     use crate::table::{
+        Error,
         columnar::{Block, ColumnarFilterReader, MockColumnarFilterReader},
         fts::{
-            reader::VIRTUAL_SCORE_COLUMN_ID,
-            test_util::{new_block, SchemaBuilder},
             IntPk,
+            reader::VIRTUAL_SCORE_COLUMN_ID,
+            test_util::{SchemaBuilder, new_block},
         },
         schema_file::Schema,
-        Error,
     };
 
     const TABLE_ID: i64 = 100;

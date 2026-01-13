@@ -16,10 +16,10 @@ use tikv_util::{
 use txn_types::TimeStamp;
 
 use crate::{
+    Error, KeyspaceStates, ReplicationWorkerConfig, Result, SafepointConfig,
     metrics::{REP_KEYSPACE_SERVICE_SAFEPOINT, REP_SAFEPOINT_EVENTS_COUNTER},
     ticdc_util::{ReplicationTaskItem, ReplicationTaskList},
     util::read_from_ticdc,
-    Error, KeyspaceStates, ReplicationWorkerConfig, Result, SafepointConfig,
 };
 
 const GC_WORKER_SERVICE_SAFEPOINT_ID: &str = "gc_worker";
@@ -579,7 +579,7 @@ impl ServiceSafepointRunner {
                         .unwrap();
                     if ctx
                         .last_rep_gc_safepoint
-                        .map_or(true, |sp| sp < max_expired_checkpoint_ts)
+                        .is_none_or(|sp| sp < max_expired_checkpoint_ts)
                     {
                         let current_gc_safepoint_opt = Self::update_rep_pd_gc_safepoint(
                             ctx.keyspace_id,

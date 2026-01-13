@@ -3,19 +3,20 @@
 use std::{
     fmt,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
 
 use futures::{
+    SinkExt, Stream, StreamExt,
     channel::mpsc::{
-        channel as bounded, unbounded, Receiver, SendError as FuturesSendError, Sender,
-        TrySendError, UnboundedReceiver, UnboundedSender,
+        Receiver, SendError as FuturesSendError, Sender, TrySendError, UnboundedReceiver,
+        UnboundedSender, channel as bounded, unbounded,
     },
     executor::block_on,
-    stream, SinkExt, Stream, StreamExt,
+    stream,
 };
 use grpcio::WriteFlags;
 use kvproto::cdcpb::{ChangeDataEvent, Event, ResolvedTs};
@@ -459,7 +460,7 @@ mod tests {
 
     use futures::executor::block_on;
     use kvproto::cdcpb::{
-        ChangeDataEvent, Event, EventEntries, EventRow, Event_oneof_event, ResolvedTs,
+        ChangeDataEvent, Event, Event_oneof_event, EventEntries, EventRow, ResolvedTs,
     };
 
     use super::*;

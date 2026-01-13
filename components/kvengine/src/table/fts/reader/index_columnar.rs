@@ -5,20 +5,19 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use cloud_encryption::EncryptionKey;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use tikv_util::sys::SysQuota;
 
 use crate::table::{
-    self,
+    self, Error, Result,
     blobtable::blobtable::BlobTable,
     columnar::{Block, ColumnarReader},
     fts::{
+        CommonPk, FtsDeltaCache, FtsIndexReader, IntPk, PkType,
         delta_cache::{FtsDeltaBuildSpec, FtsDeltaSource},
         level::FtsLevels,
-        CommonPk, FtsDeltaCache, FtsIndexReader, IntPk, PkType,
     },
     schema_file::Schema,
-    Error, Result,
 };
 
 const TEXT_COLUMN_IDX: usize = 0;
@@ -259,17 +258,17 @@ impl ColumnarReader for FtsIndexColumnarReader {
 mod tests {
     use std::sync::Arc;
 
-    use clara_fts::test_util::{make_scored_query, PlainFtsQueryInfo};
+    use clara_fts::test_util::{PlainFtsQueryInfo, make_scored_query};
     use tidb_query_datatype::FieldTypeTp;
 
     use super::FtsIndexColumnarReader;
     use crate::table::{
         columnar::{Block, ColumnarReader},
         fts::{
+            FtsDeltaCache, IntPk,
             level::FtsLevels,
             reader::FtsIndexReader,
-            test_util::{new_block, new_packed, SchemaBuilder},
-            FtsDeltaCache, IntPk,
+            test_util::{SchemaBuilder, new_block, new_packed},
         },
     };
 

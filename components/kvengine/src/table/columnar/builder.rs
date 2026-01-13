@@ -5,20 +5,19 @@ use std::cmp::max;
 use bytes::{Buf, BufMut};
 use cloud_encryption::EncryptionKey;
 use tidb_query_datatype::{
-    codec::table::{encode_common_handle_row_key, encode_row_key},
     Collation, FieldTypeFlag, FieldTypeTp,
+    codec::table::{encode_common_handle_row_key, encode_row_key},
 };
 use tipb::ColumnInfo;
 
 use crate::table::{
-    add_property,
+    ChecksumType, LZ4_COMPRESSION, SnapVersion, add_property,
     columnar::columnar::{
-        compress_pack, get_unsigned, Block, ColumnBuffer, ColumnMeta, ColumnarFileFooter,
-        COLUMNAR_MAGIC, HANDLE_COL_ID, VERSION_COL_ID,
+        Block, COLUMNAR_MAGIC, ColumnBuffer, ColumnMeta, ColumnarFileFooter, HANDLE_COL_ID,
+        VERSION_COL_ID, compress_pack, get_unsigned,
     },
     schema_file::Schema,
     sstable::PROP_KEY_ENCRYPTION_VER,
-    ChecksumType, SnapVersion, LZ4_COMPRESSION,
 };
 
 pub const PACK_MAX_ROW_COUNT: usize = 8192;

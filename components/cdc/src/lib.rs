@@ -9,6 +9,6 @@ mod errors;
 pub mod metrics;
 mod service;
 
-pub use channel::{channel, recv_timeout, CdcEvent, Drain, MemoryQuota, Sink};
+pub use channel::{CdcEvent, Drain, MemoryQuota, Sink, channel, recv_timeout};
 pub use errors::{Error, Result};
 pub use service::{Conn, ConnId};

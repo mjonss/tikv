@@ -4,7 +4,7 @@ mod chunk;
 mod mysql;
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use test::{black_box, Bencher};
+use test::{Bencher, black_box};
 use tidb_query_datatype::codec::table::*;
 
 #[bench]

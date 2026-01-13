@@ -10,7 +10,7 @@ use prometheus::{IntCounter, IntGauge};
 use tikv_util::time::{Instant, Limiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::{metrics::ENGINE_LIMITER_THROTTLE_COUNTER, KvEngineConfig, ShardTag};
+use crate::{KvEngineConfig, ShardTag, metrics::ENGINE_LIMITER_THROTTLE_COUNTER};
 
 /// All members are in bytes.
 #[derive(Clone, Default, Debug)]

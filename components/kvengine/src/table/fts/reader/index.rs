@@ -463,13 +463,13 @@ mod tests {
     use anyhow::Result;
     use clara_fts::{
         index_for_test,
-        test_util::{make_scored_query, make_unscored_query, PlainFtsQueryInfo},
+        test_util::{PlainFtsQueryInfo, make_scored_query, make_unscored_query},
     };
 
     use super::*;
     use crate::table::fts::{
-        test_util::{new_ded, new_packed},
         IntPk,
+        test_util::{new_ded, new_packed},
     };
 
     const TABLE_ID: i64 = 1;

@@ -1,6 +1,6 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bytes::Bytes;
 
 /// A document id within a single FTS index segment/file.
@@ -95,8 +95,8 @@ pub trait OrderedPkIterator {
     /// order, starting from 0, and cover all documents in the file/segment.
     /// A note about encoded_pk:
     /// - For int PKs, i64 pk **in memory comparable form** is returned.
-    /// - For common PKs, pk in bytes is returned.
-    /// None is returned when the iteration is finished.
+    /// - For common PKs, pk in bytes is returned. None is returned when the
+    ///   iteration is finished.
     #[allow(async_fn_in_trait)]
     async fn next(&mut self) -> Result<Option<(DocId, Bytes, u64, u8)>>;
 }

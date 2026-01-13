@@ -3,7 +3,7 @@ use std::{error::Error as StdError, io, time::Duration};
 
 use async_trait::async_trait;
 use cloud::{
-    blob::{none_to_empty, BlobConfig, BlobStorage, BucketConf, PutResource, StringNonEmpty},
+    blob::{BlobConfig, BlobStorage, BucketConf, PutResource, StringNonEmpty, none_to_empty},
     metrics::CLOUD_REQUEST_HISTOGRAM_VEC,
 };
 use fail::fail_point;
@@ -14,7 +14,7 @@ use futures_util::{
 };
 use kvproto::brpb::CloudDynamic;
 pub use kvproto::brpb::S3 as InputConfig;
-use rusoto_core::{request::DispatchSignedRequest, ByteStream, RusotoError};
+use rusoto_core::{ByteStream, RusotoError, request::DispatchSignedRequest};
 use rusoto_credential::{ProvideAwsCredentials, StaticProvider};
 use rusoto_s3::{util::AddressingStyle, *};
 use thiserror::Error;

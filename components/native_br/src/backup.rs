@@ -8,12 +8,12 @@ use std::{
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use fail::fail_point;
-use futures::{compat::Stream01CompatExt, executor::block_on, StreamExt};
+use futures::{StreamExt, compat::Stream01CompatExt, executor::block_on};
 use http::Request;
 use hyper::Body;
 use kvengine::dfs::{DFSConfig, Dfs, S3Fs};
 use kvproto::metapb::Store;
-use pd_client::{util::get_all_stores_except_tiflash, PdClient};
+use pd_client::{PdClient, util::get_all_stores_except_tiflash};
 use protobuf::Message;
 use regex::Regex;
 use rfenginepb::{ClusterBackupMeta, StoreBackupMeta};
@@ -27,8 +27,8 @@ use tikv_util::{
 
 use crate::{
     common::{
-        create_pd_client, generate_etcd_connect_opt, get_latest_backup_meta, send_request_to_store,
-        INCREMENTAL_BACKUP_FILE_NAME_FORMAT, INCREMENTAL_BACKUP_FOLDER_FORMAT,
+        INCREMENTAL_BACKUP_FILE_NAME_FORMAT, INCREMENTAL_BACKUP_FOLDER_FORMAT, create_pd_client,
+        generate_etcd_connect_opt, get_latest_backup_meta, send_request_to_store,
     },
     error::{Error, SharedError},
     metrics::NATIVE_BR_BACKUP_MISSING_COMMIT_RECORD,

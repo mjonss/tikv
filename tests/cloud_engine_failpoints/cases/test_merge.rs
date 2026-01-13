@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use test_cloud_server::{client::ClusterClient, ServerCluster};
+use test_cloud_server::{ServerCluster, client::ClusterClient};
 use tikv_util::{info, time::Instant};
 
 use crate::cases::{alloc_node_id_vec, i_to_key, i_to_val};

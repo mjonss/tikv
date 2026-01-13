@@ -11,16 +11,15 @@ use tikv_util::codec::BytesSlice;
 use tipb::{ColumnInfo, FieldType};
 
 use super::{
-    datum,
+    Datum, Error, Result, datum,
     datum::DatumDecoder,
     mysql::{Duration, Time},
-    Datum, Error, Result,
 };
 use crate::{
+    FieldTypeTp,
     codec::{batch::LazyBatchColumnVec, data_type::ScalarValueRef},
     expr::EvalContext,
     prelude::*,
-    FieldTypeTp,
 };
 
 // handle or index id
@@ -347,7 +346,7 @@ pub fn decode_row(
     cols: &HashMap<i64, ColumnInfo>,
 ) -> Result<HashMap<i64, Datum>> {
     let mut values = datum::decode(data)?;
-    if values.first().map_or(true, |d| *d == Datum::Null) {
+    if values.first().is_none_or(|d| *d == Datum::Null) {
         return Ok(HashMap::default());
     }
     if values.len() & 1 == 1 {
@@ -552,7 +551,7 @@ pub fn generate_index_data_for_test(
     col_val: &Datum,
     unique: bool,
 ) -> (HashMap<i64, Vec<u8>>, Vec<u8>) {
-    let indice = vec![(2, col_val.clone()), (3, Datum::Dec(handle.into()))];
+    let indice = [(2, col_val.clone()), (3, Datum::Dec(handle.into()))];
     let mut expect_row = HashMap::default();
     let mut v: Vec<_> = indice
         .iter()
@@ -745,7 +744,7 @@ impl RowHandle for CommonHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::{i64, iter::FromIterator};
+    use std::iter::FromIterator;
 
     use api_version::ApiV1;
     use collections::{HashMap, HashSet};

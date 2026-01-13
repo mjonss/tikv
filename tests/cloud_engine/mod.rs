@@ -16,7 +16,7 @@ use kvengine::ShardStats;
 use kvproto::{kvrpcpb::UnsafeDestroyRangeRequest, metapb::Store};
 use pd_client::PdClient;
 use security::SecurityConfig;
-use test_cloud_server::{client::ClusterClient, try_wait, ServerCluster};
+use test_cloud_server::{ServerCluster, client::ClusterClient, try_wait};
 use test_pd_client::TestPdClient;
 use tidb_query_common::util::convert_to_prefix_next;
 use tikv_util::{codec::bytes::encode_bytes, info};

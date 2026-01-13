@@ -4,15 +4,14 @@ use std::{collections::HashMap, fs, time::Duration};
 
 use collections::HashSet;
 use kvengine::{
-    new_schema_filename, new_tmp_filename, new_vector_index_filename,
+    ShardStats, new_schema_filename, new_tmp_filename, new_vector_index_filename,
     table::{get_local_dir, sstable::new_filename},
-    ShardStats,
 };
 use kvproto::raft_cmdpb::{RaftCmdRequest, RaftRequestHeader};
 use pd_client::PdClient;
 use rand::Rng;
 use rfstore::store::rlog::*;
-use test_cloud_server::{must_wait, ServerCluster};
+use test_cloud_server::{ServerCluster, must_wait};
 use tikv_util::{
     config::{ReadableDuration, ReadableSize},
     info,

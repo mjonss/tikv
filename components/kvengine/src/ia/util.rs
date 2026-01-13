@@ -7,8 +7,8 @@ use std::{
     os::unix::fs::FileExt,
     path::PathBuf,
     sync::{
-        atomic::{AtomicU64, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicU64, Ordering::Relaxed},
     },
     time::Duration,
 };
@@ -23,12 +23,12 @@ use tikv_util::{
 };
 
 use crate::{
+    IoContext,
     ia::{
         manager::{IaManagerOptions, QueueOptions},
         types::SegmentHandle,
     },
-    table::{file::LocalFile, get_local_dir, Error, Result},
-    IoContext,
+    table::{Error, Result, file::LocalFile, get_local_dir},
 };
 
 pub const TEMPORARY_FILE_SUFFIX: &str = "tmp";

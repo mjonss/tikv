@@ -13,7 +13,7 @@ use tikv_util::logger;
 
 struct Serializer<'a>(&'a mut dyn std::io::Write);
 
-impl<'a> slog::Serializer for Serializer<'a> {
+impl slog::Serializer for Serializer<'_> {
     fn emit_arguments(&mut self, key: slog::Key, val: &std::fmt::Arguments<'_>) -> slog::Result {
         write!(self.0, ", {}: {}", key, val)?;
         Ok(())

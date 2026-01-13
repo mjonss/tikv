@@ -18,6 +18,7 @@ cloud-aws = ["encryption_export/cloud-aws"]
 cloud-gcp = ["encryption_export/cloud-gcp"]
 
 nortcheck = ["engine_rocks/nortcheck"]
+testexport = []
 
 [dependencies]
 api_version = { path = "../api_version" }

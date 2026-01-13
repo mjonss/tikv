@@ -9,15 +9,15 @@ use kvengine::table::{
 };
 use schema::schema::StorageClassSpec;
 use tidb_query_datatype::{
+    Collation, FieldTypeAccessor, FieldTypeFlag, FieldTypeTp,
     codec::{
+        Datum,
         data_type::VectorFloat32,
         datum::encode_key,
         row::v2::encoder_for_test::{Column, RowEncoder},
         table::{encode_common_handle_row_key, encode_row_key},
-        Datum,
     },
     expr::EvalContext,
-    Collation, FieldTypeAccessor, FieldTypeFlag, FieldTypeTp,
 };
 use tipb::{ColumnInfo, ExecType, Executor, TableScan};
 

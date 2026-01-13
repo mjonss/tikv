@@ -3,7 +3,7 @@ use std::{convert::TryInto, fmt::Display, io, sync::Arc};
 
 use async_trait::async_trait;
 use cloud::{
-    blob::{none_to_empty, BlobConfig, BlobStorage, BucketConf, PutResource, StringNonEmpty},
+    blob::{BlobConfig, BlobStorage, BucketConf, PutResource, StringNonEmpty, none_to_empty},
     metrics,
 };
 use futures_util::{
@@ -12,7 +12,7 @@ use futures_util::{
     stream::{StreamExt, TryStreamExt},
 };
 use http::HeaderValue;
-use hyper::{client::HttpConnector, Body, Client, Request, Response, StatusCode};
+use hyper::{Body, Client, Request, Response, StatusCode, client::HttpConnector};
 use hyper_tls::HttpsConnector;
 pub use kvproto::brpb::{CloudDynamic, Gcs as InputConfig};
 use tame_gcs::{
@@ -22,7 +22,7 @@ use tame_gcs::{
 };
 use tame_oauth::gcp::{ServiceAccountAccess, ServiceAccountInfo, TokenOrRequest};
 use tikv_util::{
-    stream::{error_stream, AsyncReadAsSyncStreamOfBytes, RetryError},
+    stream::{AsyncReadAsSyncStreamOfBytes, RetryError, error_stream},
     time::Instant,
 };
 
@@ -143,10 +143,6 @@ pub struct GcsStorage {
 trait ResultExt {
     type Ok;
 
-    // Maps the error of this result as an `std::io::Error` with `Other` error
-    // kind.
-    fn or_io_error<D: Display>(self, msg: D) -> io::Result<Self::Ok>;
-
     // Maps the error of this result as an `std::io::Error` with `InvalidInput`
     // error kind.
     fn or_invalid_input<D: Display>(self, msg: D) -> io::Result<Self::Ok>;
@@ -154,9 +150,6 @@ trait ResultExt {
 
 impl<T, E: Display> ResultExt for Result<T, E> {
     type Ok = T;
-    fn or_io_error<D: Display>(self, msg: D) -> io::Result<T> {
-        self.map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}: {}", msg, e)))
-    }
     fn or_invalid_input<D: Display>(self, msg: D) -> io::Result<T> {
         self.map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}: {}", msg, e)))
     }

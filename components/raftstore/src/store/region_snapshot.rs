@@ -4,15 +4,15 @@
 use std::{
     num::NonZeroU64,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
 use engine_rocks::{RocksDbVector, RocksEngine, RocksEngineIterator, RocksSnapshot};
 use engine_traits::{
-    util::check_key_in_range, Error as EngineError, IterOptions, Peekable, ReadOptions,
-    Result as EngineResult, CF_RAFT,
+    CF_RAFT, Error as EngineError, IterOptions, Peekable, ReadOptions, Result as EngineResult,
+    util::check_key_in_range,
 };
 use fail::fail_point;
 use keys::DATA_PREFIX_KEY;
@@ -24,8 +24,8 @@ use tikv_util::{
 };
 
 use crate::{
-    store::{util, TxnExt},
     Error, Result,
+    store::{TxnExt, util},
 };
 
 /// Snapshot of a region.

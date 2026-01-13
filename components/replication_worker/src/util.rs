@@ -2,13 +2,13 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
-use api_version::{api_v2::KEYSPACE_PREFIX_LEN, ApiV2};
+use api_version::{ApiV2, api_v2::KEYSPACE_PREFIX_LEN};
 use bytes::Bytes;
 use http::{Request, StatusCode, Uri};
 use hyper::Body;
@@ -19,7 +19,7 @@ use security::{HttpClient, SecurityConfig, SecurityManager};
 use tikv_util::{box_err, codec::bytes::decode_bytes, debug, error, info, time::Instant, warn};
 use txn_types::TimeStamp;
 
-use crate::{ticdc_util, ticdc_util::TiCdcError, Error};
+use crate::{Error, ticdc_util, ticdc_util::TiCdcError};
 
 pub(crate) const DISPATCH_CDC_TIMEOUT: Duration = Duration::from_secs(30);
 

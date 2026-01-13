@@ -1,5 +1,4 @@
 // Copyright 2022 TiKV Project Authors. Licensed under Apache-2.0.
-#![feature(lazy_cell)]
 #![feature(path_file_prefix)]
 
 #[macro_use]
@@ -27,31 +26,31 @@ mod unsafe_recover;
 
 use std::{env, fs::OpenOptions, io, sync::LazyLock};
 
-use backup::{execute_show_backup_list, ShowBackupListArgs};
+use backup::{ShowBackupListArgs, execute_show_backup_list};
 use clap::{Args, Parser, Subcommand};
 use native_br::common::step_to_stdout;
-use region::{execute_region_command, RegionCommand};
+use region::{RegionCommand, execute_region_command};
 use slog::Drain;
 
 use crate::{
-    archive::{execute_archive, execute_show_archive, ArchiveArgs, ShowArchiveArgs},
-    backup::{execute_backup, execute_show_backup, BackupArgs, ShowBackupArgs},
-    check_columnar::{execute_check_columnar, CheckColumnarArgs},
-    check_table::{execute_check_table, CheckTableArgs},
-    dfsgc::{execute_dfsgc, DfsGcArgs},
-    http::HttpArgs,
-    mvcc::{execute_mvcc, MvccArgs},
-    recovery::{execute_recovery, RecoveryArgs},
-    resolve_lock::{execute_resolve_lock, ResolveLockArgs},
-    restore::{execute_restore_command, RestoreCommand},
-    schema_file::{execute_show_schema, ShowSchemaArgs},
-    sst::{execute_scan_bad_table, execute_show_sst, ScanBadTableFileArgs, ShowSstArgs},
-    stats::{execute_stats, StatsArgs},
-    test::{execute_test, TestArgs},
-    txn_file::{execute_show_txn_chunk, ShowTxnChunkArgs},
-    txn_log::{execute_show_txn_log, ShowTxnLogArgs},
-    unsafe_recover::{execute_unsafe_recover, UnsafeRecoverArgs},
     Commands::*,
+    archive::{ArchiveArgs, ShowArchiveArgs, execute_archive, execute_show_archive},
+    backup::{BackupArgs, ShowBackupArgs, execute_backup, execute_show_backup},
+    check_columnar::{CheckColumnarArgs, execute_check_columnar},
+    check_table::{CheckTableArgs, execute_check_table},
+    dfsgc::{DfsGcArgs, execute_dfsgc},
+    http::HttpArgs,
+    mvcc::{MvccArgs, execute_mvcc},
+    recovery::{RecoveryArgs, execute_recovery},
+    resolve_lock::{ResolveLockArgs, execute_resolve_lock},
+    restore::{RestoreCommand, execute_restore_command},
+    schema_file::{ShowSchemaArgs, execute_show_schema},
+    sst::{ScanBadTableFileArgs, ShowSstArgs, execute_scan_bad_table, execute_show_sst},
+    stats::{StatsArgs, execute_stats},
+    test::{TestArgs, execute_test},
+    txn_file::{ShowTxnChunkArgs, execute_show_txn_chunk},
+    txn_log::{ShowTxnLogArgs, execute_show_txn_log},
+    unsafe_recover::{UnsafeRecoverArgs, execute_unsafe_recover},
 };
 
 fn main() {

@@ -13,7 +13,6 @@ pub trait Summable: Evaluable + EvaluableRet {
     /// Adds assign another value.
     fn add_assign(&mut self, ctx: &mut EvalContext, other: &Self) -> Result<()>;
 
-    fn add(&self, other: &Self) -> Result<Self>;
     fn sub(&self, other: &Self) -> Result<Self>;
     fn mul(&self, other: &Self) -> Result<Self>;
     fn div(&self, other: &Self) -> Result<Self>;
@@ -34,10 +33,6 @@ impl Summable for Decimal {
         Ok(())
     }
 
-    fn add(&self, other: &Self) -> Result<Self> {
-        let r: tidb_query_datatype::codec::Result<Decimal> = (self as &Self + other).into();
-        Ok(r?)
-    }
     fn sub(&self, other: &Self) -> Result<Self> {
         let r: tidb_query_datatype::codec::Result<Decimal> = (self as &Self - other).into();
         Ok(r?)
@@ -68,9 +63,6 @@ impl Summable for Real {
         Ok(())
     }
 
-    fn add(&self, other: &Self) -> Result<Self> {
-        Ok(*self + *other)
-    }
     fn sub(&self, other: &Self) -> Result<Self> {
         Ok(*self - *other)
     }

@@ -5,10 +5,10 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::{Buf, Bytes};
 use hexhex::hex;
-use kvenginepb::{fts as ftspb, FtsDedFileInfo};
+use kvenginepb::{FtsDedFileInfo, fts as ftspb};
 use protobuf::Message;
 use xorf::BinaryFuse8;
 
@@ -16,9 +16,9 @@ use super::iter::{CommonPk, IntPk, PkType};
 use crate::{
     codecutil::BytesExt,
     table::{
+        BoundedDataSet, ChecksumType, DataBound, InnerKey,
         file::{File, FileMmapGuard, TtlCache},
         fts::{CacheKeyRef, FtsCache, FtsCacheValue},
-        BoundedDataSet, ChecksumType, DataBound, InnerKey,
     },
 };
 
@@ -689,13 +689,13 @@ impl EDedicatedFile {
         // This `if` will be eliminated during compilation because TypeId::of()
         // is const.
         if std::any::TypeId::of::<Pk>() == std::any::TypeId::of::<IntPk>() {
-            return self.as_int().map(|lp| unsafe {
+            self.as_int().map(|lp| unsafe {
                 std::mem::transmute::<&DedicatedFile<IntPk>, &DedicatedFile<Pk>>(lp)
-            });
+            })
         } else if std::any::TypeId::of::<Pk>() == std::any::TypeId::of::<CommonPk>() {
-            return self.as_common().map(|lp| unsafe {
+            self.as_common().map(|lp| unsafe {
                 std::mem::transmute::<&DedicatedFile<CommonPk>, &DedicatedFile<Pk>>(lp)
-            });
+            })
         } else {
             Err(anyhow!("Unsupported Pk type"))
         }

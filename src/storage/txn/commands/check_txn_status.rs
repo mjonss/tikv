@@ -4,18 +4,18 @@
 use txn_types::{Key, ReqType, TimeStamp};
 
 use crate::storage::{
+    ProcessResult, Snapshot, TxnStatus,
     kv::WriteData,
     lock_manager::LockManager,
     mvcc::{MvccTxn, SnapshotReader},
     txn::{
+        Result,
         actions::check_txn_status::*,
         commands::{
             Command, CommandExt, ReaderWithStats, ReleasedLocks, ResponsePolicy, TypedCommand,
             WriteCommand, WriteContext, WriteResult,
         },
-        Result,
     },
-    ProcessResult, Snapshot, TxnStatus,
 };
 
 command! {
@@ -165,18 +165,18 @@ pub mod tests {
 
     use super::{TxnStatus::*, *};
     use crate::storage::{
+        ProcessResult, TestEngineBuilder,
         kv::Engine,
         lock_manager::MockLockManager,
         mvcc,
         mvcc::tests::*,
         txn::{
             self,
-            commands::{pessimistic_rollback, WriteCommand, WriteContext},
+            commands::{WriteCommand, WriteContext, pessimistic_rollback},
             scheduler::DEFAULT_EXECUTION_DURATION_LIMIT,
             tests::*,
         },
         types::TxnStatus,
-        ProcessResult, TestEngineBuilder,
     };
 
     pub fn must_success<E: Engine>(

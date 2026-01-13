@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use crossbeam::queue::ArrayQueue;
 use futures::future::join_all;
 use rand::prelude::*;
@@ -15,13 +15,12 @@ use test_cloud_server::{keyspace::KeyspaceManager, tidb::TidbCluster};
 use tikv_util::{debug, error, info, time::Instant};
 
 use crate::{
-    env_param,
+    JEPSEN_BANK_TXN_COUNTER, JEPSEN_BANK_TXN_RETRY_COUNTER, Running, env_param,
     sql_util::{
-        gen_padding, get_engine_hint, retry_or_panic, wait_tiflash_or_columnar_replicas_available,
-        Transaction, MAX_PADDING_SIZE,
+        MAX_PADDING_SIZE, Transaction, gen_padding, get_engine_hint, retry_or_panic,
+        wait_tiflash_or_columnar_replicas_available,
     },
     test_tidb::connect_tidb,
-    Running, JEPSEN_BANK_TXN_COUNTER, JEPSEN_BANK_TXN_RETRY_COUNTER,
 };
 
 pub(crate) const JEPSEN_BANK_WORKLOAD_CONCURRENCY: usize = 4;

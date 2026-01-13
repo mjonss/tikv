@@ -5,18 +5,17 @@ use std::{fmt, result::Result as StdResult, sync::Arc, time::Duration as StdDura
 use bytes::{Buf, BufMut};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use tidb_query_datatype::{
+    Collation, FieldTypeFlag, FieldTypeTp,
     codec::{
-        datum,
+        Datum, datum,
         mysql::{Decimal, Duration, Enum, Set, Time, TimeType, VectorFloat32},
-        Datum,
     },
     expr::EvalContext,
-    Collation, FieldTypeFlag, FieldTypeTp,
 };
 use tikv_util::{
     box_err, box_try,
     buffer_vec::BufferVec,
-    codec::number::{U32_SIZE, U64_SIZE, U8_SIZE},
+    codec::number::{U8_SIZE, U32_SIZE, U64_SIZE},
     warn,
 };
 

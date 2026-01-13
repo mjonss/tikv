@@ -5,7 +5,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 use schema::schema::StorageClassSpec;
 use test_cloud_server::{
     client::ClusterTxnClient,
-    keyspace::{make_row_key, ClusterKeyspaceClient, KeyspaceManager},
+    keyspace::{ClusterKeyspaceClient, KeyspaceManager, make_row_key},
 };
 use tikv_util::{info, time::Instant};
 

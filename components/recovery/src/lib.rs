@@ -2,13 +2,13 @@
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::Entry},
     fs,
     path::{Path, PathBuf},
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering::Relaxed},
         Mutex,
+        atomic::{AtomicBool, Ordering::Relaxed},
     },
 };
 

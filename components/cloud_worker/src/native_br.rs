@@ -9,15 +9,15 @@ use std::{
     ops::Deref,
     path::PathBuf,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex, RwLock,
+        atomic::{AtomicU64, Ordering},
     },
     thread,
     time::Duration,
 };
 
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use http::{request::Parts, Method, StatusCode};
+use http::{Method, StatusCode, request::Parts};
 use hyper::{Body, Response};
 use kvengine::dfs::Dfs;
 use native_br::{
@@ -28,30 +28,31 @@ use native_br::{
     common::get_all_incremental_backups,
     restore, restore_keyspace,
     restore_keyspace::{
-        restore_keyspace_with_cfg, ObjectCache, ReportRestoreStepTrait, RestoreStep,
-        RestoredKeyspace,
+        ObjectCache, ReportRestoreStepTrait, RestoreStep, RestoredKeyspace,
+        restore_keyspace_with_cfg,
     },
     rfengine_cache::RfEngineCache,
 };
-use pd_client::{pd_control::PdControl, PdClient};
+use pd_client::{PdClient, pd_control::PdControl};
 use serde::Deserialize;
 use tikv::storage::mvcc::TimeStamp;
 use tikv_util::{
+    HandyRwLock,
     config::{AbsoluteOrPercentSize, ReadableDuration, ReadableSize},
     debug, error,
     errors::Context as _,
     info,
     sys::SysQuota,
     time::Instant,
-    warn, HandyRwLock,
+    warn,
 };
 use tokio::runtime::Runtime;
 
 use crate::{
+    Config,
     common::{get_param, make_json_response, make_response},
     error::{Error, Result},
     metrics::{NATIVE_BR_COUNTER_VEC, NATIVE_BR_HISTOGRAM_VEC},
-    Config,
 };
 
 const MIN_PITR_INTERVAL_GAP_SECONDS: i64 = 1; // 1s
@@ -76,7 +77,6 @@ const RESTORE_TASK_WORKING_PATH_PREFIX: &str = "r";
 ///   * GET    /api/v1/restore_keyspace/<restore_id>?cluster_id=%d&keyspace=%s
 ///   * DELETE /api/v1/restore_keyspace/<restore_id>?cluster_id=%d&keyspace=%s
 ///   * GET    /api/v1/restore_keyspace/?cluster_id=%d
-
 pub(crate) async fn handle_backup(
     manager: Arc<NativeBrManager>,
     req: hyper::Request<hyper::Body>,
@@ -1503,7 +1503,7 @@ pub mod test_utils {
     use security::{HttpResult, RestfulClient, SecurityManager};
 
     use crate::native_br::{
-        BackupItem, ListBackupResponse, RestoreProgressResponse, JSON_TIME_FORMAT,
+        BackupItem, JSON_TIME_FORMAT, ListBackupResponse, RestoreProgressResponse,
     };
 
     #[derive(Default, Serialize, Deserialize, Debug)]

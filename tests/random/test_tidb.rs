@@ -4,12 +4,12 @@ use std::{
     io::Write as _,
     ops::Div,
     path::{Path, PathBuf},
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
 use anyhow::Context;
-use dashmap::{mapref::entry::Entry as DashMapEntry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry as DashMapEntry};
 use kvengine::{
     dfs::DFSConfig,
     ia::util::IaConfig,
@@ -29,9 +29,9 @@ use security::SecurityConfig;
 use serde_derive::Deserialize;
 use sqlx::{ConnectOptions, Executor, Row as _};
 use test_cloud_server::{
-    oss::prepare_dfs, table::TableMeta, tidb::*, tikv_worker_cop_url, try_wait_async,
-    ServerCluster, ServerClusterBuilder, TikvConfigExt, TikvWorkerOptions,
-    IA_FREQ_UPDATE_INTERVAL_DEF,
+    IA_FREQ_UPDATE_INTERVAL_DEF, ServerCluster, ServerClusterBuilder, TikvConfigExt,
+    TikvWorkerOptions, oss::prepare_dfs, table::TableMeta, tidb::*, tikv_worker_cop_url,
+    try_wait_async,
 };
 use test_pd_client::PdWrapper;
 use tikv::{config::TikvConfig, server::config::GrpcCompressionType};

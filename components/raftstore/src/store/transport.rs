@@ -6,8 +6,8 @@ use std::sync::mpsc;
 use crossbeam::channel::TrySendError;
 
 use crate::{
-    store::{CasualMessage, RaftCommand, SignificantMsg, StoreMsg},
     DiscardReason, Error, Result,
+    store::{CasualMessage, RaftCommand, SignificantMsg, StoreMsg},
 };
 
 /// Routes message to target region.

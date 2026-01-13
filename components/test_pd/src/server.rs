@@ -3,7 +3,7 @@
 use std::{sync::Arc, thread, time::Duration};
 
 use fail::fail_point;
-use futures::{future, SinkExt, TryFutureExt, TryStreamExt};
+use futures::{SinkExt, TryFutureExt, TryStreamExt, future};
 use grpcio::{
     ClientStreamingSink, DuplexSink, EnvBuilder, RequestStream, RpcContext, RpcStatus,
     RpcStatusCode, Server as GrpcServer, ServerBuilder, ServerStreamingSink, UnarySink, WriteFlags,

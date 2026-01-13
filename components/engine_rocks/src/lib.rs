@@ -67,8 +67,8 @@ pub mod encryption;
 pub mod file_system;
 
 pub use rocksdb::{
-    set_perf_flags, set_perf_level, PerfContext, PerfFlag, PerfFlags, PerfLevel,
-    Statistics as RocksStatistics,
+    PerfContext, PerfFlag, PerfFlags, PerfLevel, Statistics as RocksStatistics, set_perf_flags,
+    set_perf_level,
 };
 
 pub mod flow_control_factors;

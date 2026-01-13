@@ -10,8 +10,9 @@ use tikv_util::config::{AbsoluteOrPercentSize, ReadableDuration};
 use crate::{
     ia::util::IaConfig,
     table::{
-        blobtable::builder::BlobTableBuildOptions, columnar::ColumnarTableBuildOptions,
-        sstable::BlockCacheType, vector_index::VectorIndexBuildOptions, ChecksumType,
+        ChecksumType, blobtable::builder::BlobTableBuildOptions,
+        columnar::ColumnarTableBuildOptions, sstable::BlockCacheType,
+        vector_index::VectorIndexBuildOptions,
     },
 };
 

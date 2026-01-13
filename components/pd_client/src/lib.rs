@@ -46,8 +46,8 @@ pub use self::{
     errors::{Error, Result},
     feature_gate::{Feature, FeatureGate},
     util::{
-        merge_bucket_stats, new_bucket_stats, new_bucket_write_stats,
-        simple_merge_bucket_write_stats, PdConnector, REQUEST_RECONNECT_INTERVAL,
+        PdConnector, REQUEST_RECONNECT_INTERVAL, merge_bucket_stats, new_bucket_stats,
+        new_bucket_write_stats, simple_merge_bucket_write_stats,
     },
 };
 
@@ -391,7 +391,6 @@ pub trait PdClient: GetSecurityManager + Send + Sync {
     ///   which Region and Peers will be removed.
     /// - For auto-balance, PD determines how to move the Region from one store
     ///   to another.
-
     /// Gets store information if it is not a tombstone store.
     fn get_store(&self, _store_id: u64) -> Result<metapb::Store> {
         unimplemented!();

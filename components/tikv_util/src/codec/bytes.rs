@@ -221,9 +221,7 @@ pub fn decode_bytes(data: &mut BytesSlice<'_>, desc: bool) -> Result<Vec<u8>> {
         }
 
         if desc {
-            for k in &mut key {
-                *k = !*k;
-            }
+            key.iter_mut().for_each(|k| *k = !*k);
         }
         // data will point to following unencoded bytes, maybe timestamp
         *data = &data[offset..];

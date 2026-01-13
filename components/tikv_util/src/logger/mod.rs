@@ -8,14 +8,14 @@ use std::{
     io::{self, BufWriter},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
     thread,
 };
 
 use log::{self, SetLoggerError};
-use slog::{self, slog_o, Drain, FnValue, Key, OwnedKVList, PushFnValue, Record, KV};
+use slog::{self, Drain, FnValue, KV, Key, OwnedKVList, PushFnValue, Record, slog_o};
 pub use slog::{FilterFn, Level};
 use slog_async::{Async, AsyncGuard, OverflowStrategy};
 use slog_term::{Decorator, PlainDecorator, RecordDecorator};
@@ -31,7 +31,7 @@ const SLOG_CHANNEL_SIZE: usize = 10240;
 const SLOG_CHANNEL_OVERFLOW_STRATEGY: OverflowStrategy = OverflowStrategy::Drop;
 const TIMESTAMP_FORMAT: &str = "%Y/%m/%d %H:%M:%S%.3f %:z";
 
-static LOG_LEVEL: AtomicUsize = AtomicUsize::new(usize::max_value());
+static LOG_LEVEL: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 #[cfg(feature = "env-logger")]
 pub type LevelFilter<D> = slog_envlogger::EnvLogger<D>;
@@ -651,11 +651,11 @@ impl<'a> Serializer<'a> {
     fn finish(self) {}
 }
 
-impl<'a> Drop for Serializer<'a> {
+impl Drop for Serializer<'_> {
     fn drop(&mut self) {}
 }
 
-impl<'a> slog::Serializer for Serializer<'a> {
+impl slog::Serializer for Serializer<'_> {
     fn emit_none(&mut self, key: Key) -> slog::Result {
         self.emit_arguments(key, &format_args!("None"))
     }
@@ -697,7 +697,7 @@ mod tests {
     // lifetime we need to make a Thread Local,
     // and implement a custom writer.
     thread_local! {
-        static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+        static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     }
     struct TestWriter;
     impl Write for TestWriter {
@@ -814,7 +814,7 @@ mod tests {
 
     #[test]
     fn test_log_format_json() {
-        use serde_json::{from_str, Value};
+        use serde_json::{Value, from_str};
         let drain = Mutex::new(json_format(TestWriter, true)).map(slog::Fuse);
         let logger = slog::Logger::root_typed(drain, slog_o!()).into_erased();
 
@@ -983,10 +983,10 @@ mod tests {
     }
 
     thread_local! {
-        static NORMAL_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
-        static ROCKSDB_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
-        static SLOW_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
-        static RAFTDB_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+        static NORMAL_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static ROCKSDB_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static SLOW_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static RAFTDB_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     }
 
     struct NormalWriter;

@@ -10,9 +10,9 @@ use kvproto::{
     metapb,
 };
 use tikv::storage::{
+    Engine, KvGetStatistics, PrewriteResult, Result, Storage, TestEngineBuilder, TxnStatus,
     config::Config, kv::RocksEngine, lock_manager::MockLockManager, test_util::GetConsumer,
-    txn::commands, Engine, KvGetStatistics, PrewriteResult, Result, Storage, TestEngineBuilder,
-    TxnStatus,
+    txn::commands,
 };
 use tikv_util::time::Instant;
 use tracker::INVALID_TRACKER_TOKEN;

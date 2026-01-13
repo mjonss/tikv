@@ -2,12 +2,12 @@
 
 use std::{
     cmp::min,
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     fmt::Debug,
     mem,
     sync::{
-        atomic::{AtomicUsize, Ordering::Relaxed},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering::Relaxed},
     },
     time::Duration,
 };
@@ -27,12 +27,12 @@ use tikv_util::{
     debug, error, info,
     mpsc::{Receiver, Sender},
     sys::thread::StdThreadBuildWrapper,
-    time::{duration_to_sec, Instant},
+    time::{Instant, duration_to_sec},
     warn,
 };
 
 use super::*;
-use crate::{store::metrics::IDLE_PEER_COUNT, RaftRouter};
+use crate::{RaftRouter, store::metrics::IDLE_PEER_COUNT};
 
 #[derive(Clone)]
 pub(crate) struct PeerStates {
@@ -586,8 +586,8 @@ impl RaftWorker {
             self.active_aux_count = 0;
         } else {
             let expect_aux_usage = cpu_usage - cfg.main_worker_max_util;
-            self.active_aux_count = ((expect_aux_usage + cfg.aux_worker_max_util - 1)
-                / cfg.aux_worker_max_util)
+            self.active_aux_count = expect_aux_usage
+                .div_ceil(cfg.aux_worker_max_util)
                 .min(cfg.aux_worker_count);
         }
         if self.active_aux_count != origin_active_aux_count {

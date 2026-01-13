@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use engine_traits::{self, Result};
-use rocksdb::{Writable, WriteBatch as RawWriteBatch, WriteOptions, DB};
+use rocksdb::{DB, Writable, WriteBatch as RawWriteBatch, WriteOptions};
 
 use crate::{engine::RocksEngine, r2e, util::get_cf_handle};
 

@@ -9,7 +9,7 @@ use hyper::Body;
 use kvengine::ShardStats;
 use pd_client::PdClient;
 use rstest::rstest;
-use test_cloud_server::{alloc_node_id_vec, must_wait, ServerCluster};
+use test_cloud_server::{ServerCluster, alloc_node_id_vec, must_wait};
 use test_util::init_log_for_test;
 use tikv_util::{codec::bytes::encode_bytes, info};
 

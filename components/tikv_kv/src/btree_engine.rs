@@ -12,8 +12,8 @@ use std::{
 };
 
 use collections::HashMap;
-use engine_traits::{CfName, IterOptions, ReadOptions, CF_DEFAULT, CF_LOCK, CF_WRITE};
-use futures::{future, stream, Future, Stream};
+use engine_traits::{CF_DEFAULT, CF_LOCK, CF_WRITE, CfName, IterOptions, ReadOptions};
+use futures::{Future, Stream, future, stream};
 use kvproto::kvrpcpb::Context;
 use txn_types::{Key, Value};
 
@@ -299,7 +299,7 @@ pub mod tests {
     use engine_traits::IterOptions;
 
     use super::{
-        super::{tests::*, CfStatistics, TEST_ENGINE_CFS},
+        super::{CfStatistics, TEST_ENGINE_CFS, tests::*},
         *,
     };
     use crate::{Cursor, ScanMode};

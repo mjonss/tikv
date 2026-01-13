@@ -9,7 +9,7 @@ use std::{collections::HashMap, fmt, io::Write as _};
 use crossbeam::queue::ArrayQueue;
 use error_code::{ErrorCode, ErrorCodeExt};
 
-use crate::storage::{txn::Command, Error as StorageError};
+use crate::storage::{Error as StorageError, txn::Command};
 
 const TXN_TASKS_QUEUE_CAP: usize = 65536;
 

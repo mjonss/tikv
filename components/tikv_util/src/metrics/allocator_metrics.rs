@@ -1,9 +1,9 @@
 // Copyright 2017 TiKV Project Authors. Licensed under Apache-2.0.
 
 use prometheus::{
+    IntGaugeVec, Opts, Result,
     core::{Collector, Desc},
     proto::MetricFamily,
-    IntGaugeVec, Opts, Result,
 };
 
 pub fn monitor_allocator_stats<S: Into<String>>(namespace: S) -> Result<()> {

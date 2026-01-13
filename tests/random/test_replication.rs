@@ -14,8 +14,8 @@ use replication_worker::{KeyspacesResp, LocalProvider, SafepointConfig};
 use security::{HttpClient, SecurityManager};
 use sqlx::Row;
 use test_cloud_server::{
-    must_wait, must_wait_result, oss::prepare_dfs, sync_diff_inspector::*, ticdc::*,
-    tidb::ConnParams, TryWaiter,
+    TryWaiter, must_wait, must_wait_result, oss::prepare_dfs, sync_diff_inspector::*, ticdc::*,
+    tidb::ConnParams,
 };
 use tidb_query_datatype::codec::table::encode_row_key;
 use tikv_util::{

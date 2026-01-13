@@ -16,21 +16,20 @@ use usearch::IndexOptions;
 use crate::{
     ia::types::FileSegmentIdent,
     table::{
-        self,
+        self, BoundedDataSet, DataBound, Error,
+        Error::Other,
+        InnerKey, Result, SnapVersion,
         columnar::{
-            get_fixed_size, Block, ColumnarConcatReader, ColumnarFile, ColumnarLevels,
-            ColumnarMergeReader, ColumnarReader, ColumnarTableReader,
+            Block, ColumnarConcatReader, ColumnarFile, ColumnarLevels, ColumnarMergeReader,
+            ColumnarReader, ColumnarTableReader, get_fixed_size,
         },
         file::{File, MmapData},
         schema_file::Schema,
         search,
         vector_index::{
-            vector_distance_projector::{VectorDistanceProjector, VIRTUAL_DISTANCE_COLUMN_ID},
             VectorIndexCache,
+            vector_distance_projector::{VIRTUAL_DISTANCE_COLUMN_ID, VectorDistanceProjector},
         },
-        BoundedDataSet, DataBound, Error,
-        Error::Other,
-        InnerKey, Result, SnapVersion,
     },
 };
 
@@ -284,14 +283,13 @@ impl VectorIndex {
             results.retain(|item| {
                 let mut handle = item.handle.as_slice();
                 if is_common_handle {
-                    handle >= start_handle && end_handle.map_or(true, |e| handle < e)
+                    handle >= start_handle && end_handle.is_none_or(|e| handle < e)
                 } else {
                     let mut start_handle = start_handle;
                     let int_handle = handle.get_i64_le();
                     let start_int_handle = start_handle.get_i64_le();
                     let end_int_handle = end_handle.map(|mut h| h.get_i64_le());
-                    int_handle >= start_int_handle
-                        && end_int_handle.map_or(true, |e| int_handle < e)
+                    int_handle >= start_int_handle && end_int_handle.is_none_or(|e| int_handle < e)
                 }
             });
         }
@@ -788,7 +786,8 @@ impl VectorIndexFile {
         let versions = self.get_versions();
         let mut results = vec![];
         thread_local! {
-            static DELETED_HANDLES: std::cell::RefCell<Vec<Vec<u8>>> = std::cell::RefCell::new(Vec::new());
+            static DELETED_HANDLES: std::cell::RefCell<Vec<Vec<u8>>> =
+                const { std::cell::RefCell::new(Vec::new()) };
         }
         let index = self.index();
         let matches = index
@@ -1489,24 +1488,24 @@ mod tests {
     use futures::executor::block_on;
     use schema::schema::StorageClassSpec;
     use tidb_query_datatype::{
+        FieldTypeAccessor, FieldTypeTp,
         codec::{
             data_type::VectorFloat32,
             mysql::VectorFloat32Encoder,
             table::{encode_common_handle_row_key, encode_row_key},
         },
-        FieldTypeAccessor, FieldTypeTp,
     };
     use tipb::ColumnInfo;
 
     use crate::table::{
+        SnapVersion,
         columnar::{
-            new_common_handle_column_info, new_int_handle_column_info, new_version_column_info,
-            Block,
+            Block, new_common_handle_column_info, new_int_handle_column_info,
+            new_version_column_info,
         },
         file::LocalFile,
         schema_file::{Schema, SchemaBuf},
         vector_index::{VectorIndex, VectorIndexBuilder, VectorIndexFile},
-        SnapVersion,
     };
 
     const TEST_DIMENSION: usize = 3;

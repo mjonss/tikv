@@ -49,7 +49,7 @@ pub struct VectorFloat32Ref<'a> {
     value: &'a [OrderedFloat<f32>], // Data must be aligned
 }
 
-impl<'a> std::ops::Index<usize> for VectorFloat32Ref<'a> {
+impl std::ops::Index<usize> for VectorFloat32Ref<'_> {
     type Output = f32;
 
     #[inline]
@@ -60,7 +60,7 @@ impl<'a> std::ops::Index<usize> for VectorFloat32Ref<'a> {
 
 assert_eq_size!(OrderedFloat<f32>, f32);
 
-impl<'a> VectorFloat32Ref<'a> {
+impl VectorFloat32Ref<'_> {
     pub fn from_f32(value: &[f32]) -> VectorFloat32Ref<'_> {
         // OrderedFloat is POD, so it is safe.
         let ordered_value = unsafe {
@@ -99,7 +99,7 @@ impl<'a> VectorFloat32Ref<'a> {
         self.len() == 0
     }
 
-    fn check_dims(&self, b: VectorFloat32Ref<'a>) -> Result<()> {
+    fn check_dims(&self, b: VectorFloat32Ref<'_>) -> Result<()> {
         if self.len() != b.len() {
             return Err(box_err!(
                 "vectors have different dimensions: {} and {}",
@@ -132,14 +132,8 @@ impl std::fmt::Debug for VectorFloat32Ref<'_> {
     }
 }
 
-impl ToString for VectorFloat32Ref<'_> {
-    fn to_string(&self) -> String {
-        format!("{}", self)
-    }
-}
-
 // Vector distance and functions
-impl<'a> VectorFloat32Ref<'a> {
+impl VectorFloat32Ref<'_> {
     #[inline]
     pub fn l2_squared_distance(self, b: VectorFloat32Ref<'_>) -> Result<f64> {
         match f32::sqeuclidean(self.data(), b.data()) {

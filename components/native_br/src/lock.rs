@@ -1,7 +1,7 @@
 // Copyright 2023 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    collections::{hash_map::Entry::Vacant, HashMap},
+    collections::{HashMap, hash_map::Entry::Vacant},
     default::Default,
     sync::Arc,
 };
@@ -19,9 +19,9 @@ use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 use txn_types::{Lock, LockType, ReqType, TimeStamp};
 
 use crate::{
+    Result,
     common::{RawRegion, RegionMetaGetter},
     error::Error,
-    Result,
 };
 
 // Limit the batch size to avoid exceed the size of mem tables.
@@ -487,7 +487,7 @@ impl TxnStatus {
         key: &[u8],
         lock: &Lock,
         reader_cache: &'a mut HashMap<u64, CloudReader>,
-    ) -> Result<&mut CloudReader> {
+    ) -> Result<&'a mut CloudReader> {
         let shard_id = self.get_shard_by_key(key);
         if shard_id.is_none() {
             return Err(box_err!(

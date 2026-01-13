@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     io::Write as _,
     path::PathBuf,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -17,11 +17,10 @@ use pd_client::{
 use rand::prelude::*;
 use security::SecurityConfig;
 use test_cloud_server::{
-    must_wait,
+    ServerCluster, ServerClusterBuilder, TikvWorkerOptions, must_wait,
     oss::prepare_dfs,
     tidb::*,
     tikv_bin::{TikvServers, TikvWorkers},
-    ServerCluster, ServerClusterBuilder, TikvWorkerOptions,
 };
 use test_pd_client::PdWrapper;
 use tikv_util::{
@@ -471,7 +470,7 @@ enum Workers<'a> {
     ServerCluster(&'a RefCell<ServerCluster>),
 }
 
-impl<'a> Workers<'a> {
+impl Workers<'_> {
     fn tag(&self) -> &str {
         match self {
             Self::TikvWorkers(workers) => workers.tag(),
@@ -514,7 +513,7 @@ enum Servers<'a> {
     ServerCluster(&'a RefCell<ServerCluster>),
 }
 
-impl<'a> Servers<'a> {
+impl Servers<'_> {
     fn tag(&self) -> &str {
         match self {
             Self::TikvServers(servers) => servers.tag(),

@@ -9,8 +9,8 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::Duration,
@@ -25,7 +25,7 @@ use file_system::IoRateLimiter;
 use fslock;
 use security::SecurityManager;
 use slog_global::info;
-use tikv_util::{box_err, mpsc, sys::thread::StdThreadBuildWrapper, time::Instant, HandyRwLock};
+use tikv_util::{HandyRwLock, box_err, mpsc, sys::thread::StdThreadBuildWrapper, time::Instant};
 use txn_chunk_manager::with_pool_size;
 
 use crate::{
@@ -37,13 +37,13 @@ use crate::{
     meta::ShardMeta,
     metrics::{ENGINE_FREE_MEM_BYTES_HISTOGRAM, PREPARE_COUNTER_VEC},
     table::{
+        BoundedDataSet, DataBound, InnerKey, SnapVersion, ZSTD_COMPRESSION,
         columnar::ColumnarMetaCache,
         file::FdCache,
         memtable::{CfTable, CfTableCore},
         schema_file::SchemaFile,
         sstable::{BlockCache, MAGIC_NUMBER},
         tiny_meta::{MetaPackReader, MetaPackScheduler},
-        BoundedDataSet, DataBound, InnerKey, SnapVersion, ZSTD_COMPRESSION,
     },
     txn_chunk_manager::{TxnChunkManager, TxnChunkManagerConfig},
     util::{new_blob_create_pb, new_l0_create_pb, new_table_create_pb},

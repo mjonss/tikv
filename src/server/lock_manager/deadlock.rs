@@ -18,7 +18,7 @@ use grpcio::{
     WriteFlags,
 };
 use kvproto::{deadlock::*, metapb::Region};
-use pd_client::{PdClient, INVALID_ID};
+use pd_client::{INVALID_ID, PdClient};
 use raft::StateRole;
 use raftstore::{
     coprocessor::{
@@ -37,11 +37,11 @@ use tokio::task::spawn_local;
 use txn_types::TimeStamp;
 
 use super::{
+    Error, Result,
     client::{self, Client},
     config::Config,
     metrics::*,
     waiter_manager::Scheduler as WaiterMgrScheduler,
-    Error, Result,
 };
 use crate::{
     server::resolve::StoreAddrResolver,

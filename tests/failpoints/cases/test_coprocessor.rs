@@ -6,7 +6,7 @@ use protobuf::Message;
 use test_coprocessor::*;
 use test_storage::*;
 use tidb_query_datatype::{
-    codec::{datum, Datum},
+    codec::{Datum, datum},
     expr::EvalContext,
 };
 use tipb::SelectResponse;

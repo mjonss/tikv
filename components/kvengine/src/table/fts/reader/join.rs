@@ -7,37 +7,35 @@ use bytes::Buf;
 use cloud_encryption::EncryptionKey;
 use log_wrappers::Value as LogValue;
 use tidb_query_datatype::{
+    FieldTypeAccessor, FieldTypeFlag, FieldTypeTp,
     codec::{
-        datum,
+        Datum, datum,
         datum::{
-            decode, BYTES_FLAG, COMPACT_BYTES_FLAG, DECIMAL_FLAG, DURATION_FLAG, FLOAT_FLAG,
-            INT_FLAG, JSON_FLAG, NIL_FLAG, UINT_FLAG, VAR_INT_FLAG, VAR_UINT_FLAG,
-            VECTOR_FLOAT32_FLAG,
+            BYTES_FLAG, COMPACT_BYTES_FLAG, DECIMAL_FLAG, DURATION_FLAG, FLOAT_FLAG, INT_FLAG,
+            JSON_FLAG, NIL_FLAG, UINT_FLAG, VAR_INT_FLAG, VAR_UINT_FLAG, VECTOR_FLOAT32_FLAG,
+            decode,
         },
         mysql::{DecimalDecoder, JsonEncoder, VectorFloat32Encoder},
-        row::v2::{decode_v2_i64, decode_v2_u64, RowSlice, CODEC_VERSION},
+        row::v2::{CODEC_VERSION, RowSlice, decode_v2_i64, decode_v2_u64},
         table::{append_common_handle_row_key, append_row_key},
-        Datum,
     },
-    FieldTypeAccessor, FieldTypeFlag, FieldTypeTp,
 };
 use tikv_util::codec::{
+    BytesSlice,
     bytes::{decode_bytes, decode_compact_bytes},
     number::{decode_f64, decode_i64, decode_u64, decode_var_i64, decode_var_u64},
-    BytesSlice,
 };
 
 use super::VIRTUAL_SCORE_COLUMN_ID;
 use crate::{
     next_version_async,
     table::{
-        self,
+        self, Error, InnerKey, Iterator as TableIterator, Result,
         blobtable::blobtable::BlobTable,
         columnar::{
-            decode_decimal_as_int, parse_default_val, Block, ColumnBuffer, ColumnarFilterReader,
+            Block, ColumnBuffer, ColumnarFilterReader, decode_decimal_as_int, parse_default_val,
         },
         schema_file::Schema,
-        Error, InnerKey, Iterator as TableIterator, Result,
     },
 };
 
@@ -842,29 +840,29 @@ mod tests {
     use std::{
         collections::HashMap,
         sync::{
-            atomic::{AtomicUsize, Ordering},
             Arc,
+            atomic::{AtomicUsize, Ordering},
         },
     };
 
     use bytes::Bytes;
     use tidb_query_datatype::{
+        FieldTypeTp,
         codec::{datum, datum::Datum},
         expr::EvalContext,
-        FieldTypeTp,
     };
 
     use super::FtsJoinReader;
     use crate::table::{
+        InnerKey, Iterator as TableIterator, NO_COMPRESSION,
         blobtable::{blobtable::BlobTable, builder::BlobTableBuilder},
         columnar::{Block, ColumnarFilterReader, MockColumnarFilterReader},
         file::InMemFile,
         fts::{
-            test_util::{encode_row_value_v1, new_block, new_write_batch, SchemaBuilder},
             CommonPk, IntPk,
+            test_util::{SchemaBuilder, encode_row_value_v1, new_block, new_write_batch},
         },
-        table::{Value, BIT_BLOB_REF},
-        InnerKey, Iterator as TableIterator, NO_COMPRESSION,
+        table::{BIT_BLOB_REF, Value},
     };
 
     const TABLE_ID: i64 = 42;

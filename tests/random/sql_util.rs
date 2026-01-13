@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use rand::{
-    prelude::{SliceRandom, ThreadRng},
     Rng,
+    prelude::{SliceRandom, ThreadRng},
 };
-use sqlx::{pool::PoolConnection, Executor, MySql, MySqlPool, Row};
+use sqlx::{Executor, MySql, MySqlPool, Row, pool::PoolConnection};
 use tikv_util::{error, info, time::Instant};
 
 use crate::test_txn_file::{TXN_CHUNK_MAX_SIZE, TXN_FILE_MIN_SIZE};
@@ -106,7 +106,7 @@ pub(crate) fn gen_padding(rows: usize, rng: &mut ThreadRng, buf: &mut [u8]) -> u
         MAX_PADDING_SIZE,
     ];
     let trans_size = *TRANSACTION_SIZE.choose(rng).unwrap();
-    let row_size = (trans_size + rows - 1) / rows;
+    let row_size = trans_size.div_ceil(rows);
     rng.fill(&mut buf[..row_size]);
     row_size
 }
@@ -243,7 +243,7 @@ impl Drop for Transaction {
                     let _ = conn.detach();
                 }
             };
-            let _ = tokio::spawn(task);
+            drop(tokio::spawn(task));
         }
     }
 }

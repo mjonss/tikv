@@ -13,7 +13,7 @@ use raftstore::Error as RaftServerError;
 use thiserror::Error;
 use tikv_util::codec::Error as CodecError;
 
-use crate::storage::{kv::Error as EngineError, Error as StorageError};
+use crate::storage::{Error as StorageError, kv::Error as EngineError};
 
 #[derive(Debug, Error)]
 pub enum Error {

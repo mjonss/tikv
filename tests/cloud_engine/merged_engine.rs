@@ -5,24 +5,24 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use api_version::ApiV2;
 use bytes::{Buf, Bytes};
 use futures::executor::block_on;
-use kvengine::{dfs::S3Fs, table::BIT_DELETE, WRITE_CF};
+use kvengine::{WRITE_CF, dfs::S3Fs, table::BIT_DELETE};
 use kvproto::metapb;
 use merged_engine::{MergedEngine, MergedEngineConfig, MergedEngineContext};
 use native_br::{backup, common::send_request_to_store};
 use pd_client::PdClient;
 use rand::Rng;
-use rfstore::store::{load_raft_engine_meta, ApplyContext, RAFT_INIT_LOG_INDEX};
+use rfstore::store::{ApplyContext, RAFT_INIT_LOG_INDEX, load_raft_engine_meta};
 use security::{GetSecurityManager, SecurityManager};
 use test_cloud_server::{
+    ServerCluster,
     client::{RefStore, RequestOptions},
     oss::prepare_dfs,
-    ServerCluster,
 };
 use test_pd_client::TestPdClient;
 use tikv::config::TikvConfig;
 use tikv_util::{
     codec::bytes::encode_bytes,
-    config::{env_or_default, ReadableDuration, ReadableSize},
+    config::{ReadableDuration, ReadableSize, env_or_default},
 };
 use tokio::runtime::Runtime;
 

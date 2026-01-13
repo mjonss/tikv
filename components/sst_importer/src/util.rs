@@ -78,9 +78,9 @@ mod tests {
 
     use encryption::DataKeyManager;
     use engine_rocks::{
-        util::new_engine_opt, RocksCfOptions, RocksDbOptions, RocksEngine, RocksSstWriterBuilder,
+        RocksCfOptions, RocksDbOptions, RocksEngine, RocksSstWriterBuilder, util::new_engine_opt,
     };
-    use engine_traits::{CfName, EncryptionKeyManager, Peekable, CF_DEFAULT};
+    use engine_traits::{CF_DEFAULT, CfName, EncryptionKeyManager, Peekable};
     use tempfile::Builder;
     use test_util::encryption::new_test_key_manager;
 

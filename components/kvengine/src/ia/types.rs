@@ -3,7 +3,7 @@
 use std::{fmt, hash::Hash, ops, sync::Arc};
 
 use bytes::Bytes;
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 use papaya::Operation;
 use tikv_util::time::Instant;
 use tokio::sync::{Mutex, OwnedMutexGuard};

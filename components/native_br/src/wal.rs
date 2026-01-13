@@ -13,8 +13,8 @@ use rfengine::WalChunkMeta;
 use tikv_util::error;
 
 use crate::{
-    common::{LocalObject, TempLocalObject},
     Result,
+    common::{LocalObject, TempLocalObject},
 };
 
 /// Data of remote WAL chunk. Resides in memory or local file.
@@ -372,8 +372,8 @@ impl LocalWalChunks {
 
     pub fn range_reader(&self, start: u64, end: u64) -> LocalWalChunksReader {
         debug_assert!(start <= end);
-        debug_assert!(self.start_off().map_or(true, |s| s <= start));
-        debug_assert!(self.end_off().map_or(true, |e| end <= e));
+        debug_assert!(self.start_off().is_none_or(|s| s <= start));
+        debug_assert!(self.end_off().is_none_or(|e| end <= e));
 
         LocalWalChunksReader {
             chunks: self.into(),

@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use prometheus::*;
 use prometheus_static_metric::*;
 use rocksdb::{
-    DBStatisticsHistogramType as HistType, DBStatisticsTickerType as TickerType, HistogramData, DB,
+    DB, DBStatisticsHistogramType as HistType, DBStatisticsTickerType as TickerType, HistogramData,
 };
 
 use crate::rocks_metrics_defs::*;

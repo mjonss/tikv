@@ -7,19 +7,19 @@ use bytes::Bytes;
 use codec::{buffer::BufferWriter, number::NumberEncoder};
 use itertools::Itertools;
 use schema::schema::{
-    StorageClass, StorageClassSpec, STORAGE_CLASS_SPEC_STR_AUTO, STORAGE_CLASS_TIER_IA,
+    STORAGE_CLASS_SPEC_STR_AUTO, STORAGE_CLASS_TIER_IA, StorageClass, StorageClassSpec,
 };
 use serde::Deserialize;
 use tikv_util::set_current_region;
 
 use crate::{
+    COLUMNAR_LEVELS, EXTRA_CF, IdVer, LOCK_CF, LevelHandler, MajorCompactionType, NUM_CFS,
+    WRITE_CF,
     metrics::{
         ENGINE_OPEN_FILES, ENGINE_REGION_HUGE_L0_TABLE_BYTES_HISTOGRAM,
         ENGINE_REGION_HUGE_MEM_TABLE_BYTES_HISTOGRAM,
     },
     table::{BoundedDataSet, DataBound, InnerKey},
-    IdVer, LevelHandler, MajorCompactionType, COLUMNAR_LEVELS, EXTRA_CF, LOCK_CF, NUM_CFS,
-    WRITE_CF,
 };
 
 #[derive(Default, Debug, Serialize, Deserialize)]

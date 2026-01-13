@@ -530,7 +530,7 @@ pub struct ThreadReadId {
     pub create_time: Timespec,
 }
 
-thread_local!(static READ_SEQUENCE: RefCell<u64> = RefCell::new(0));
+thread_local!(static READ_SEQUENCE: RefCell<u64> = const { RefCell::new(0) });
 
 impl ThreadReadId {
     pub fn new() -> ThreadReadId {
@@ -557,8 +557,8 @@ mod tests {
     use std::{
         ops::Sub,
         sync::{
-            atomic::{AtomicBool, Ordering},
             Arc,
+            atomic::{AtomicBool, Ordering},
         },
         thread,
         time::{Duration, SystemTime},

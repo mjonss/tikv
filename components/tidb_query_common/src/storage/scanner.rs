@@ -7,7 +7,7 @@ use paste::paste;
 use tikv_util::time::Instant;
 use yatp::task::future::reschedule;
 
-use super::{range::*, ranges_iter::*, OwnedKvPair, Storage};
+use super::{OwnedKvPair, Storage, range::*, ranges_iter::*};
 use crate::error::StorageError;
 
 const KEY_BUFFER_CAPACITY: usize = 64;
@@ -384,7 +384,7 @@ mod tests {
     use futures::executor::block_on;
 
     use super::*;
-    use crate::storage::{test_fixture::FixtureStorage, IntervalRange, PointRange, Range};
+    use crate::storage::{IntervalRange, PointRange, Range, test_fixture::FixtureStorage};
 
     fn create_storage() -> FixtureStorage {
         let data: &[(&'static [u8], &'static [u8])] = &[

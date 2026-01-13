@@ -14,28 +14,28 @@ use kvproto::{
 };
 use mur3::Hasher128;
 use protobuf::Message;
-use rand::{rngs::StdRng, Rng};
+use rand::{Rng, rngs::StdRng};
 use tidb_query_common::storage::{
-    scanner::{RangesScanner, RangesScannerOptions},
     Range,
+    scanner::{RangesScanner, RangesScannerOptions},
 };
 use tidb_query_datatype::{
+    FieldTypeAccessor,
     codec::{
         datum::{
-            encode_value, split_datum, Datum, DatumDecoder, DURATION_FLAG, INT_FLAG, NIL_FLAG,
-            UINT_FLAG,
+            DURATION_FLAG, Datum, DatumDecoder, INT_FLAG, NIL_FLAG, UINT_FLAG, encode_value,
+            split_datum,
         },
         table,
     },
     def::Collation,
     expr::{EvalConfig, EvalContext},
-    FieldTypeAccessor,
 };
-use tidb_query_executors::{interface::BatchExecutor, BatchTableScanExecutor};
+use tidb_query_executors::{BatchTableScanExecutor, interface::BatchExecutor};
 use tidb_query_expr::BATCH_MAX_SIZE;
 use tikv_alloc::trace::{MemoryTraceGuard, TraceEvent};
 use tikv_util::{
-    metrics::{ThrottleType, NON_TXN_COMMAND_THROTTLE_TIME_COUNTER_VEC_STATIC},
+    metrics::{NON_TXN_COMMAND_THROTTLE_TIME_COUNTER_VEC_STATIC, ThrottleType},
     quota_limiter::QuotaLimiter,
     time::Instant,
 };
@@ -46,13 +46,14 @@ use tipb::{
 use super::{cmsketch::CmSketch, fmsketch::FmSketch, histogram::Histogram};
 use crate::{
     coprocessor::{
+        MEMTRACE_ANALYZE,
         dag::TikvStorage,
         remote_dispatcher::{
-            encode_remote_cop_request, remote_handle_request_with_retry, RemoteContext,
+            RemoteContext, encode_remote_cop_request, remote_handle_request_with_retry,
         },
-        MEMTRACE_ANALYZE, *,
+        *,
     },
-    storage::{txn::CloudStore, Snapshot, Statistics},
+    storage::{Snapshot, Statistics, txn::CloudStore},
 };
 
 const ANALYZE_VERSION_V1: i32 = 1;
@@ -83,7 +84,7 @@ impl<S: Snapshot, F: KvFormat> AnalyzeContext<S, F> {
         remote_ctx: Option<RemoteContext>,
         mut remote_req: RemoteRequest,
     ) -> Result<Self> {
-        let remote_ctx = remote_ctx.map(|ctx| {
+        let remote_ctx = remote_ctx.inspect(|_ctx| {
             let mut kv_ranges = Vec::with_capacity(ranges.len());
             for range in &ranges {
                 let kv_range = (
@@ -103,7 +104,6 @@ impl<S: Snapshot, F: KvFormat> AnalyzeContext<S, F> {
             );
             remote_req.key = format!("analyze:{}:{}", key, start_ts);
             remote_req.req_body = Bytes::from(req_body);
-            ctx
         });
         let store = CloudStore::new(
             snap,
@@ -581,9 +581,11 @@ trait RowSampleCollector: Send {
     );
     fn sampling(&mut self, data: &[Vec<u8>]);
     fn to_proto(&mut self) -> tipb::RowSampleCollector;
+    #[cfg(test)]
     fn get_reported_memory_usage(&mut self) -> usize {
         self.mut_base().reported_memory_usage
     }
+    #[cfg(test)]
     fn get_memory_usage(&mut self) -> usize {
         self.mut_base().memory_usage
     }
@@ -1471,11 +1473,11 @@ mod tests {
 #[cfg(test)]
 mod benches {
     use tidb_query_datatype::{
+        EvalType, FieldTypeTp,
         codec::{
             batch::LazyBatchColumn,
-            collation::{collator::CollatorUtf8Mb4Bin, Collator},
+            collation::{Collator, collator::CollatorUtf8Mb4Bin},
         },
-        EvalType, FieldTypeTp,
     };
 
     use super::*;

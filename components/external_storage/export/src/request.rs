@@ -14,7 +14,7 @@ use tikv_util::time::Limiter;
 use tokio::runtime::Runtime;
 use tokio_util::compat::Tokio02AsyncReadCompatExt;
 
-use crate::export::{create_storage_no_client, read_external_storage_into_file, ExternalStorage};
+use crate::export::{ExternalStorage, create_storage_no_client, read_external_storage_into_file};
 
 pub fn write_receiver(
     runtime: &Runtime,

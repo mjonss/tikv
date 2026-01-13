@@ -12,10 +12,10 @@ use std::{
 
 use collections::HashSet;
 use kvengine::{
+    IoContext,
     context::IaCtx,
     ia::gc::{IaGcConfig, IaGcRunner},
     table::sstable,
-    IoContext,
 };
 use kvproto::import_sstpb::SwitchMode;
 use sst_importer::SstImporter;
@@ -89,7 +89,7 @@ impl GcRunner {
     ) -> Self {
         let ia_gc_runner = match kv.ia_ctx() {
             IaCtx::Enabled(ia_mgr, meta_paths) => {
-                #[cfg_attr(not(feature = "textexport"), allow(unused_mut))]
+                #[cfg_attr(not(feature = "testexport"), allow(unused_mut))]
                 let mut config = IaGcConfig::default();
 
                 // For test purpose:

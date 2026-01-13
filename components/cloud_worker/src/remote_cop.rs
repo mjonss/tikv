@@ -12,12 +12,12 @@ use futures::{FutureExt, TryFutureExt};
 use grpcio::{ChannelBuilder, EnvBuilder, Environment, RpcStatus, RpcStatusCode, ServerBuilder};
 use kvproto::{
     coprocessor::{DelegateRequest, Request, Response},
-    tikvpb::{create_tikv, Tikv, TikvClient},
+    tikvpb::{Tikv, TikvClient, create_tikv},
 };
 use tikv::coprocessor::parse_request_and_handle_remote_cop;
 use tikv_util::{info, thd_name, time::Instant, warn};
 
-use crate::server::{get_cop_req_tag, Context};
+use crate::server::{Context, get_cop_req_tag};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]

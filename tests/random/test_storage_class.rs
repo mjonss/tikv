@@ -1,7 +1,7 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -10,24 +10,24 @@ use collections::HashSet;
 use kvengine::IdVer;
 use rand::prelude::*;
 use schema::schema::{
-    StorageClass, StorageClassSpec, StorageClassTransitRule, StorageClassTransitionInfo,
-    STORAGE_CLASS_TIER_STANDARD,
+    STORAGE_CLASS_TIER_STANDARD, StorageClass, StorageClassSpec, StorageClassTransitRule,
+    StorageClassTransitionInfo,
 };
 use serde_derive::Serialize;
 use sqlx::Executor;
 use test_cloud_server::{
-    keyspace::{make_row_key, KeyspaceManager},
+    ServerCluster, TryWaiter,
+    keyspace::{KeyspaceManager, make_row_key},
     table::TableMeta,
     tidb::TidbCluster,
-    ServerCluster, TryWaiter,
 };
 use tikv_util::{codec::bytes::decode_bytes, debug, error, info, time::Instant};
 
 use crate::{
+    ALTER_TABLE_AUTO_IA_COUNTER, ALTER_TABLE_IA_COUNTER, ALTER_TABLE_NON_IA_COUNTER,
+    ASYNC_SHARD_COUNTER, Running,
     sql_util::retry_or_panic,
     test_tidb::{connect_tidb, query_tidb_table_schema},
-    Running, ALTER_TABLE_AUTO_IA_COUNTER, ALTER_TABLE_IA_COUNTER, ALTER_TABLE_NON_IA_COUNTER,
-    ASYNC_SHARD_COUNTER,
 };
 
 type Result<T> = anyhow::Result<T>;

@@ -2,8 +2,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -11,7 +11,7 @@ use std::{
 use futures::executor::block_on;
 use grpcio::EnvBuilder;
 use kvproto::{metapb, pdpb};
-use pd_client::{pd_control::PdControl, Config, PdClient};
+use pd_client::{Config, PdClient, pd_control::PdControl};
 use security::{GetSecurityManager, SecurityConfig, SecurityManager};
 use tikv_util::config::ReadableDuration;
 use url::Url;

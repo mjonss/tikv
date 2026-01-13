@@ -4,26 +4,25 @@ use std::{assert_matches::assert_matches, fs, path::PathBuf, sync::Arc, time::Du
 
 use bytes::{Buf, Bytes};
 use kvengine::{
-    dfs,
+    FileMeta, dfs,
     dfs::{Dfs, FileType, S3Fs},
     ia::{
         gc::{IaGcConfig, IaGcRunner},
-        ia_file::{table_meta_file_local_path, IaFile},
+        ia_file::{IaFile, table_meta_file_local_path},
         manager::IaManager,
         types::{FileSegmentData, FileSegmentIdent},
         util::{
-            test_util::verify_local_segments, IaCapacity, IaManagerOptionsBuilder, LocalFileStore,
-            LocalStore,
+            IaCapacity, IaManagerOptionsBuilder, LocalFileStore, LocalStore,
+            test_util::verify_local_segments,
         },
     },
     table::{
+        ChecksumType, InnerKey, NO_COMPRESSION, Value,
         blobtable::builder::BlobTableBuilder,
         file::InMemFile,
         get_local_dir,
         sstable::{self},
-        ChecksumType, InnerKey, Value, NO_COMPRESSION,
     },
-    FileMeta,
 };
 use proptest::prelude::*;
 use rand::prelude::*;
@@ -404,7 +403,7 @@ fn test_local_gc() {
         .unwrap();
     let rt = runtime.handle().clone();
     runtime.block_on(async move {
-        let local_paths = vec![temp_dir.join("ia"), temp_dir.join("ia_extra")];
+        let local_paths = [temp_dir.join("ia"), temp_dir.join("ia_extra")];
         let segment_paths = vec![local_paths[0].join("seg"), local_paths[1].join("seg")];
         let meta_paths = vec![local_paths[0].join("meta"), local_paths[1].join("meta")];
         for segment_path in &segment_paths {

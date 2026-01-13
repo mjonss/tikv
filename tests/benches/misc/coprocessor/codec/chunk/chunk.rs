@@ -7,7 +7,7 @@ use arrow::{
     datatypes::{self, DataType, Field},
     record_batch::RecordBatch,
 };
-use tidb_query_datatype::{codec::Datum, prelude::*, FieldTypeFlag, FieldTypeTp};
+use tidb_query_datatype::{FieldTypeFlag, FieldTypeTp, codec::Datum, prelude::*};
 use tipb::FieldType;
 
 pub struct Chunk {

@@ -1,7 +1,7 @@
 // Copyright 2016 TiKV Project Authors. Licensed under Apache-2.0.
 
 // #[PerformanceCriticalPath]
-use std::{collections::VecDeque, usize};
+use std::collections::VecDeque;
 
 use api_version::ApiV2;
 use crossbeam::utils::CachePadded;

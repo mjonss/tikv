@@ -4,7 +4,7 @@ use std::{
     cell::RefCell,
     cmp,
     collections::VecDeque,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -16,12 +16,11 @@ use collections::{HashMap, HashSet};
 use error_code::ErrorCodeExt;
 use fail::fail_point;
 use kvengine::{
-    get_shard_property,
+    ENCRYPTION_KEY, FilePrepareType, LARGE_NUM_COLUMNAR_TABLES_IN_SHARD, STORAGE_CLASS_KEY,
+    ShardMeta, get_shard_property,
     metrics::ENGINE_DUPLICATED_CHANGE_SET_COUNTER,
     set_shard_property,
-    util::{estimated_entries_by_table_count, PropertiesHelper},
-    FilePrepareType, ShardMeta, ENCRYPTION_KEY, LARGE_NUM_COLUMNAR_TABLES_IN_SHARD,
-    STORAGE_CLASS_KEY,
+    util::{PropertiesHelper, estimated_entries_by_table_count},
 };
 use kvproto::{
     disk_usage::DiskUsage,
@@ -35,11 +34,11 @@ use kvproto::{
     raft_serverpb::{ExtraMessage, ExtraMessageType, MergeState, PeerState, RaftMessage},
     *,
 };
-use pd_client::{new_bucket_write_stats, simple_merge_bucket_write_stats, BucketMeta, BucketStat};
+use pd_client::{BucketMeta, BucketStat, new_bucket_write_stats, simple_merge_bucket_write_stats};
 use protobuf::Message;
 use raft::{
-    self, Changer, LightReady, ProgressState, ProgressTracker, RawNode, Ready, SnapshotStatus,
-    StateRole, Storage, INVALID_ID, INVALID_INDEX,
+    self, Changer, INVALID_ID, INVALID_INDEX, LightReady, ProgressState, ProgressTracker, RawNode,
+    Ready, SnapshotStatus, StateRole, Storage,
 };
 use raft_proto::{
     eraftpb::{ConfChangeType, Entry, MessageType},
@@ -49,31 +48,30 @@ use raftstore::{
     coprocessor,
     coprocessor::{RegionChangeEvent, RegionChangeReason, RoleChange},
     store::{
+        TxnExt,
         local_metrics::*,
         metrics::*,
         util::{
-            admin_cmd_epoch_lookup, is_epoch_stale, is_initial_msg, AdminCmdEpochState,
-            ChangePeerI, ConfChangeKind, Lease, LeaseState,
+            AdminCmdEpochState, ChangePeerI, ConfChangeKind, Lease, LeaseState,
+            admin_cmd_epoch_lookup, is_epoch_stale, is_initial_msg,
         },
-        TxnExt,
     },
 };
 use rfengine::KV_ENGINE_META_KEY;
 use tikv_util::{
-    box_err,
+    Either, box_err,
     codec::bytes::decode_bytes,
     debug, error, info,
-    time::{duration_to_sec, monotonic_raw_now, Instant},
+    time::{Instant, duration_to_sec, monotonic_raw_now},
     warn,
     worker::Scheduler,
-    Either,
 };
 use time::Timespec;
 use txn_types::Key;
 use uuid::Uuid;
 
 use super::*;
-use crate::{errors::*, RaftRouter};
+use crate::{RaftRouter, errors::*};
 
 const SHRINK_CACHE_CAPACITY: usize = 64;
 const MAX_COMMITTED_SIZE_PER_READY: u64 = 16 * 1024 * 1024;
@@ -1527,7 +1525,7 @@ impl Peer {
                 bucket_size *= 2;
             }
             let estimated_size = shard.get_estimated_size();
-            let expected_bucket_count = (estimated_size + bucket_size - 1) / bucket_size;
+            let expected_bucket_count = estimated_size.div_ceil(bucket_size);
             let mut bucket_keys = vec![self.region().get_start_key().to_vec()];
             if let Some(keys) =
                 shard.get_evenly_split_keys(expected_bucket_count as usize, origin_bucket_size)
@@ -1968,7 +1966,7 @@ impl PreprocessErrors {
 }
 
 // TODO: move to individual file.
-impl<'a> PreprocessRef<'a> {
+impl PreprocessRef<'_> {
     /// `preprocess_committed_entry` would process entries from applied index
     /// (of kvengine, during restore from snapshot or backup). So it should
     /// be able to properly handle entries before `ShardMeta.seq`.
@@ -3291,7 +3289,7 @@ impl Peer {
     fn pre_read_index(&self) -> Result<()> {
         fail_point!(
             "before_propose_readindex",
-            |s| if s.map_or(true, |s| s.parse().unwrap_or(true)) {
+            |s| if s.is_none_or(|s| s.parse().unwrap_or(true)) {
                 Ok(())
             } else {
                 Err(box_err!(

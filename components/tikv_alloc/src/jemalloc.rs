@@ -5,7 +5,7 @@
 use std::{collections::HashMap, ptr, slice, sync::Mutex, thread};
 
 use libc::{self, c_char, c_void};
-use tikv_jemalloc_ctl::{epoch, stats, Error};
+use tikv_jemalloc_ctl::{Error, epoch, stats};
 use tikv_jemalloc_sys::malloc_stats_print;
 
 use super::error::{ProfError, ProfResult};

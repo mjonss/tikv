@@ -2,7 +2,7 @@
 
 use std::{
     result,
-    sync::{mpsc, Arc, RwLock},
+    sync::{Arc, RwLock, mpsc},
     thread,
     time::Duration,
 };
@@ -20,14 +20,14 @@ use kvproto::{
     raft_cmdpb::*,
 };
 use pd_client::PdClient;
-use raftstore::{store::*, Error, Result};
+use raftstore::{Error, Result, store::*};
 use tempfile::TempDir;
 use test_pd_client::{PdClientExt, TestPdClient};
 use tikv::server::Result as ServerResult;
 use tikv_util::{
+    HandyRwLock,
     time::{Instant, ThreadReadId},
     worker::LazyWorker,
-    HandyRwLock,
 };
 
 use super::*;

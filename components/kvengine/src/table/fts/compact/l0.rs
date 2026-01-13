@@ -5,7 +5,7 @@ use std::{
     io::Cursor,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use clara_fts::{TantivyIndexWriter, TrackedDirectory};
 use cloud_encryption::EncryptionKey;
@@ -13,12 +13,12 @@ use tantivy::directory::RamDirectory;
 
 use super::super::util::{build_stringify_fn, empty_stringify_fn};
 use crate::table::{
+    SnapVersion,
     columnar::{
         Block, ColumnBuffer, ColumnarFile, ColumnarMergeReader, ColumnarReader, ColumnarTableReader,
     },
     fts::packed_file::{PackedFileBuildSummary, PackedFileBuilder, PackedFileBuilderOptions},
     schema_file::{Schema, SchemaFile},
-    SnapVersion,
 };
 
 /// Parameters for the Columnar to FTS L0 conversion function

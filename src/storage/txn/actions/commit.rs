@@ -4,15 +4,15 @@
 use txn_types::{Key, TimeStamp, Write, WriteType};
 
 use crate::storage::{
+    Snapshot,
     mvcc::{
+        ErrorInner, LockType, MvccTxn, ReleasedLock, Result as MvccResult, SnapshotReader,
         metrics::{
             MVCC_COMMIT_REJECT_BY_BACKUP_TS_COUNTER_VEC, MVCC_CONFLICT_COUNTER,
             MVCC_DUPLICATE_CMD_COUNTER_VEC,
         },
-        ErrorInner, LockType, MvccTxn, ReleasedLock, Result as MvccResult, SnapshotReader,
     },
     txn::commands::{find_mvcc_infos_by_key, find_mvcc_infos_by_key_async},
-    Snapshot,
 };
 
 #[maybe_async::both]
@@ -154,11 +154,11 @@ pub mod tests {
         must_prewrite_put_for_large_txn, must_prewrite_put_impl, must_prewrite_put_with_txn_soucre,
     };
     use crate::storage::{
-        mvcc::{tests::*, MvccTxn},
         Engine,
+        mvcc::{MvccTxn, tests::*},
     };
     #[cfg(test)]
-    use crate::storage::{txn::commands::check_txn_status, TestEngineBuilder, TxnStatus};
+    use crate::storage::{TestEngineBuilder, TxnStatus, txn::commands::check_txn_status};
 
     pub fn must_succeed<E: Engine>(
         engine: &mut E,

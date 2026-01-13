@@ -3,8 +3,8 @@
 use std::convert::TryFrom;
 
 use tidb_query_common::Result;
-use tidb_query_datatype::{builder::FieldTypeBuilder, EvalType, FieldTypeAccessor, FieldTypeTp};
-use tidb_query_expr::{impl_cast::get_cast_fn_rpn_node, RpnExpression, RpnExpressionBuilder};
+use tidb_query_datatype::{EvalType, FieldTypeAccessor, FieldTypeTp, builder::FieldTypeBuilder};
+use tidb_query_expr::{RpnExpression, RpnExpressionBuilder, impl_cast::get_cast_fn_rpn_node};
 use tipb::{Expr, FieldType};
 
 /// Checks whether or not there is only one child and the child expression is

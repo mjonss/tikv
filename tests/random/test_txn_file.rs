@@ -12,7 +12,7 @@ use test_cloud_server::{
 };
 use tikv_util::{debug, info, time::Instant};
 
-use crate::{generate_random_string, i_to_key, TXN_FILE_WRITE_COUNTER};
+use crate::{TXN_FILE_WRITE_COUNTER, generate_random_string, i_to_key};
 
 pub(crate) const TXN_FILE_MIN_SIZE: usize = 64;
 pub(crate) const TXN_CHUNK_MAX_SIZE: usize = 256;

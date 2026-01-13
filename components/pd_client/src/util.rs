@@ -4,7 +4,7 @@ use std::{
     borrow::Cow,
     error, fmt,
     pin::Pin,
-    sync::{atomic::AtomicU64, Arc, RwLock},
+    sync::{Arc, RwLock, atomic::AtomicU64},
     thread,
     time::Duration,
 };
@@ -36,19 +36,19 @@ use kvproto::{
 use log_wrappers::Value;
 use security::SecurityManager;
 use tikv_util::{
-    box_err,
+    Either, HandyRwLock, box_err,
     codec::bytes::{decode_bytes, encode_bytes},
     debug, error, info, slow_log,
     time::Instant,
     timer::GLOBAL_TIMER_HANDLE,
-    warn, Either, HandyRwLock,
+    warn,
 };
 use tokio::sync::Mutex;
 use tokio_timer::timer::Handle;
 
 use super::{
-    metrics::*, tso::TimestampOracle, BucketMeta, BucketStat, Config, Error, FeatureGate, PdClient,
-    PdFuture, Result, REQUEST_TIMEOUT,
+    BucketMeta, BucketStat, Config, Error, FeatureGate, PdClient, PdFuture, REQUEST_TIMEOUT,
+    Result, metrics::*, tso::TimestampOracle,
 };
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(1); // 1s

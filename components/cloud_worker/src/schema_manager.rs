@@ -10,8 +10,8 @@ use std::{
 };
 
 use api_version::{
-    api_v2::{is_whole_keyspace_range, DEFAULT_KEYSPACE_ID, KEYSPACE_PREFIX_LEN},
     ApiV2,
+    api_v2::{DEFAULT_KEYSPACE_ID, KEYSPACE_PREFIX_LEN, is_whole_keyspace_range},
 };
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes};
@@ -20,26 +20,26 @@ use futures::future::join_all;
 use http::Request;
 use hyper::Body;
 use kvengine::{
+    IdAllocator, ShardStatsLite,
     dfs::{self, Dfs},
     table::{
+        ChecksumType, NO_COMPRESSION,
         columnar::{
-            new_common_handle_column_info, new_int_handle_column_info, new_version_column_info,
-            ColumnarMetaCache, VectorIndexDef,
+            ColumnarMetaCache, VectorIndexDef, new_common_handle_column_info,
+            new_int_handle_column_info, new_version_column_info,
         },
         file::{File, LocalFile},
         schema_file,
         schema_file::{Schema, SchemaBufBuilder, SchemaFile},
-        ChecksumType, NO_COMPRESSION,
     },
-    IdAllocator, ShardStatsLite,
 };
 use kvproto::metapb::Store;
 use native_br::common::send_request_to_store_with_retry;
 use pd_client::PdClient;
 use rfstore::store::PdIdAllocator;
 use schema::schema::{
-    convert_column_infos_to_tipb, ColumnInfo, IndexInfo, StorageClassSpec, TableInfo,
-    VectorIndexInfo,
+    ColumnInfo, IndexInfo, StorageClassSpec, TableInfo, VectorIndexInfo,
+    convert_column_infos_to_tipb,
 };
 use security::{SecurityConfig, SecurityManager};
 use tidb_query_datatype::VECTOR_INDEX_SPEC_KEY_DISTANCE_METRIC;
@@ -1630,7 +1630,7 @@ impl SchemaManagerCore {
     fn in_blacklist(&self, keyspace_id: u32) -> bool {
         self.blacklist_keyspaces
             .as_ref()
-            .map_or(false, |blacklist| blacklist.contains(&keyspace_id))
+            .is_some_and(|blacklist| blacklist.contains(&keyspace_id))
     }
 
     pub fn get_tikv_stores(&self) -> (Vec<Store>, Vec<Store> /* stores_not_match */) {
@@ -2022,12 +2022,12 @@ mod tests {
 
     use bytes::Bytes;
     use kvengine::{
+        ShardStatsLite,
         table::{
             columnar::{new_int_handle_column_info, new_version_column_info},
             file::LocalFile,
-            schema_file::{build_schema_file, SchemaBuf},
+            schema_file::{SchemaBuf, build_schema_file},
         },
-        ShardStatsLite,
     };
     use schema::schema::StorageClassSpec;
     use tikv_util::info;

@@ -2,9 +2,9 @@
 use std::pin::Pin;
 
 use futures::{
+    Future, FutureExt,
     future::BoxFuture,
     task::{Context, Poll},
-    Future, FutureExt,
 };
 use lazy_static::lazy_static;
 use pprof::protos::Message;
@@ -30,7 +30,7 @@ struct ProfileGuard<'a, I, T> {
     end: BoxFuture<'static, Result<(), String>>,
 }
 
-impl<'a, I, T> Unpin for ProfileGuard<'a, I, T> {}
+impl<I, T> Unpin for ProfileGuard<'_, I, T> {}
 
 impl<'a, I, T> ProfileGuard<'a, I, T> {
     fn new<F1, F2>(
@@ -56,7 +56,7 @@ impl<'a, I, T> ProfileGuard<'a, I, T> {
     }
 }
 
-impl<'a, I, T> Future for ProfileGuard<'a, I, T> {
+impl<I, T> Future for ProfileGuard<'_, I, T> {
     type Output = Result<T, String>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.end.as_mut().poll(cx) {

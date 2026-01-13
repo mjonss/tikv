@@ -5,21 +5,21 @@ use std::{
     future::Future,
     ptr,
     sync::{
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
         mpsc::SyncSender,
-        Arc, Mutex,
     },
     time::Duration,
 };
 
-use file_system::{set_io_type, IoType};
+use file_system::{IoType, set_io_type};
 use futures::{channel::oneshot, future::TryFutureExt};
 use kvproto::kvrpcpb::CommandPri;
 use online_config::{ConfigChange, ConfigManager, ConfigValue, Result as CfgResult};
 use prometheus::{IntCounter, IntGauge};
 use thiserror::Error;
 use tikv_util::{
-    sys::{cpu_time::ProcessStat, thread::ThreadBuildWrapper, SysQuota},
+    sys::{SysQuota, cpu_time::ProcessStat, thread::ThreadBuildWrapper},
     time::Instant,
     worker::{Runnable, RunnableWithTimer, Scheduler, Worker},
     yatp_pool::{self, FuturePool, PoolTicker, YatpPoolBuilder},
@@ -31,8 +31,8 @@ use yatp::{
 
 use self::metrics::*;
 use crate::{
-    config::{UnifiedReadPoolConfig, UNIFIED_READPOOL_MIN_CONCURRENCY},
-    storage::kv::{destroy_tls_engine, set_tls_engine, Engine, FlowStatsReporter},
+    config::{UNIFIED_READPOOL_MIN_CONCURRENCY, UnifiedReadPoolConfig},
+    storage::kv::{Engine, FlowStatsReporter, destroy_tls_engine, set_tls_engine},
 };
 
 // the duration to check auto-scale unified-thread-pool's thread
@@ -682,7 +682,7 @@ mod metrics {
 }
 
 thread_local! {
-    static REPORTER_TICKER: UnsafeCell<*mut ()> = UnsafeCell::new(std::ptr::null_mut());
+    static REPORTER_TICKER: UnsafeCell<*mut ()> = const { UnsafeCell::new(std::ptr::null_mut()) };
 }
 
 fn set_reporter_ticker<R: FlowStatsReporter>(ticker: yatp_pool::TickerWrapper<ReporterTicker<R>>) {

@@ -4,7 +4,7 @@ use kvproto::encryptionpb::EncryptedContent;
 use tikv_util::box_err;
 
 use super::metadata::*;
-use crate::{crypter::*, AesGcmCrypter, Error, Iv, Result};
+use crate::{AesGcmCrypter, Error, Iv, Result, crypter::*};
 
 /// An in-memory backend, it saves master key in memory.
 #[derive(Debug)]

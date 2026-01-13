@@ -4,7 +4,7 @@ use std::{
     collections::HashMap, default::Default, fs, ops::Deref, str::FromStr, sync::Arc, time::Duration,
 };
 
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 use futures::StreamExt;
 use http::Uri;
 use k8s_openapi::{
@@ -18,8 +18,8 @@ use k8s_openapi::{
     serde_json,
 };
 use kube::{
-    api::{Api, AttachParams, AttachedProcess, ListParams, PostParams, ResourceExt},
     Client as KubeClient,
+    api::{Api, AttachParams, AttachedProcess, ListParams, PostParams, ResourceExt},
 };
 use load_data::{
     checkpoint::{CANCELLED_TASK_EXPIRE_SEC, FINISHED_TASK_EXPIRE_SEC, IDLE_TASK_EXPIRE_SEC},
@@ -1031,9 +1031,9 @@ mod tests {
     use rand::prelude::*;
 
     use crate::worker_scaler::{
+        StsConfig, WORKER_SCALER_QUERY_FAILURES_LIMIT, WorkerPod, WorkerScalerConfig,
         find_sts_config, gen_default_sts_configs, new_worker_pod_name, new_worker_svc_name,
-        parse_task_id_by_pod_name, parse_task_id_by_pvc_name, StsConfig, WorkerPod,
-        WorkerScalerConfig, WORKER_SCALER_QUERY_FAILURES_LIMIT,
+        parse_task_id_by_pod_name, parse_task_id_by_pvc_name,
     };
 
     fn new_worker_pvc_name(pvc_template_name: &str, task_id: &str) -> String {

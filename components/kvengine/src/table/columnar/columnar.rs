@@ -2,7 +2,7 @@
 
 use std::{convert::TryInto, sync::Arc};
 
-use aligned_vec::{avec, AVec};
+use aligned_vec::{AVec, avec};
 use bytes::{Buf, BufMut};
 use collections::HashMap;
 use kvenginepb::ColumnarCreate;
@@ -13,20 +13,20 @@ use tipb::ColumnInfo;
 use crate::{
     metrics::{ENGINE_COLUMNAR_FILE_CACHE_HIT, ENGINE_COLUMNAR_FILE_CACHE_MISS},
     table::{
+        BoundedDataSet, DataBound, InnerKey, LZ4_COMPRESSION, SnapVersion,
         columnar::{
+            ColumnarFileCache, PROP_KEY_ESTIMATED_KV_SIZE,
             builder::{
-                TableOffsets, ENCODING_TYPE_NONE, PACK_FORMAT, PROP_KEY_BIGGEST,
-                PROP_KEY_MAX_VERSION, PROP_KEY_SMALLEST, PROP_KEY_SNAP_VERSION,
+                ENCODING_TYPE_NONE, PACK_FORMAT, PROP_KEY_BIGGEST, PROP_KEY_MAX_VERSION,
+                PROP_KEY_SMALLEST, PROP_KEY_SNAP_VERSION, TableOffsets,
             },
             columnar_meta_cache::ColumnarMetaCache,
-            ColumnarFileCache, PROP_KEY_ESTIMATED_KV_SIZE,
         },
         file::File,
         parse_prop_data,
         schema_file::Schema,
         search,
         sstable::{L0Table, PROP_KEY_ENCRYPTION_VER},
-        BoundedDataSet, DataBound, InnerKey, SnapVersion, LZ4_COMPRESSION,
     },
 };
 
@@ -1889,7 +1889,7 @@ impl ColumnarLevels {
 
 #[cfg(test)]
 pub mod test_retain {
-    use crate::table::columnar::{reader::tests::new_schema, Block, ColumnBuffer};
+    use crate::table::columnar::{Block, ColumnBuffer, reader::tests::new_schema};
     #[test]
     fn test_retain_column() {
         use std::convert::TryInto;

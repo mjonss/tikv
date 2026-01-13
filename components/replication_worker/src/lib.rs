@@ -1,6 +1,5 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
-#![feature(option_get_or_insert_default)]
 #![feature(let_chains)]
 
 mod apply_observer;
@@ -27,10 +26,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use cdc::{Conn, ConnId, MemoryQuota};
 pub use error::{Error, Result};
-use futures::{future, SinkExt, TryFutureExt, TryStreamExt};
+use futures::{SinkExt, TryFutureExt, TryStreamExt, future};
 use grpcio::{DuplexSink, RequestStream, RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use http::StatusCode;
-use kvengine::{table::SnapVersion, Shard, ShardMeta, SnapAccess, WRITE_CF};
+use kvengine::{Shard, ShardMeta, SnapAccess, WRITE_CF, table::SnapVersion};
 use kvproto::{
     cdcpb,
     cdcpb::{ChangeDataEvent, ChangeDataRequest},

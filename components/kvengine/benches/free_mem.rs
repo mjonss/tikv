@@ -6,12 +6,11 @@ use std::time::Duration;
 
 use criterion::{BatchSize, Bencher, Criterion};
 use kvengine::{
-    free_mem,
+    FreeMemMsg, UserMeta, WRITE_CF, free_mem,
     table::{
-        memtable::{skl::WriteBatch, CfTable},
         InnerKey,
+        memtable::{CfTable, skl::WriteBatch},
     },
-    FreeMemMsg, UserMeta, WRITE_CF,
 };
 use tikv_util::mpsc;
 

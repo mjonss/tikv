@@ -109,7 +109,7 @@ impl<'a> Value<'a> {
     }
 }
 
-impl<'a> slog::Value for Value<'a> {
+impl slog::Value for Value<'_> {
     #[inline]
     fn serialize(
         &self,
@@ -125,7 +125,7 @@ impl<'a> slog::Value for Value<'a> {
     }
 }
 
-impl<'a> fmt::Display for Value<'a> {
+impl fmt::Display for Value<'_> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if REDACT_INFO_LOG.load(Ordering::Relaxed) {
@@ -137,7 +137,7 @@ impl<'a> fmt::Display for Value<'a> {
     }
 }
 
-impl<'a> fmt::Debug for Value<'a> {
+impl fmt::Debug for Value<'_> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)

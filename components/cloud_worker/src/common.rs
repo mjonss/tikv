@@ -5,12 +5,12 @@ use std::{
     collections::HashMap,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
-use http::{header, Response, StatusCode};
+use http::{Response, StatusCode, header};
 use hyper::Body;
 
 pub(crate) fn get_param<T: FromStr>(

@@ -7,21 +7,21 @@ use std::{
     collections::{BTreeMap, HashSet},
     fmt::{Display, Formatter},
     fs,
-    fs::{create_dir_all, File, OpenOptions},
+    fs::{File, OpenOptions, create_dir_all},
     mem,
     ops::{Deref, DerefMut},
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
+        atomic::{AtomicU32, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
 };
 
 use api_version::ApiV2;
 use bytes::{Buf, Bytes};
-use file_system::{open_direct_file, IoRateLimitMode, IoRateLimiter};
+use file_system::{IoRateLimitMode, IoRateLimiter, open_direct_file};
 use kvengine::dfs::Dfs;
 use kvproto::raft_serverpb::{RegionLocalState, StoreIdent};
 use protobuf::Message;
@@ -40,7 +40,7 @@ use tikv_util::{
 use crate::{
     config::Config,
     log_batch::{RaftLogBlock, RaftLogs},
-    manifest::{manifest_path, persist_change_set, Manifest},
+    manifest::{Manifest, manifest_path, persist_change_set},
     metrics::*,
     peers::RaftPeers,
     service_worker::{ServiceTask, ServiceWorker, WalProgress},
@@ -402,7 +402,7 @@ impl RfEngineCore {
         let dependants = self.dependants.pin();
         dependants
             .get(&region_id)
-            .map_or(false, |hs| !hs.read().unwrap().is_empty())
+            .is_some_and(|hs| !hs.read().unwrap().is_empty())
     }
 
     pub fn pending_compaction_wals(&self) -> u8 {
@@ -1090,7 +1090,7 @@ mod tests {
                     .unwrap()
                     .path()
                     .extension()
-                    .map_or(false, |e| e == "wal")
+                    .is_some_and(|e| e == "wal")
             })
             .count();
         assert_eq!(wal_cnt, 4);

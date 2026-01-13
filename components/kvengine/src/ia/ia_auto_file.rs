@@ -1,8 +1,8 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use async_trait::async_trait;
@@ -15,8 +15,8 @@ use crate::{
     ia::ia_file::IaFile,
     metrics::ENGINE_STORAGE_CLASS_TRANSITION_COUNTER,
     table::{
-        file::{File, FileMmapGuard, MmapData},
         Result,
+        file::{File, FileMmapGuard, MmapData},
     },
 };
 

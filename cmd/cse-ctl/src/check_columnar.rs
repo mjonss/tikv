@@ -3,7 +3,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{Arc, atomic::AtomicUsize},
     time::Duration,
 };
 
@@ -16,7 +16,8 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use http::{Request, StatusCode};
 use hyper::Body;
 use kvengine::{
-    context::{new_meta_file_cache, IaCtx, PrepareType, SnapCtx},
+    ShardStatsLite, SnapAccess,
+    context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
     dfs::{DFSConfig, Dfs, S3Fs},
     ia::{manager::IaManager, util::IaConfig},
     table::{
@@ -27,7 +28,6 @@ use kvengine::{
         sstable::BlockCache,
     },
     txn_chunk_manager::{TxnChunkManager, TxnChunkManagerConfig},
-    ShardStatsLite, SnapAccess,
 };
 use kvproto::{coprocessor::DelegateResponse, metapb::Store};
 use native_br::common::{create_pd_client, send_request_to_store};

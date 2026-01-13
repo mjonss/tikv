@@ -3,21 +3,22 @@
 use std::sync::Mutex;
 
 use api_version::ApiV2;
-use kvengine::{dfs, dfs::FileType, table::schema_file::build_schema_file, GLOBAL_SHARD_END_KEY};
+use kvengine::{GLOBAL_SHARD_END_KEY, dfs, dfs::FileType, table::schema_file::build_schema_file};
 use kvproto::coprocessor::KeyRange;
 use protobuf::Message;
 use test_cloud_server::{
+    ServerCluster,
     copr::{build_dag, build_row_key, build_row_val, col_val_datum},
-    must_wait, ServerCluster,
+    must_wait,
 };
 use test_coprocessor::DagChunkSpliter;
 use tidb_query_datatype::{
+    FieldTypeAccessor, FieldTypeFlag,
     codec::{
-        table::{encode_common_handle_row_key, encode_row_key},
         Datum,
+        table::{encode_common_handle_row_key, encode_row_key},
     },
     expr::EvalContext,
-    FieldTypeAccessor, FieldTypeFlag,
 };
 use tikv::coprocessor::REQ_TYPE_DAG;
 

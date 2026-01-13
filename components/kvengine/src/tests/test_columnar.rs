@@ -3,7 +3,7 @@
 use std::{
     iter::FromIterator,
     rc::Rc,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
     thread,
     time::Duration,
 };
@@ -18,30 +18,30 @@ use tidb_query_datatype::{
 };
 
 use crate::{
+    DEL_PREFIXES_KEY, DeletePrefixes, EXTRA_CF, IdVer, LOCK_CF, LevelHandler, SnapAccess, WRITE_CF,
     compaction::CompactionPriority,
     dfs,
     dfs::FileType,
     shard::{ShardCf, ShardDataBuilder},
     table,
     table::{
+        ChecksumType, SnapVersion,
         columnar::{
+            Block, ColumnarFile, ColumnarFilterReader, ColumnarLevels, ColumnarMetaCache,
+            ColumnarReader, ColumnarRowTableReader, MinMaxIndex,
             tests::{
                 build_table, i_to_common_handle, merge_refs, new_schema, new_schema_with_nullable,
                 verify_with_ref_rows,
             },
-            Block, ColumnarFile, ColumnarFilterReader, ColumnarLevels, ColumnarMetaCache,
-            ColumnarReader, ColumnarRowTableReader, MinMaxIndex,
         },
         file::{File, InMemFile},
-        schema_file::{build_schema_file, SchemaFile},
+        schema_file::{SchemaFile, build_schema_file},
         sstable::{BlockCache, SsTable},
-        ChecksumType, SnapVersion,
     },
     tests::{
-        keyspace_prefix, new_test_engine_opt, prepare_table_region, try_wait, Splitter, TestEngine,
-        DEF_BLOCK_SIZE, KEYSPACE_ID,
+        DEF_BLOCK_SIZE, KEYSPACE_ID, Splitter, TestEngine, keyspace_prefix, new_test_engine_opt,
+        prepare_table_region, try_wait,
     },
-    DeletePrefixes, IdVer, LevelHandler, SnapAccess, DEL_PREFIXES_KEY, EXTRA_CF, LOCK_CF, WRITE_CF,
 };
 
 const COLUMNAR_COMPACTION_WAIT_TIME: usize = 10;

@@ -509,7 +509,7 @@ mod tests {
 
     use byteorder::{BigEndian, ByteOrder};
     use futures::AsyncReadExt;
-    use rand::{rngs::OsRng, RngCore};
+    use rand::{RngCore, rngs::OsRng};
 
     use super::*;
     use crate::crypter;

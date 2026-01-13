@@ -15,33 +15,33 @@ use bytes::{Buf, BufMut};
 use cloud_encryption::MasterKey;
 use futures::executor::block_on;
 use kvengine::{
-    context::{new_meta_file_cache, IaCtx, PrepareType, SnapCtx},
+    Engine, Shard, ShardMeta, SnapAccess, UserMeta,
+    context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
     dfs::{DFSConfig, Dfs, S3Fs},
     table::{
         columnar::ColumnarMetaCache,
         fts::{FtsCache, FtsDeltaCache},
         sstable::BlockCache,
     },
-    txn_chunk_manager::{with_pool_size, TxnChunkManager, TxnChunkManagerConfig},
-    Engine, Shard, ShardMeta, SnapAccess, UserMeta,
+    txn_chunk_manager::{TxnChunkManager, TxnChunkManagerConfig, with_pool_size},
 };
 use kvproto::keyspacepb::{KeyspaceMeta, KeyspaceState};
 use native_br::{
     common::create_pd_client,
     lock::LockResolver,
-    restore::{get_cluster_backup_meta, RestoreConfig},
+    restore::{RestoreConfig, get_cluster_backup_meta},
     restore_keyspace::BackupCluster,
 };
 use protobuf::Message;
-use schema::schema::{DbInfo, TableInfo, STATE_PUBLIC};
+use schema::schema::{DbInfo, STATE_PUBLIC, TableInfo};
 use security::SecurityConfig;
 use serde_derive::{Deserialize, Serialize};
 use tidb_query_datatype::codec::{
     datum,
     datum::INT_FLAG,
     table::{
-        encode_index_seek_key, encode_row_key, ID_LEN, INDEX_VALUE_COMMON_HANDLE_FLAG,
-        INDEX_VALUE_VERSION_FLAG, MAX_OLD_ENCODED_VALUE_LEN, PREFIX_LEN,
+        ID_LEN, INDEX_VALUE_COMMON_HANDLE_FLAG, INDEX_VALUE_VERSION_FLAG,
+        MAX_OLD_ENCODED_VALUE_LEN, PREFIX_LEN, encode_index_seek_key, encode_row_key,
     },
 };
 use tikv_util::{
@@ -113,7 +113,7 @@ pub fn execute_check_table(config: CheckTableConfig, params: CheckTableParams) {
                     && !skip_keyspace_ids.contains(&keyspace_meta.id)
                     && params
                         .starts_from_keyspace_id
-                        .map_or(true, |id| keyspace_meta.id >= id)
+                        .is_none_or(|id| keyspace_meta.id >= id)
                 {
                     all_keyspace_ids.push(keyspace_meta.id);
                 }
@@ -678,6 +678,7 @@ impl BackupReader {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub(crate) struct NoopRecoverHandler {}
 
 impl kvengine::RecoverHandler for NoopRecoverHandler {

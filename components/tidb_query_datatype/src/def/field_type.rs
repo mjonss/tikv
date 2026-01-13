@@ -492,8 +492,6 @@ impl FieldTypeAccessor for ColumnInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::i32;
-
     use super::*;
     use crate::builder::FieldTypeBuilder;
 

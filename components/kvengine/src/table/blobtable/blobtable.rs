@@ -6,15 +6,15 @@ use bytes::{Buf, Bytes};
 use cloud_encryption::EncryptionKey;
 use kvenginepb::BlobCreate;
 
-use super::{builder::*, BlobRef};
+use super::{BlobRef, builder::*};
 use crate::{
     error::IoContext,
     ia::types::FileSegmentIdent,
     table::{
+        BoundedDataSet, ChecksumType, DataBound, Error, InnerKey, LZ4_COMPRESSION, NO_COMPRESSION,
+        Result, ZSTD_COMPRESSION,
         file::File,
         sstable::{Index, PROP_KEY_ENCRYPTION_VER},
-        BoundedDataSet, ChecksumType, DataBound, Error, InnerKey, Result, LZ4_COMPRESSION,
-        NO_COMPRESSION, ZSTD_COMPRESSION,
     },
 };
 
@@ -177,7 +177,7 @@ impl BlobTable {
         buf: &'a mut Vec<u8>,
         decryption_buf: &'a mut Vec<u8>,
         encryption_key: Option<EncryptionKey>,
-    ) -> Result<&[u8]> {
+    ) -> Result<&'a [u8]> {
         let data = &self.preloaded_data.as_ref().unwrap()[blob_ref.offset as usize
             ..blob_ref.offset as usize + BLOB_ENTRY_VALUE_OFFSET + blob_ref.len as usize];
         let meta_slice = &data[..BLOB_ENTRY_META_SIZE];
@@ -452,18 +452,18 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use cloud_encryption::EncryptionKey;
-    use rand::{distributions::Alphanumeric, rngs::ThreadRng, Rng};
+    use rand::{Rng, distributions::Alphanumeric, rngs::ThreadRng};
     use rstest::rstest;
     use test_util::init_log_for_test;
 
     use super::*;
     use crate::table::{
+        Error, InnerKey, LZ4_COMPRESSION, NO_COMPRESSION, Value, ZSTD_COMPRESSION,
         blobtable::{
-            builder::{BlobTableBuilder, BLOB_ENTRY_META_SIZE},
             BlobRef,
+            builder::{BLOB_ENTRY_META_SIZE, BlobTableBuilder},
         },
         file::InMemFile,
-        Error, InnerKey, Value, LZ4_COMPRESSION, NO_COMPRESSION, ZSTD_COMPRESSION,
     };
 
     const BLOB_BLOCK_SIZE: u32 = 32 * 1024;

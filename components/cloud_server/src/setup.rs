@@ -6,15 +6,15 @@ use std::{
     num::ParseIntError,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Once,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use chrono::Local;
 use clap::ArgMatches;
 use collections::HashMap;
-use tikv::config::{check_critical_config, persist_config, MetricConfig, TikvConfig};
+use tikv::config::{MetricConfig, TikvConfig, check_critical_config, persist_config};
 use tikv_util::{self, config, config::ReadableDuration, logger};
 
 // A workaround for checking if log is initialized.

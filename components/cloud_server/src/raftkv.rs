@@ -11,8 +11,8 @@ use std::{
     pin::Pin,
     result,
     sync::{
-        atomic::{AtomicU8, Ordering},
         Arc,
+        atomic::{AtomicU8, Ordering},
     },
     task::Poll,
     time::Duration,
@@ -21,7 +21,7 @@ use std::{
 use collections::{HashMap, HashSet};
 use concurrency_manager::ConcurrencyManager;
 use engine_traits::{CF_DEFAULT, CF_LOCK, CF_WRITE};
-use futures::{task::AtomicWaker, Future, Stream, StreamExt};
+use futures::{Future, Stream, StreamExt, task::AtomicWaker};
 use kvproto::{
     errorpb,
     kvrpcpb::{Context, IsolationLevel},
@@ -31,19 +31,18 @@ use kvproto::{
     },
 };
 use raft::{
-    eraftpb::{self, MessageType},
     StateRole,
+    eraftpb::{self, MessageType},
 };
 use raftstore::coprocessor::{
-    dispatcher::BoxReadIndexObserver, Coprocessor, CoprocessorHost, ReadIndexObserver,
+    Coprocessor, CoprocessorHost, ReadIndexObserver, dispatcher::BoxReadIndexObserver,
 };
 use rfstore::{
-    store,
+    Error as RaftServerError, RaftStoreRouter, store,
     store::{
-        rlog, Callback as StoreCallback, CustomBuilder, LocalReader, ReadIndexContext,
-        ReadResponse, RegionSnapshot, WriteResponse,
+        Callback as StoreCallback, CustomBuilder, LocalReader, ReadIndexContext, ReadResponse,
+        RegionSnapshot, WriteResponse, rlog,
     },
-    Error as RaftServerError, RaftStoreRouter,
 };
 use thiserror::Error;
 use tikv::{
@@ -499,7 +498,7 @@ impl Engine for RaftKv {
 
         let mut req = Request::default();
         req.set_cmd_type(CmdType::Snap);
-        if !ctx.key_ranges.is_empty() && ctx.start_ts.map_or(false, |ts| !ts.is_zero()) {
+        if !ctx.key_ranges.is_empty() && ctx.start_ts.is_some_and(|ts| !ts.is_zero()) {
             req.mut_read_index()
                 .set_start_ts(ctx.start_ts.as_ref().unwrap().into_inner());
             req.mut_read_index()
@@ -511,7 +510,7 @@ impl Engine for RaftKv {
 
         let mut header = new_request_header(ctx.pb_ctx, ctx.extra_region_override.as_ref());
         let mut flags = 0;
-        if ctx.pb_ctx.get_stale_read() && ctx.start_ts.map_or(true, |ts| !ts.is_zero()) {
+        if ctx.pb_ctx.get_stale_read() && ctx.start_ts.is_none_or(|ts| !ts.is_zero()) {
             let mut data = [0u8; 8];
             (&mut data[..])
                 .encode_u64(ctx.start_ts.unwrap_or_default().into_inner())
@@ -966,7 +965,7 @@ fn build_heartbeat(builder: &mut CustomBuilder, modifies: Vec<Modify>) {
 mod tests {
     use std::{
         iter::FromIterator,
-        sync::{mpsc, Mutex},
+        sync::{Mutex, mpsc},
     };
 
     use kvproto::kvrpcpb::PrewriteRequestPessimisticAction::*;
@@ -1052,8 +1051,8 @@ mod tests {
     fn test_custom_raft_log() {
         use kvproto::kvrpcpb::AssertionLevel;
         use tikv::storage::{
-            kv::TestEngineBuilder, lock_manager::MockLockManager, test_util::expect_ok_callback,
-            txn::commands, TestStorageBuilderApiV1,
+            TestStorageBuilderApiV1, kv::TestEngineBuilder, lock_manager::MockLockManager,
+            test_util::expect_ok_callback, txn::commands,
         };
         use txn_types::Mutation;
 

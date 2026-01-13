@@ -1,7 +1,7 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    sync::{atomic::Ordering, mpsc, Arc},
+    sync::{Arc, atomic::Ordering, mpsc},
     time::Duration,
 };
 
@@ -10,9 +10,9 @@ use test_pd_client::TestPdClient;
 use tikv::{
     config::*,
     server::{
+        Error, Result,
         lock_manager::*,
         resolve::{Callback, StoreAddrResolver},
-        Error, Result,
     },
 };
 use tikv_util::config::ReadableDuration;

@@ -1,17 +1,17 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bytes::Bytes;
 use tidb_query_datatype::codec::table::append_row_key;
 
 use super::inplace::{
-    rewrite_dedicated_file, rewrite_packed_file, InplaceResult, InplaceSpec, KeyRange,
+    InplaceResult, InplaceSpec, KeyRange, rewrite_dedicated_file, rewrite_packed_file,
 };
 use crate::table::fts::{
     dedicated_file::{DedicatedFile, DedicatedFileBuilderOptions, EDedicatedFile},
     iter::{IntPk, OrderedPkIterator, PkReader, PkType},
     packed_file::{PackedFile, PackedFileBuilderOptions},
-    test_util::{doc, new_ded, new_packed, Doc},
+    test_util::{Doc, doc, new_ded, new_packed},
 };
 
 enum ExpectOutcome<'a> {

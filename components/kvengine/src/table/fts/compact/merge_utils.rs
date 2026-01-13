@@ -5,7 +5,7 @@ use std::{
     collections::BinaryHeap,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bytes::Bytes;
 use clara_fts::TrackedDirectory;
 use tantivy::{
@@ -118,7 +118,7 @@ where
 
         if current_pk
             .as_ref()
-            .map_or(true, |pk| pk.as_ref() != pk_encoded.as_ref())
+            .is_none_or(|pk| pk.as_ref() != pk_encoded.as_ref())
         {
             current_pk = Some(pk_encoded.clone());
             tail_state = TailState::NeedLowerVersion;
@@ -375,7 +375,7 @@ fn save_metas(metas: &tantivy::IndexMeta, directory: &dyn tantivy::Directory) ->
 
 #[cfg(test)]
 mod tests {
-    use tantivy::{common::BitSet, DocAddress, DocSet};
+    use tantivy::{DocAddress, DocSet, common::BitSet};
 
     use super::*;
 

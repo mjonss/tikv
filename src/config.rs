@@ -10,25 +10,24 @@ use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
     error::Error,
-    fs, i32,
+    fs,
     io::{Error as IoError, ErrorKind, Write},
     path::Path,
     str,
     sync::{Arc, RwLock},
-    usize,
 };
 
 use engine_rocks::{
+    RaftDbLogger, RocksCfOptions, RocksDbOptions, RocksTitanDbOptions, RocksdbLogger,
     config::{self as rocks_config, BlobRunMode, CompressionType, LogLevel as RocksLogLevel},
     raw::{
         BlockBasedOptions, Cache, ChecksumType, CompactionPriority, DBCompactionStyle,
         DBCompressionType, DBRateLimiterMode, DBRecoveryMode, LRUCacheOptions,
         PrepopulateBlockCache,
     },
-    RaftDbLogger, RocksCfOptions, RocksDbOptions, RocksTitanDbOptions, RocksdbLogger,
 };
 use engine_traits::{CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE};
-use kvengine::{dfs::DFSConfig, KvEngineConfig};
+use kvengine::{KvEngineConfig, dfs::DFSConfig};
 use kvproto::kvrpcpb::ApiVersion;
 use online_config::{ConfigChange, ConfigManager, ConfigValue, OnlineConfig, Result as CfgResult};
 use overload_protector::OverloadConfig;
@@ -42,12 +41,12 @@ use resource_metering::Config as ResourceMeteringConfig;
 use rfengine::RfEngineConfig;
 use security::SecurityConfig;
 use serde::{
-    de::{Error as DError, Unexpected},
     Deserialize, Deserializer, Serialize, Serializer,
+    de::{Error as DError, Unexpected},
 };
-use serde_json::{to_value, Map, Value};
+use serde_json::{Map, Value, to_value};
 use tikv_util::{
-    config::{self, LogFormat, ReadableDuration, ReadableSize, TomlWriter, GIB, MIB},
+    config::{self, GIB, LogFormat, MIB, ReadableDuration, ReadableSize, TomlWriter},
     logger::{get_level_by_string, get_string_by_level, set_log_level},
     sys::SysQuota,
     time::duration_to_sec,
@@ -57,8 +56,8 @@ use tikv_util::{
 use crate::{
     import::Config as ImportConfig,
     server::{
-        gc_worker::GcConfig, lock_manager::Config as PessimisticTxnConfig, Config as ServerConfig,
-        CONFIG_ROCKSDB_GAUGE,
+        CONFIG_ROCKSDB_GAUGE, Config as ServerConfig, gc_worker::GcConfig,
+        lock_manager::Config as PessimisticTxnConfig,
     },
     storage::config::{Config as StorageConfig, DEFAULT_DATA_DIR},
 };
@@ -76,7 +75,6 @@ pub const MIN_BLOCK_CACHE_SHARD_SIZE: usize = 128 * MIB as usize;
 
 /// Maximum of 15% of system memory can be used by Raft Engine. Normally its
 /// memory usage is much smaller than that.
-
 const LOCKCF_MIN_MEM: usize = 256 * MIB as usize;
 const LOCKCF_MAX_MEM: usize = GIB as usize;
 const RAFT_MIN_MEM: usize = 256 * MIB as usize;
@@ -210,7 +208,7 @@ fn get_background_job_limits_impl(
     // Scale flush threads proportionally to cpu cores. Also make sure the number of
     // flush threads doesn't exceed total jobs.
     let max_background_flushes = cmp::min(
-        (max_background_jobs + 3) / 4,
+        max_background_jobs.div_ceil(4),
         defaults.max_background_flushes,
     );
     // Cap max_sub_compactions to allow at least two compactions.
@@ -3262,9 +3260,8 @@ pub fn persist_config(config: &TikvConfig) -> Result<(), String> {
     let last_cfg_path = store_path.join(LAST_CONFIG_FILE);
     let tmp_cfg_path = store_path.join(TMP_CONFIG_FILE);
 
-    let same_as_last_cfg = fs::read_to_string(&last_cfg_path).map_or(false, |last_cfg| {
-        toml::to_string(&config).unwrap() == last_cfg
-    });
+    let same_as_last_cfg = fs::read_to_string(&last_cfg_path)
+        .is_ok_and(|last_cfg| toml::to_string(&config).unwrap() == last_cfg);
     if same_as_last_cfg {
         return Ok(());
     }
@@ -3729,8 +3726,8 @@ mod tests {
     use crate::{
         server::config::ServerConfigManager,
         storage::{
-            lock_manager::MockLockManager, txn::flow_controller::FlowController, Storage,
-            TestStorageBuilder,
+            Storage, TestStorageBuilder, lock_manager::MockLockManager,
+            txn::flow_controller::FlowController,
         },
     };
 

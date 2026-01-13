@@ -7,8 +7,8 @@ use std::{
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
 
@@ -18,7 +18,7 @@ use log_wrappers::Value as LogValue;
 use schema::schema::StorageClass;
 
 use crate::{
-    dfs,
+    FileMeta, IoContext, dfs,
     dfs::{Dfs, FileType},
     ia::{
         manager::{IaManager, ReadAt},
@@ -27,6 +27,7 @@ use crate::{
     metrics::{ENGINE_IA_SYNC_READ_COUNTER, PREPARE_COUNTER_VEC},
     new_blob_filename, new_columnar_filename, new_sst_filename, new_vector_index_filename,
     table::{
+        Error, Result,
         blobtable::{self, blobtable::BlobTable},
         columnar::{ColumnarFileFooter, TableMeta, TableOffsets},
         file::{File, FileMmapGuard, InMemFile, MmapData},
@@ -34,9 +35,7 @@ use crate::{
         sstable::{Index, SsTable},
         tiny_meta::{SstTinyMeta, TypedTinyMeta},
         vector_index::VectorIndexFileFooter,
-        Error, Result,
     },
-    FileMeta, IoContext,
 };
 
 #[derive(Clone)]

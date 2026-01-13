@@ -8,25 +8,25 @@ use std::{
     marker::PhantomData,
     ops::Deref,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
 
 use ::tracker::{
-    get_tls_tracker_token, set_tls_tracker_token, with_tls_tracker, RequestInfo, RequestType,
-    TrackerToken, GLOBAL_TRACKERS,
+    GLOBAL_TRACKERS, RequestInfo, RequestType, TrackerToken, get_tls_tracker_token,
+    set_tls_tracker_token, with_tls_tracker,
 };
 use anyhow::anyhow;
-use api_version::{dispatch_api_version, KvFormat};
+use api_version::{KvFormat, dispatch_api_version};
 use async_stream::try_stream;
 use concurrency_manager::ConcurrencyManager;
 use futures::{channel::mpsc, prelude::*};
 use futures_util::future::try_join_all;
 use kvengine::{
-    context::{IaCtx, SnapCtx},
     SnapAccess,
+    context::{IaCtx, SnapCtx},
 };
 use kvproto::{
     coprocessor as coppb, errorpb, kvrpcpb,
@@ -35,10 +35,10 @@ use kvproto::{
 };
 use overload_protector::{CopTaskStats, OverloadProtector};
 use protobuf::{CodedInputStream, Message};
-use raftstore::{coprocessor::RegionInfoProvider, RegionInfoAccessor};
+use raftstore::{RegionInfoAccessor, coprocessor::RegionInfoProvider};
 use resource_control::{
-    KeyspaceReadLimiter, Metric, ReadLimiter, Resource, ResourceController, ResourceEvent,
-    ResourcePublisher, Scope, Severity, REQUEST_WAIT_HISTOGRAM_VEC,
+    KeyspaceReadLimiter, Metric, REQUEST_WAIT_HISTOGRAM_VEC, ReadLimiter, Resource,
+    ResourceController, ResourceEvent, ResourcePublisher, Scope, Severity,
 };
 use resource_metering::{FutureExt, ResourceTagFactory, StreamExt};
 use security::SecurityManager;
@@ -59,22 +59,22 @@ use txn_types::Lock;
 
 use crate::{
     coprocessor::{
+        Error,
         cache::CachedRequestHandler,
         interceptors::*,
         metrics::*,
-        remote_dispatcher::{try_remote_dag_handler, RemoteContext, RemoteRequest},
+        remote_dispatcher::{RemoteContext, RemoteRequest, try_remote_dag_handler},
         tracker::Tracker,
-        Error, *,
+        *,
     },
     read_pool::ReadPoolHandle,
     server::Config,
     storage::{
-        self,
-        kv::{self, with_tls_engine, SnapContext},
+        self, Engine, Snapshot,
+        kv::{self, SnapContext, with_tls_engine},
         mvcc::Error as MvccError,
         need_check_locks, need_check_locks_in_replica_read,
         txn::CloudStore,
-        Engine, Snapshot,
     },
 };
 
@@ -1730,7 +1730,7 @@ impl<E: Engine> RegionStorageAccessor for ExtraSnapStoreAccessor<E> {
 mod tests {
     use std::{
         assert_matches::assert_matches,
-        sync::{atomic, mpsc, Mutex},
+        sync::{Mutex, atomic, mpsc},
         thread, vec,
     };
 
@@ -1740,7 +1740,7 @@ mod tests {
     use protobuf::Message;
     use raft::StateRole;
     use raftstore::RegionInfo;
-    use tikv_kv::{destroy_tls_engine, set_tls_engine, MockEngine, MockEngineBuilder};
+    use tikv_kv::{MockEngine, MockEngineBuilder, destroy_tls_engine, set_tls_engine};
     use tipb::{Executor, Expr};
     use txn_types::{Key, LockType};
 
@@ -1749,7 +1749,7 @@ mod tests {
         config::CoprReadPoolConfig,
         coprocessor::readpool_impl::build_read_pool_for_test,
         read_pool::ReadPool,
-        storage::{kv::RocksEngine, Store, TestEngineBuilder},
+        storage::{Store, TestEngineBuilder, kv::RocksEngine},
     };
 
     /// A unary `RequestHandler` that always produces a fixture.

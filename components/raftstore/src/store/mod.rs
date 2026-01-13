@@ -34,7 +34,7 @@ pub use self::{
     txn_ext::{LocksStatus, PeerPessimisticLocks, PessimisticLockPair, TxnExt},
     util::{RegionReadProgress, RegionReadProgressRegistry},
     worker::{
-        metrics as worker_metrics, metrics::TLS_LOCAL_READ_METRICS, FlowStatistics,
-        FlowStatsReporter, ReadStats, SplitConfig, SplitConfigManager, WriteStats,
+        FlowStatistics, FlowStatsReporter, ReadStats, SplitConfig, SplitConfigManager, WriteStats,
+        metrics as worker_metrics, metrics::TLS_LOCAL_READ_METRICS,
     },
 };

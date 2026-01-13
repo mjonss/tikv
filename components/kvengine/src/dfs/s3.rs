@@ -6,8 +6,8 @@ use std::{
     ops::{Deref, DerefMut},
     path::Path,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -21,10 +21,10 @@ use futures::StreamExt;
 use http::StatusCode;
 use hyper_tls::HttpsConnector;
 use rusoto_core::{
+    HttpClient, HttpDispatchError, Region, RusotoError,
     param::{Params, ServiceParams},
     request::{BufferedHttpResponse, HttpResponse},
     signature::SignedRequest,
-    HttpClient, HttpDispatchError, Region, RusotoError,
 };
 use rusoto_s3::{
     CopyObjectError, DeleteObjectError, GetObjectError, GetObjectTaggingError, HeadObjectError,
@@ -34,10 +34,9 @@ use tikv_util::{box_join_err, errors::BoxError, time::Instant};
 use tokio::runtime::Runtime;
 
 use crate::dfs::{
-    self,
+    self, Dfs, Error, Options, ReservableWriter,
     config::{Config, ConnOptions},
     metrics::*,
-    Dfs, Error, Options, ReservableWriter,
 };
 
 pub const STORAGE_CLASS_DEFAULT: &str = STORAGE_CLASS_INTELLIGENT_TIERING;
@@ -414,7 +413,7 @@ impl S3FsCore {
             params.put("start-after", &start_after);
             params.put("prefix", &prefix);
             if let Some(max_keys) = max_keys {
-                params.put("max-keys", &max_keys.to_string());
+                params.put("max-keys", max_keys.to_string());
             }
             req.set_params(params);
             let mut result = self.dispatch(req, ListObjectsV2Error::from_response).await;
@@ -665,10 +664,10 @@ impl S3FsCore {
         Ok(writer.into_inner().freeze())
     }
 
-    async fn read_body_to_writer<'a, W, F>(
+    async fn read_body_to_writer<W, F>(
         &self,
         resp: &mut Response,
-        build_writer: &'a F,
+        build_writer: &F,
     ) -> Result<(W, u64 /* read_len */), HttpDispatchError>
     where
         W: ReservableWriter + Send + 'static,
@@ -1565,7 +1564,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        dfs::{test_util::new_test_s3fs, FileType},
+        dfs::{FileType, test_util::new_test_s3fs},
         table::{
             file::{File, LocalFile},
             sstable::new_filename,

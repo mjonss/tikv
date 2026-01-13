@@ -4,9 +4,9 @@ use std::{thread, time::Duration};
 
 use kvproto::kvrpcpb::Op;
 use test_cloud_server::{
+    ServerCluster,
     client::{MutateOptions, PrewriteExt, TxnMutations},
     util::Mutation,
-    ServerCluster,
 };
 use txn_types::{LockType, WriteType};
 

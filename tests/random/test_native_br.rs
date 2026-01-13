@@ -1,8 +1,8 @@
 // Copyright 2023 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    sync::{atomic::Ordering, Arc},
-    thread::{sleep, JoinHandle},
+    sync::{Arc, atomic::Ordering},
+    thread::{JoinHandle, sleep},
     time::Duration,
 };
 
@@ -13,7 +13,7 @@ use native_br::{
     backup_worker,
     error::Error,
     limiter::ThroughputLimiter,
-    restore::{get_cluster_backup_meta, get_cluster_backup_meta_async, RestoreConfig},
+    restore::{RestoreConfig, get_cluster_backup_meta, get_cluster_backup_meta_async},
     restore_keyspace::{self, ReportRestoreStepTrait, RestoreStep},
     rfengine_cache::RfEngineCache,
 };
@@ -29,8 +29,8 @@ use tikv_util::{config::ReadableDuration, info, time::Instant, warn};
 use tokio::runtime::Runtime;
 
 use crate::{
-    create_new_keyspace, BACKUP_COUNTER, BACKUP_TOLERATED_ERR_COUNTER, BROKEN_BACKUP_COUNTER,
-    RESTORE_COUNTER, RESTORE_TOLERATED_ERR_COUNTER,
+    BACKUP_COUNTER, BACKUP_TOLERATED_ERR_COUNTER, BROKEN_BACKUP_COUNTER, RESTORE_COUNTER,
+    RESTORE_TOLERATED_ERR_COUNTER, create_new_keyspace,
 };
 
 const FETCH_WAL_TIMEOUT: ReadableDuration = ReadableDuration::secs(30);

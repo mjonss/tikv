@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use tidb_query_codegen::AggrFunction;
 use tidb_query_common::Result;
-use tidb_query_datatype::{codec::data_type::*, expr::EvalContext, EvalType};
+use tidb_query_datatype::{EvalType, codec::data_type::*, expr::EvalContext};
 use tidb_query_expr::RpnExpression;
 use tipb::{Expr, ExprType, FieldType};
 
@@ -298,14 +298,9 @@ mod tests {
         let function = AggrFnFirst::<&'static Int>::new();
         let mut state = function.create_state();
         let mut result = [VectorValue::with_capacity(0, EvalType::Int)];
+        let empty: [Option<Int>; 0] = [];
 
-        update_vector!(
-            state,
-            &mut ctx,
-            ChunkedVecSized::from_slice(&[Some(0); 0]),
-            &[]
-        )
-        .unwrap();
+        update_vector!(state, &mut ctx, ChunkedVecSized::from_slice(&empty), &[]).unwrap();
         state.push_result(&mut ctx, &mut result[..]).unwrap();
         assert_eq!(result[0].to_int_vec(), &[None]);
 

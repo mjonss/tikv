@@ -7,12 +7,11 @@ use bytes::{Buf, Bytes};
 use cloud_encryption::EncryptionKey;
 use collections::HashSet;
 use kvengine::{
-    collect_snap_lock_txn_file_refs,
+    Engine, FilePrepareType, PrepareOpts, Shard, ShardMeta, collect_snap_lock_txn_file_refs,
     table::{
-        tiny_meta::{MetaPackReader, MetaPackScheduler},
         SnapVersion,
+        tiny_meta::{MetaPackReader, MetaPackScheduler},
     },
-    Engine, FilePrepareType, PrepareOpts, Shard, ShardMeta,
 };
 use kvenginepb::ChangeSet;
 use kvproto::{
@@ -24,15 +23,15 @@ use protobuf::Message;
 use raft_proto::eraftpb;
 use raftstore::store::metrics::BLACKLIST_REGION_GAUGE;
 use rfengine::{
-    load_store_ident, raft_state_key, region_state_key, WriteBatch, TRUNCATE_ALL_INDEX,
+    TRUNCATE_ALL_INDEX, WriteBatch, load_store_ident, raft_state_key, region_state_key,
 };
 use slog_global::info;
 use tikv_util::{debug, warn};
 
 use crate::store::{
-    is_change_set_affect_mem_table, is_property_change_set, load_raft_engine_meta,
-    load_raft_truncated_state, load_region_state, rlog, Applier, ApplyContext, CustomRaftLog,
-    PeerTag, RaftApplyState, RaftState, RegionIdVer, TERM_KEY,
+    Applier, ApplyContext, CustomRaftLog, PeerTag, RaftApplyState, RaftState, RegionIdVer,
+    TERM_KEY, is_change_set_affect_mem_table, is_property_change_set, load_raft_engine_meta,
+    load_raft_truncated_state, load_region_state, rlog,
 };
 
 #[derive(Clone)]
@@ -308,7 +307,7 @@ impl RecoverHandler {
                 } else {
                     None
                 };
-                if cs.as_ref().map_or(true, is_change_set_affect_mem_table) {
+                if cs.as_ref().is_none_or(is_change_set_affect_mem_table) {
                     if let Err(err) = applier.exec_custom_log(ctx, &custom, cs) {
                         // Only duplicated pre-split may fail, we can ignore this error.
                         warn!("{} failed to execute custom log {:?}", tag, err);

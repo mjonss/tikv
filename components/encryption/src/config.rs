@@ -96,8 +96,8 @@ mod encryption_method_serde {
     use std::fmt;
 
     use serde::{
-        de::{self, Unexpected, Visitor},
         Deserializer, Serializer,
+        de::{self, Unexpected, Visitor},
     };
 
     use super::EncryptionMethod;
@@ -130,7 +130,7 @@ mod encryption_method_serde {
     {
         struct EncryptionMethodVisitor;
 
-        impl<'de> Visitor<'de> for EncryptionMethodVisitor {
+        impl Visitor<'_> for EncryptionMethodVisitor {
             type Value = EncryptionMethod;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

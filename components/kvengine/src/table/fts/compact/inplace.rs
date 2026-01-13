@@ -5,13 +5,14 @@ use std::{
     io::{Cursor, Write},
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::Bytes;
 use tantivy::common::BitSet;
 use tidb_query_datatype::codec::table::{append_common_handle_row_key, append_row_key};
 
 use super::merge_utils::rewrite_single_index;
 use crate::table::fts::{
+    PkReader,
     dedicated_file::{
         DedicatedFile, DedicatedFileBuildSummary, DedicatedFileBuilder,
         DedicatedFileBuilderOptions, EDedicatedFile,
@@ -21,7 +22,6 @@ use crate::table::fts::{
         EPackedFileLp, PackedFile, PackedFileBuildSummary, PackedFileBuilder,
         PackedFileBuilderOptions, PackedFileLp,
     },
-    PkReader,
 };
 
 /// Key range used by trim overbound. Start is inclusive, end is exclusive when

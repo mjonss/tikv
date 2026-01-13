@@ -3,7 +3,7 @@
 use std::{
     collections::Bound::{Excluded, Unbounded},
     fmt::{Display, Formatter, Result as FmtResult},
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 
@@ -18,8 +18,8 @@ use tikv_util::{
 };
 
 use super::{
-    metrics::*, BoxRegionChangeObserver, BoxRoleObserver, Coprocessor, CoprocessorHost,
-    ObserverContext, RegionChangeEvent, RegionChangeObserver, Result, RoleChange, RoleObserver,
+    BoxRegionChangeObserver, BoxRoleObserver, Coprocessor, CoprocessorHost, ObserverContext,
+    RegionChangeEvent, RegionChangeObserver, Result, RoleChange, RoleObserver, metrics::*,
 };
 
 /// `RegionInfoAccessor` is used to collect all regions' information on this
@@ -39,7 +39,6 @@ use super::{
 /// perfectly precise. Some regions may be temporarily absent while merging or
 /// splitting is in progress. Also, `RegionInfoAccessor`'s information may
 /// slightly lag the actual regions on the TiKV.
-
 /// `RaftStoreEvent` Represents events dispatched from raftstore coprocessor.
 #[derive(Debug)]
 pub enum RaftStoreEvent {
@@ -974,8 +973,7 @@ mod tests {
         if is_regions_equal {
             for (expect_region, expect_role) in regions {
                 is_regions_equal = is_regions_equal
-                    && c.regions.get(&expect_region.get_id(), &guard).map_or(
-                        false,
+                    && c.regions.get(&expect_region.get_id(), &guard).is_some_and(
                         |RegionInfo { region, role, .. }| {
                             expect_region == region && expect_role == role
                         },
@@ -1102,7 +1100,7 @@ mod tests {
                 assert!(
                     c.region_ranges_skl
                         .get(&RangeKey::from_end_key(old_end_key))
-                        .map_or(true, |e| *e.value() != region.get_id())
+                        .is_none_or(|e| *e.value() != region.get_id())
                 );
             }
         }
@@ -1140,7 +1138,7 @@ mod tests {
             assert!(
                 c.region_ranges_skl
                     .get(&RangeKey::from_end_key(end_key))
-                    .map_or(true, |e| *e.value() != id)
+                    .is_none_or(|e| *e.value() != id)
             );
         }
     }

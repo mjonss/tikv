@@ -3,14 +3,13 @@
 use std::{intrinsics::likely, iter::Iterator as StdIterator, ops::Deref};
 
 use crate::{
+    Iterator, SnapAccess,
     table::{
-        encode_val_to_outer_val_owner,
+        InnerKey, Value, encode_val_to_outer_val_owner,
         memtable::{Hint, SkipList, WriteBatch},
         new_merge_iterator,
-        txn_file::{SkipOpTxnFileIterator, TxnFile, TxnFileIterator, OP_CHECK_NOT_EXIST, OP_LOCK},
-        InnerKey, Value,
+        txn_file::{OP_CHECK_NOT_EXIST, OP_LOCK, SkipOpTxnFileIterator, TxnFile, TxnFileIterator},
     },
-    Iterator, SnapAccess,
 };
 
 /// SkipListExt integrates txn files with SkipList, committed TxnFiles are added
@@ -214,15 +213,15 @@ mod tests {
     use bytes::Bytes;
 
     use crate::{
+        GLOBAL_SHARD_END_KEY, UserMeta, WRITE_CF,
         table::{
-            file::InMemFile,
-            memtable::{skl_ext::SkipListExt, SkipList, WriteBatch},
-            sstable::BlockCache,
-            txn_file::{TxnChunk, TxnChunkBuilder, TxnCtx, TxnFile, TxnFileId, OP_PUT},
             InnerKey,
+            file::InMemFile,
+            memtable::{SkipList, WriteBatch, skl_ext::SkipListExt},
+            sstable::BlockCache,
+            txn_file::{OP_PUT, TxnChunk, TxnChunkBuilder, TxnCtx, TxnFile, TxnFileId},
         },
         util::test_util::KeyBuilder,
-        UserMeta, GLOBAL_SHARD_END_KEY, WRITE_CF,
     };
 
     const KEYSPACE_ID: u32 = 42;

@@ -1,9 +1,6 @@
 // Copyright 2016 TiKV Project Authors. Licensed under Apache-2.0.
 
-use std::{
-    sync::{Arc, Mutex},
-    usize,
-};
+use std::sync::{Arc, Mutex};
 
 use collections::{HashMap, HashSet};
 use concurrency_manager::ConcurrencyManager;
@@ -11,14 +8,14 @@ use grpcio::Service;
 use grpcio_health::HealthService;
 use kvproto::raft_cmdpb::*;
 use raftstore::{
-    coprocessor::{CoprocessorHost, RegionInfoAccessor},
-    store::{msg::RaftCmdExtraOpts, Callback},
     Result,
+    coprocessor::{CoprocessorHost, RegionInfoAccessor},
+    store::{Callback, msg::RaftCmdExtraOpts},
 };
 use security::SecurityManager;
 use tikv::{
     import::SstImporter,
-    server::{resolve::StoreAddrResolver, RaftKv, Result as ServerResult},
+    server::{RaftKv, Result as ServerResult, resolve::StoreAddrResolver},
 };
 use tikv_util::time::ThreadReadId;
 use txn_types::TxnExtraScheduler;

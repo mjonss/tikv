@@ -205,7 +205,7 @@ impl FtsLevels {
     pub fn has_tracked_index(&self, table_id: i64, index_id: i64) -> bool {
         self.tracked_indexes
             .get(&table_id)
-            .map_or(false, |indexes| indexes.contains(&index_id))
+            .is_some_and(|indexes| indexes.contains(&index_id))
     }
 
     /// Add a new FTS index for tracking.

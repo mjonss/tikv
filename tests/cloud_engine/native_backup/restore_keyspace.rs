@@ -2,8 +2,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Barrier,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -14,12 +14,12 @@ use cloud_encryption::KeyspaceEncryptionConfig;
 use cloud_worker::broadcast_schema_update_to_all_stores;
 use collections::HashSet;
 use kvengine::{
+    WRITE_CF,
     dfs::{DFSConfig, Dfs, FileType, Options, S3Fs},
     table::{
         columnar::{new_int_handle_column_info, new_version_column_info},
-        schema_file::{build_schema_file, SchemaBuf},
+        schema_file::{SchemaBuf, build_schema_file},
     },
-    WRITE_CF,
 };
 use kvproto::metapb;
 use native_br::{
@@ -40,10 +40,11 @@ use rstest::rstest;
 use schema::schema::StorageClassSpec;
 use security::{SecurityConfig, SecurityManager};
 use test_cloud_server::{
+    ServerCluster, ServerClusterBuilder, TikvWorkerOptions,
     client::{ClusterClientOptions, CommitAction, MutateOptions, RequestOptions, TxnWriteMethod},
     must_wait,
     oss::prepare_dfs,
-    try_wait, ServerCluster, ServerClusterBuilder, TikvWorkerOptions,
+    try_wait,
 };
 use test_pd_client::PdWrapper;
 use tikv::config::TikvConfig;
@@ -1121,7 +1122,7 @@ fn test_restore_multiple_keyspaces_uses_rfengine_cache() {
             let end = start + BASIC_DATA_COUNT;
             client.put_kv(
                 start..end,
-                &gen_keyspace_key(keyspace_id),
+                gen_keyspace_key(keyspace_id),
                 i_to_val(BASIC_DATA_LEN),
             );
         }
@@ -1150,7 +1151,7 @@ fn test_restore_multiple_keyspaces_uses_rfengine_cache() {
     for keyspace_id in [KEYSPACE_1, KEYSPACE_2] {
         client.put_kv(
             BASIC_DATA_COUNT..(BASIC_DATA_COUNT * 2),
-            &gen_keyspace_key(keyspace_id),
+            gen_keyspace_key(keyspace_id),
             i_to_val(FINAL_DATA_LEN),
         );
     }

@@ -4,7 +4,7 @@ use std::{thread, time::Duration};
 
 use api_version::ApiV2;
 use pd_client::PdClient;
-use test_cloud_server::{must_wait, oss, ServerCluster};
+use test_cloud_server::{ServerCluster, must_wait, oss};
 use tikv::config::TikvConfig;
 use tikv_util::config::ReadableDuration;
 

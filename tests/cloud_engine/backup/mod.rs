@@ -6,10 +6,10 @@ use std::{
     time::Duration,
 };
 
-use engine_traits::{CfName, CF_DEFAULT, CF_WRITE};
+use engine_traits::{CF_DEFAULT, CF_WRITE, CfName};
 use external_storage_export::{create_storage, make_local_backend};
 use file_system::calc_crc32_bytes;
-use futures::{executor::block_on, AsyncReadExt, StreamExt};
+use futures::{AsyncReadExt, StreamExt, executor::block_on};
 use kvproto::{
     brpb::{BackupClient, BackupRequest, BackupResponse},
     import_sstpb::{
@@ -21,7 +21,7 @@ use kvproto::{
 use rand::Rng;
 use security::SecurityConfig;
 use tempfile::Builder;
-use test_cloud_server::{client::ClusterClient, ServerClusterBuilder};
+use test_cloud_server::{ServerClusterBuilder, client::ClusterClient};
 use test_pd_client::PdWrapper;
 use tikv::config::TikvConfig;
 use tikv_util::config::{ReadableDuration, ReadableSize};

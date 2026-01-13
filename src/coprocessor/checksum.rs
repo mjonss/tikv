@@ -9,8 +9,8 @@ use kvproto::{
 };
 use protobuf::Message;
 use tidb_query_common::storage::{
-    scanner::{RangesScanner, RangesScannerOptions},
     Range,
+    scanner::{RangesScanner, RangesScannerOptions},
 };
 use tikv_alloc::trace::MemoryTraceGuard;
 use tikv_util::time::Instant;
@@ -20,12 +20,12 @@ use crate::{
     coprocessor::{
         dag::TikvStorage,
         remote_dispatcher::{
-            encode_remote_request_body, remote_handle_request_with_retry, RemoteContext,
-            RemoteRequest,
+            RemoteContext, RemoteRequest, encode_remote_request_body,
+            remote_handle_request_with_retry,
         },
         *,
     },
-    storage::{txn::CloudStore, Snapshot, Statistics},
+    storage::{Snapshot, Statistics, txn::CloudStore},
 };
 
 // `ChecksumContext` is used to handle `ChecksumRequest`
@@ -47,7 +47,7 @@ impl<S: Snapshot> ChecksumContext<S> {
         remote_ctx: Option<RemoteContext>,
         mut remote_req: RemoteRequest,
     ) -> Result<Self> {
-        let remote_ctx = remote_ctx.map(|ctx| {
+        let remote_ctx = remote_ctx.inspect(|_ctx| {
             let mut kv_ranges = Vec::with_capacity(ranges.len());
             for range in &ranges {
                 let kv_range = (
@@ -65,7 +65,6 @@ impl<S: Snapshot> ChecksumContext<S> {
             );
             remote_req.key = format!("checksum:{}", key);
             remote_req.req_body = Bytes::from(req_body);
-            ctx
         });
         let store = CloudStore::new(
             snap,

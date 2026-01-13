@@ -7,7 +7,7 @@ mod load;
 pub mod schema;
 mod sync;
 
-pub use load::{load_schema, KvScanner};
+pub use load::{KvScanner, load_schema};
 #[cfg(feature = "testexport")]
 pub use sync::test_utils::generate_storage_class_schema_data_for_test;
-pub use sync::{get_schema_version, sync_schema, KvGetter};
+pub use sync::{KvGetter, get_schema_version, sync_schema};

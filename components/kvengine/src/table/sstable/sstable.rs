@@ -19,6 +19,7 @@ use xorf::{BinaryFuse8, Filter};
 
 use super::{builder::*, iterator::TableIterator};
 use crate::{
+    IoContext, WRITE_CF,
     ia::{ia_auto_file::IaAutoFile, ia_file::IaFile, types::FileSegmentIdent},
     next_version, next_version_async,
     table::{
@@ -27,7 +28,6 @@ use crate::{
         tiny_meta::SstTinyMeta,
         *,
     },
-    IoContext, WRITE_CF,
 };
 
 // higher level ttl is longer than lower level.
@@ -1210,14 +1210,13 @@ impl NewSsTableCtx {
 
 #[cfg(test)]
 pub(crate) mod test_util {
-    use std::sync::{atomic::Ordering, Arc};
+    use std::sync::{Arc, atomic::Ordering};
 
     use rand::Rng;
 
     use crate::table::{
-        file,
+        ChecksumType, InnerKey, NO_COMPRESSION, Value, file,
         sstable::{BlockCache, BlockCacheType, Builder, SsTable},
-        ChecksumType, InnerKey, Value, NO_COMPRESSION,
     };
 
     pub(crate) static TEST_ID_ALLOC: std::sync::atomic::AtomicU64 =
@@ -1343,7 +1342,7 @@ mod tests {
     use rstest::rstest;
 
     use super::{test_util::*, *};
-    use crate::{next, next_async, Iterator};
+    use crate::{Iterator, next, next_async};
 
     #[maybe_async::test]
     async fn test_table_iterator() {

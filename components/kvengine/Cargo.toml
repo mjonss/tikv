@@ -135,3 +135,6 @@ zipf = "7.0"
 name = "free_mem"
 path = "benches/free_mem.rs"
 harness = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(debug_assertion)'] }

@@ -7,33 +7,33 @@ use std::{
 };
 
 use anyhow::anyhow;
-use api_version::{api_v2::KEYSPACE_PREFIX_LEN, ApiV2, KeyMode, KvFormat};
-use bytes::{buf::Buf, Bytes};
+use api_version::{ApiV2, KeyMode, KvFormat, api_v2::KEYSPACE_PREFIX_LEN};
+use bytes::{Bytes, buf::Buf};
 use kvengine::{
+    LOCK_CF,
     read::Iterator,
     table::{
-        columnar::{filter::TableScanCtx, Block, ColumnarFilterReader, HANDLE_COL_ID},
+        columnar::{Block, ColumnarFilterReader, HANDLE_COL_ID, filter::TableScanCtx},
         fts,
     },
-    LOCK_CF,
 };
 use kvproto::{coprocessor::KeyRange, kvrpcpb::IsolationLevel};
 use tidb_query_common::{
+    Result,
     error::{ErrorInner, EvaluateError, StorageError},
     storage::IntervalRange,
     util::convert_to_prefix_next,
-    Result,
 };
 use tidb_query_datatype::{
+    EvalType, FieldTypeTp,
     codec::{
         batch::{LazyBatchColumn, LazyBatchColumnVec},
         data_type::{ChunkedVec, Enum, Real, VectorValue},
         mysql::{DecimalDecoder, Duration, JsonDecoder, Set, Time, VectorFloat32Decoder},
         table,
-        table::{encode_common_handle_row_key, encode_row_key, PREFIX_LEN},
+        table::{PREFIX_LEN, encode_common_handle_row_key, encode_row_key},
     },
     expr::EvalContext,
-    EvalType, FieldTypeTp,
 };
 use tikv_util::{buffer_vec::BufferVec, info};
 use tipb::{AnnQueryInfo, FtsQueryInfo, TableScan};

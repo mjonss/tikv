@@ -1,7 +1,6 @@
 // Copyright 2020 TiKV Project Authors. Licensed under Apache-2.0.
 
 #![feature(test)]
-#![feature(duration_consts_float)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -22,9 +21,9 @@ mod rate_limiter;
 pub use std::{
     convert::TryFrom,
     fs::{
-        canonicalize, create_dir, create_dir_all, hard_link, metadata, read_dir, read_link,
-        remove_dir, remove_dir_all, remove_file, rename, set_permissions, symlink_metadata,
-        DirBuilder, DirEntry, FileType, Metadata, Permissions, ReadDir,
+        DirBuilder, DirEntry, FileType, Metadata, Permissions, ReadDir, canonicalize, create_dir,
+        create_dir_all, hard_link, metadata, read_dir, read_link, remove_dir, remove_dir_all,
+        remove_file, rename, set_permissions, symlink_metadata,
     },
 };
 use std::{
@@ -34,7 +33,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub use direct::{open_direct_file, DirectWriter};
+pub use direct::{DirectWriter, open_direct_file};
 pub use file::{File, OpenOptions};
 pub use io_stats::{get_io_type, init as init_io_stats_collector, set_io_type};
 pub use metrics_manager::{BytesFetcher, MetricsManager};
@@ -44,8 +43,8 @@ use openssl::{
     hash::{self, Hasher, MessageDigest},
 };
 pub use rate_limiter::{
-    get_io_rate_limiter, set_io_rate_limiter, write_all_with_rate_limiter, IoBudgetAdjustor,
-    IoRateLimitMode, IoRateLimiter, IoRateLimiterStatistics,
+    IoBudgetAdjustor, IoRateLimitMode, IoRateLimiter, IoRateLimiterStatistics, get_io_rate_limiter,
+    set_io_rate_limiter, write_all_with_rate_limiter,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::{EnumCount, EnumIter};
@@ -180,7 +179,7 @@ impl<'de> Deserialize<'de> for IoPriority {
     {
         use serde::de::{Error, Unexpected, Visitor};
         struct StrVistor;
-        impl<'de> Visitor<'de> for StrVistor {
+        impl Visitor<'_> for StrVistor {
             type Value = IoPriority;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -448,7 +447,7 @@ pub fn reserve_space_for_recover<P: AsRef<Path>>(data_dir: P, file_size: u64) ->
 mod tests {
     use std::{io::Write, iter};
 
-    use rand::{distributions::Alphanumeric, thread_rng, Rng};
+    use rand::{Rng, distributions::Alphanumeric, thread_rng};
     use tempfile::{Builder, TempDir};
 
     use super::*;

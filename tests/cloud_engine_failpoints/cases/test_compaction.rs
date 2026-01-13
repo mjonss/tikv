@@ -2,7 +2,7 @@
 
 use std::{thread, time::Duration};
 
-use test_cloud_server::{must_wait, ServerCluster};
+use test_cloud_server::{ServerCluster, must_wait};
 use tikv_util::config::{ReadableDuration, ReadableSize};
 
 use super::{i_to_key, i_to_val};

@@ -12,12 +12,12 @@ use schema::schema::StorageClass;
 
 use super::*;
 use crate::table::{
+    SnapVersion,
     file::{File, FileMmapGuard, InMemFile, LocalFile, MmapData},
     fts::{
         dedicated_file::test::dummy_tantivy_dir,
         iter::{IntPk, PkReader},
     },
-    SnapVersion,
 };
 
 #[cfg(any(test, feature = "testexport"))]
@@ -64,7 +64,7 @@ impl File for SegmentedMmapFile {
     fn read(&self, off: u64, length: usize) -> crate::table::Result<Bytes> {
         if off
             .checked_add(length as u64)
-            .map_or(true, |end| end > self.size())
+            .is_none_or(|end| end > self.size())
         {
             return Err(crate::table::Error::InvalidFileSize);
         }
@@ -92,7 +92,7 @@ impl File for SegmentedMmapFile {
     ) -> crate::table::Result<(Bytes, FileMmapGuard)> {
         if offset
             .checked_add(length as u64)
-            .map_or(true, |end| end > self.size())
+            .is_none_or(|end| end > self.size())
         {
             return Err(crate::table::Error::InvalidFileSize);
         }

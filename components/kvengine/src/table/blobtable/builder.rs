@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::BlobRef;
 use crate::table::{
-    sstable::{key_diff_idx, PROP_KEY_ENCRYPTION_VER},
-    ChecksumType, InnerKey, Value, LZ4_COMPRESSION, NO_COMPRESSION, ZSTD_COMPRESSION,
+    ChecksumType, InnerKey, LZ4_COMPRESSION, NO_COMPRESSION, Value, ZSTD_COMPRESSION,
+    sstable::{PROP_KEY_ENCRYPTION_VER, key_diff_idx},
 };
 
 pub type ValueLength = u32; // Max value length is 4GB
@@ -236,8 +236,8 @@ impl BlobTableBuilder {
         need_encrypt: bool,
     ) -> BlobRef {
         let key = inner_key.deref();
-        assert!(blob.len() <= ValueLength::max_value() as usize);
-        assert!(self.total_blob_size as usize + blob.len() <= BlobOffset::max_value() as usize);
+        assert!(blob.len() <= ValueLength::MAX as usize);
+        assert!(self.total_blob_size as usize + blob.len() <= BlobOffset::MAX as usize);
         if self.smallest_key.is_empty() || self.smallest_key.as_slice() > key {
             self.smallest_key.clear();
             self.smallest_key.extend_from_slice(key);
@@ -468,7 +468,7 @@ impl BlobTableBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::table::{blobtable::blobtable::BlobTable, Value};
+    use crate::table::{Value, blobtable::blobtable::BlobTable};
 
     #[test]
     fn test_blob_index() {

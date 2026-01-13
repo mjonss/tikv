@@ -26,28 +26,28 @@ use kvproto::{
 };
 use log_wrappers::hex_encode;
 use rfstore::{
+    Error as RaftStoreError,
     router::RaftStoreRouter,
     store::{Callback, CasualMessage, PeerTag},
-    Error as RaftStoreError,
 };
 use tikv::{
     coprocessor::Endpoint,
     forward_duplex, forward_unary,
-    server::{load_statistics::ThreadLoadPool, metrics::*, Proxy},
+    server::{Proxy, load_statistics::ThreadLoadPool, metrics::*},
     storage::{
+        SecondaryLocksStatus, Storage, TxnStatus,
         errors::{
             extract_committed, extract_key_error, extract_key_errors, extract_region_error,
             map_kv_pairs,
         },
         kv::Engine,
         lock_manager::LockManager,
-        SecondaryLocksStatus, Storage, TxnStatus,
     },
 };
 use tikv_util::{
     future::{paired_future_callback, poll_future_notify},
-    mpsc::future::{unbounded, BatchReceiver, Sender, WakePolicy},
-    time::{duration_to_ms, duration_to_sec, Instant},
+    mpsc::future::{BatchReceiver, Sender, WakePolicy, unbounded},
+    time::{Instant, duration_to_ms, duration_to_sec},
 };
 use txn_types::{self, Key};
 
@@ -1100,7 +1100,7 @@ fn handle_batch_commands_request<L: LockManager, F: KvFormat>(
         Some(batch_commands_request::request::Cmd::Get(req)) => {
             if batcher
                 .as_mut()
-                .map_or(false, |req_batch| req_batch.can_batch_get(&req))
+                .is_some_and(|req_batch| req_batch.can_batch_get(&req))
             {
                 batcher.as_mut().unwrap().add_get_request(req, id);
             } else {

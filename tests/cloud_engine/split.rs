@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use pd_client::PdClient;
-use test_cloud_server::{alloc_node_id_vec, ServerCluster};
+use test_cloud_server::{ServerCluster, alloc_node_id_vec};
 use tikv_util::codec::bytes::encode_bytes;
 
 use crate::i_to_key;

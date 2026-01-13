@@ -4,9 +4,9 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use cloud_encryption::MasterKey;
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 use futures::executor::block_on;
-use http::{header, request::Parts, Method, Response, StatusCode};
+use http::{Method, Response, StatusCode, header, request::Parts};
 use hyper::Body;
 use kvengine::{
     dfs,
@@ -15,10 +15,10 @@ use kvengine::{
 use load_data::{
     checkpoint,
     checkpoint::{
-        LoadDataCheckpointCtx, LoadDataCleanupWorker,
+        CANCELLED_TASK_EXPIRE_SEC, CLEANUP_INTERVAL_SEC, FINISHED_TASK_EXPIRE_SEC,
+        IDLE_TASK_EXPIRE_SEC, LoadDataCheckpointCtx, LoadDataCleanupWorker,
         LoadDataWorkerState::{BuildingSst, IngestedSst},
-        LocalFileCheckpointStorage, CANCELLED_TASK_EXPIRE_SEC, CLEANUP_INTERVAL_SEC,
-        FINISHED_TASK_EXPIRE_SEC, IDLE_TASK_EXPIRE_SEC,
+        LocalFileCheckpointStorage,
     },
     dispatcher::Dispatcher,
     task::{
@@ -36,31 +36,26 @@ use crate::{
 
 /// Remote load data worker API:
 ///
-/// 1. init task:
-///   POST /load_data?cluster_id=%d&task_id=%s&start_ts=%d&commit_ts=%d
+/// 1. init task: POST
+///    /load_data?cluster_id=%d&task_id=%s&start_ts=%d&commit_ts=%d
 ///
-/// 2. put chunk:
-///   PUT /load_data?cluster_id=%d&task_id=%s&writer_id=%d&chunk_id=%d
-///   key_len(2) + key(key_len) + val_len(4) + value(val_len) + row_id_len(2) +
-/// row_id(row_id_len)
-///   key_len(2) + key(key_len) + val_len(4) + value(val_len) + row_id_len(2) +
-/// row_id(row_id_len)
-///   ...
+/// 2. put chunk: PUT
+///    /load_data?cluster_id=%d&task_id=%s&writer_id=%d&chunk_id=%d key_len(2) +
+///    key(key_len) + val_len(4) + value(val_len) + row_id_len(2) +
+///    row_id(row_id_len) key_len(2) + key(key_len) + val_len(4) +
+///    value(val_len) + row_id_len(2) + row_id(row_id_len) ...
 ///
-/// 3. flush:
-///   POST /load_data?cluster_id=%d&task_id=%s&flush=true
+/// 3. flush: POST /load_data?cluster_id=%d&task_id=%s&flush=true
 ///
-/// 4. build task:
-///   POST /load_data?cluster_id=%d&task_id=%s&build=true&compression=zstd&
-///        split_size=%d&split_keys=%d
+/// 4. build task: POST
+///    /load_data?cluster_id=%d&task_id=%s&build=true&compression=zstd&
+///    split_size=%d&split_keys=%d
 ///
-/// 5. get task states:
-///   GET /load_data?cluster_id=%d&task_id=%s
-///   {"canceled": false, "finished": false, "error": "", "created-files": 10,
-///   "ingested-regions": 3}
+/// 5. get task states: GET /load_data?cluster_id=%d&task_id=%s {"canceled":
+///    false, "finished": false, "error": "", "created-files": 10,
+///    "ingested-regions": 3}
 ///
-/// 6. clean up task:
-///   DELETE /load_data?cluster_id=%d&task_id=%s
+/// 6. clean up task: DELETE /load_data?cluster_id=%d&task_id=%s
 pub(crate) async fn handle_load_data(
     manager: Arc<LoadDataManager>,
     parts: Parts,

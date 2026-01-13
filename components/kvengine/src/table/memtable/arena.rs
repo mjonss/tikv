@@ -4,8 +4,8 @@ use std::{
     fmt::Display,
     mem, ptr, slice,
     sync::{
-        atomic::{AtomicPtr, AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicPtr, AtomicU32, Ordering},
     },
     time::Instant,
 };
@@ -14,11 +14,11 @@ use byteorder::{ByteOrder, LittleEndian};
 use rand::Rng;
 
 use super::{
-    super::table::{Value, VALUE_VERSION_LEN, VALUE_VERSION_OFF},
-    skl::{deref, Node, MAX_HEIGHT},
+    super::table::{VALUE_VERSION_LEN, VALUE_VERSION_OFF, Value},
     WriteBatchEntry,
+    skl::{MAX_HEIGHT, Node, deref},
 };
-use crate::metrics::{elapsed_secs, ENGINE_ARENA_GROW_DURATION_HISTOGRAM};
+use crate::metrics::{ENGINE_ARENA_GROW_DURATION_HISTOGRAM, elapsed_secs};
 
 pub const NULL_ARENA_ADDR: u64 = 0;
 

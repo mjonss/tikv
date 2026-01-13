@@ -8,8 +8,8 @@ use std::{
 };
 
 use collections::HashSet;
-use file_system::{set_io_type, IoType};
-use futures::{sink::SinkExt, stream::TryStreamExt, TryFutureExt};
+use file_system::{IoType, set_io_type};
+use futures::{TryFutureExt, sink::SinkExt, stream::TryStreamExt};
 use grpcio::{
     ClientStreamingSink, RequestStream, RpcContext, RpcStatus, RpcStatusCode, ServerStreamingSink,
     UnarySink, WriteFlags,
@@ -26,8 +26,8 @@ use rfstore::{
     store::{Callback, RegionSnapshot},
 };
 use sst_importer::{
-    error_inc, metrics::*, sst_importer::DownloadExt, sst_meta_to_path, Config, Error, Result,
-    SstImporter,
+    Config, Error, Result, SstImporter, error_inc, metrics::*, sst_importer::DownloadExt,
+    sst_meta_to_path,
 };
 use tikv::import::{duplicate_detect::DuplicateDetector, make_rpc_error};
 use tikv_util::{

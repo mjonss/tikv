@@ -5,8 +5,8 @@ use std::{
     iter::Iterator as StdIterator,
     ops::Deref,
     sync::{
-        atomic::{AtomicU32, AtomicU64, Ordering, Ordering::*},
         Arc, Mutex,
+        atomic::{AtomicU32, AtomicU64, Ordering, Ordering::*},
     },
 };
 
@@ -14,12 +14,11 @@ use bytes::{Buf, BytesMut};
 
 use super::arena::*;
 use crate::{
-    table::{
-        is_deleted,
-        table::{Iterator, Value, VALUE_VERSION_LEN, VALUE_VERSION_OFF},
-        InnerKey,
-    },
     SnapAccess,
+    table::{
+        InnerKey, is_deleted,
+        table::{Iterator, VALUE_VERSION_LEN, VALUE_VERSION_OFF, Value},
+    },
 };
 
 pub const MAX_HEIGHT: usize = 14;

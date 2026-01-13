@@ -5,9 +5,9 @@ use std::{sync::Arc, thread};
 use tikv_util::{info, mpsc};
 
 use crate::{
-    Config, EventHub, EventPublisher, ReadLimiter, ResourceCollector, ResourceEvent, ResourceHub,
-    ResourcePublisher, ResourceSubscriber, ResourceType, ResourceUsage, TransferLeaderLimiter,
-    MAX_BATCH_SIZE,
+    Config, EventHub, EventPublisher, MAX_BATCH_SIZE, ReadLimiter, ResourceCollector,
+    ResourceEvent, ResourceHub, ResourcePublisher, ResourceSubscriber, ResourceType, ResourceUsage,
+    TransferLeaderLimiter,
 };
 
 #[derive(Clone)]

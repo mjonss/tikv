@@ -31,13 +31,13 @@ use ::load_data::{
 use ::native_br::{backup::BackupConfig, restore::RestoreConfig};
 use dashmap::DashMap;
 use kvengine::{
-    context::{new_meta_file_cache, IaCtx},
+    context::{IaCtx, new_meta_file_cache},
     dfs::{DFSConfig, Dfs},
     ia::{manager::IaManager, util::IaConfig},
     table::{
+        ChecksumType,
         columnar::ColumnarMetaCache,
         sstable::{BlockCache, BlockCacheType},
-        ChecksumType,
     },
     txn_chunk_manager::{TxnChunkManager, TxnChunkManagerConfig},
 };
@@ -51,7 +51,7 @@ use replication_worker::{CdcMsg, ReplicationWorker, ReplicationWorkerConfig};
 #[cfg(feature = "testexport")]
 pub use schema_manager::get_keyspace_stats_from_store;
 pub use schema_manager::{
-    broadcast_schema_update_to_all_stores, SchemaManager, SchemaManagerConfig, SchemaMgrContext,
+    SchemaManager, SchemaManagerConfig, SchemaMgrContext, broadcast_schema_update_to_all_stores,
 };
 use security::{SecurityConfig, SecurityManager};
 pub use server::get_cop_req_tag;
@@ -61,7 +61,7 @@ use tikv_util::{
     config::{AbsoluteOrPercentSize, ReadableDuration, ReadableSize},
     memory::MemoryLimiter,
     quota_limiter::QuotaLimiter,
-    sys::{record_global_memory_usage, SysQuota},
+    sys::{SysQuota, record_global_memory_usage},
     time::Instant,
 };
 use tokio::{runtime::Runtime, sync::oneshot};
@@ -76,7 +76,7 @@ use crate::{
     txn_chunk::TxnChunkHandler,
     worker_limiter::{WorkerLimiter, WorkerLimiterConfig},
     worker_scaler::{
-        WorkerScaler, WorkerScalerConfig, LOAD_DATA_WORKER_ENV, LOAD_DATA_WORKER_WORKER_NUM_ENV,
+        LOAD_DATA_WORKER_ENV, LOAD_DATA_WORKER_WORKER_NUM_ENV, WorkerScaler, WorkerScalerConfig,
     },
 };
 
@@ -616,7 +616,7 @@ impl CloudWorker {
 
     #[cfg(feature = "testexport")]
     pub fn random_force_shutdown(self, ratio: f64) {
-        use rand::{thread_rng, Rng};
+        use rand::{Rng, thread_rng};
         let force = thread_rng().gen_bool(ratio);
         self.shutdown_opt(force);
     }

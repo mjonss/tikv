@@ -2,7 +2,7 @@
 
 use std::{convert::TryFrom, io::Write};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::{BufMut, Bytes};
 use clara_fts::TrackedDirectory;
 use collections::HashSet;
@@ -16,8 +16,8 @@ use super::PackedFileFooter;
 use crate::{
     codecutil::next_aligned_offset,
     table::{
-        fts::{dedicated_file::BytesDirRO, CommonPk, IntPk, PkType},
         ChecksumType, SnapVersion,
+        fts::{CommonPk, IntPk, PkType, dedicated_file::BytesDirRO},
     },
 };
 

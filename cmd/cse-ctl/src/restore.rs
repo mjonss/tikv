@@ -4,8 +4,8 @@ use std::{
     io::Write,
     path::PathBuf,
     sync::{
-        atomic::{AtomicI64, Ordering},
         Arc,
+        atomic::{AtomicI64, Ordering},
     },
 };
 
@@ -16,15 +16,15 @@ use native_br::{
     common::{create_pd_client, now},
     limiter::{RateLimitConfig, ThroughputLimiter},
     restore,
-    restore::{restore_pd, restore_tikv, RestoreConfig},
+    restore::{RestoreConfig, restore_pd, restore_tikv},
     restore_keyspace::{
-        restore_keyspace_with_cfg, ReportRestoreStepTrait, RestoreStep, RestoredKeyspace,
+        ReportRestoreStepTrait, RestoreStep, RestoredKeyspace, restore_keyspace_with_cfg,
     },
     step, step_error,
 };
 use pd_client::{
-    pd_control::{KeyspaceMeta, PdControl},
     PdClient,
+    pd_control::{KeyspaceMeta, PdControl},
 };
 use security::SecurityManager;
 use slog_global::{error, info};

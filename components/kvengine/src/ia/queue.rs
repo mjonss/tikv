@@ -8,8 +8,8 @@ use std::{
     collections::{HashMap, VecDeque},
     fmt,
     sync::{
-        atomic::{AtomicI64, Ordering},
         Arc,
+        atomic::{AtomicI64, Ordering},
     },
     thread::JoinHandle,
     time::Duration,
@@ -336,9 +336,7 @@ impl S3Fifo {
     fn is_in_ghost(&self, ident: FileSegmentIdent) -> bool {
         let fingerprint = ident.fingerprint();
         let idx = fingerprint as usize % self.ghost_queue.len();
-        self.ghost_queue[idx]
-            .as_ref()
-            .map_or(false, |&x| x == ident)
+        self.ghost_queue[idx].as_ref().is_some_and(|&x| x == ident)
     }
 
     fn insert_ghost(&mut self, ident: FileSegmentIdent) {

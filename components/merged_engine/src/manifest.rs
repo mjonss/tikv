@@ -2,7 +2,7 @@
 
 use std::{
     fmt,
-    fs::{self, create_dir_all, File},
+    fs::{self, File, create_dir_all},
     os::unix::fs::FileExt,
     path::{Path, PathBuf},
 };
@@ -264,7 +264,7 @@ mod tests {
     use collections::HashMap;
     use rfengine::RaftLogOp;
 
-    use crate::{manifest::Manifest, RaftLogOpWithCounter, RegionProgress, Result, StoreProgress};
+    use crate::{RaftLogOpWithCounter, RegionProgress, Result, StoreProgress, manifest::Manifest};
 
     #[test]
     fn test_manifest() -> Result<()> {

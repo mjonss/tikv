@@ -1,13 +1,13 @@
 // Copyright 2026 TiKV Project Authors. Licensed under Apache-2.0.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use tantivy::{
+    TantivyError, Term,
     query::{Bm25StatisticsProvider, Bm25Weight},
     schema::Field,
-    TantivyError, Term,
 };
 
-use crate::{Query, FIELD_BODY};
+use crate::{FIELD_BODY, Query};
 
 /// Accumulates BM25 statistics across multiple Tantivy indexes for a query.
 ///
@@ -171,7 +171,7 @@ impl Bm25StatisticsProvider for crate::Query {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::query::test_util::{make_scored_query, PlainFtsQueryInfo};
+    use crate::query::test_util::{PlainFtsQueryInfo, make_scored_query};
 
     #[test]
     fn prepare_bm25_succeeds_with_empty_corpus() -> Result<()> {

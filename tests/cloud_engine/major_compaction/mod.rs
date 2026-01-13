@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use api_version::ApiV2;
-use kvengine::{ShardStats, CF_LEVELS, WRITE_CF};
+use kvengine::{CF_LEVELS, ShardStats, WRITE_CF};
 use kvproto::{
     pdpb::CheckPolicy,
     raft_cmdpb::{RaftCmdRequest, RaftRequestHeader},

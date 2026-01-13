@@ -32,13 +32,13 @@ impl TxnStatus {
     ///
     /// If transaction is already committed, the result could be cached.
     /// Otherwise:
-    ///   If l.lock_type is pessimistic lock type:
-    ///   - If its primary lock is pessimistic too, the check txn status result
-    ///     should not be cached.
-    ///   - If its primary lock is prewrite lock type, the check txn status
-    ///     could be cached.
-    ///   If l.lock_type is prewrite lock type:
-    ///   - Always cache the check txn status result.
+    ///   - If l.lock_type is pessimistic lock type:
+    ///     - If its primary lock is pessimistic too, the check txn status
+    ///       result should not be cached.
+    ///     - If its primary lock is prewrite lock type, the check txn status
+    ///       could be cached.
+    ///   - If l.lock_type is prewrite lock type:
+    ///     - Always cache the check txn status result.
     ///
     /// For prewrite locks, their primary keys should ALWAYS be the correct one
     /// and will NOT change.
@@ -264,8 +264,8 @@ impl LockResolver {
         // 2.2 Txn Rollbacked -- rollback itself, rollback by others, GC tomb etc.
         // 2.3 No lock -- pessimistic lock rollback, concurrence prewrite.
         let resolving_pessimistic_lock =
-            lock.map_or(false, |l| l.lock_type == kvrpcpb::Op::PessimisticLock);
-        let is_txn_file = lock.map_or(false, |l| l.is_txn_file);
+            lock.is_some_and(|l| l.lock_type == kvrpcpb::Op::PessimisticLock);
+        let is_txn_file = lock.is_some_and(|l| l.is_txn_file);
         let mut resp = self.cluster_client.kv_check_txn_status(
             primary,
             txn_id.into(),

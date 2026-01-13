@@ -3,13 +3,11 @@
 use std::{fmt, iter::Iterator as _};
 
 use crate::{
-    next, next_async, next_version, next_version_async,
+    LevelHandler, next, next_async, next_version, next_version_async,
     table::{
-        search,
+        InnerKey, Iterator, Value, search,
         sstable::{SsTable, TableIterator},
-        InnerKey, Iterator, Value,
     },
-    LevelHandler,
 };
 
 // ConcatIterator concatenates the sequences defined by several iterators.  (It
@@ -126,7 +124,7 @@ impl Iterator for ConcatIterator {
         // Correctness depends on the assumption that when `self.iter.is_next_sync()` is
         // true, the `self.iter` must have more data in current block, so the
         // `self.iter.next()` must be valid.
-        self.iter.as_ref().map_or(true, |iter| iter.is_next_sync())
+        self.iter.as_ref().is_none_or(|iter| iter.is_next_sync())
     }
 
     #[maybe_async]
@@ -217,8 +215,8 @@ mod tests {
         concat_iterator::ConcatIterator,
         next, next_async, next_version, next_version_async,
         table::{
-            sstable::{test_util::*, SsTable},
             InnerKey, Iterator,
+            sstable::{SsTable, test_util::*},
         },
     };
 

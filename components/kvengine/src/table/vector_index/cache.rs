@@ -3,15 +3,15 @@
 use std::{
     ops::Deref,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
     },
     time::Instant,
 };
 
 use quick_cache::{
-    sync::{Cache, DefaultLifecycle},
     DefaultHashBuilder,
+    sync::{Cache, DefaultLifecycle},
 };
 use tikv_util::config::AbsoluteOrPercentSize;
 

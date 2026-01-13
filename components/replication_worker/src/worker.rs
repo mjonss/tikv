@@ -1,7 +1,7 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    collections::{hash_map::Entry, HashMap as StdHashMap},
+    collections::{HashMap as StdHashMap, hash_map::Entry},
     fs, mem,
     net::SocketAddr,
     ops,
@@ -14,22 +14,22 @@ use std::{
 
 use api_version::ApiV2;
 use bytes::{Buf, Bytes};
-use cdc::{metrics::*, CdcEvent, Conn, ConnId};
+use cdc::{CdcEvent, Conn, ConnId, metrics::*};
 use collections::{HashMap, HashMapEntry, HashMapExt, HashSet};
 use futures::executor::block_on;
 use grpcio::{ChannelBuilder, EnvBuilder, ServerBuilder};
-use grpcio_health::{create_health, HealthService, ServingStatus};
-use hyper::{http, StatusCode};
+use grpcio_health::{HealthService, ServingStatus, create_health};
+use hyper::{StatusCode, http};
 use kvengine::{
+    Engine, IdVer, LOCK_CF, ShardMeta, ShardTag, SnapAccess, UserMeta, WRITE_CF,
     dfs::Dfs,
-    table::{tiny_meta, InnerKey, SnapVersion},
-    Engine, IdVer, ShardMeta, ShardTag, SnapAccess, UserMeta, LOCK_CF, WRITE_CF,
+    table::{InnerKey, SnapVersion, tiny_meta},
 };
 use kvproto::{
     cdcpb,
     cdcpb::{
-        create_change_data, ChangeDataRequest, Event, EventLogType, EventRow, EventRowOpType,
-        ResolvedTs,
+        ChangeDataRequest, Event, EventLogType, EventRow, EventRowOpType, ResolvedTs,
+        create_change_data,
     },
     metapb, pdpb,
     pdpb::StoreStats,
@@ -38,21 +38,21 @@ use kvproto::{
 };
 use log_wrappers::Value as LogValue;
 use merged_engine::{
-    peer_is_skippable, ForceStop, MergedEngine, MergedEngineContext, StoreProgress,
+    ForceStop, MergedEngine, MergedEngineContext, StoreProgress, peer_is_skippable,
 };
 use native_br::{
-    common::{assemble_wal_chunks, collect_wal_chunks_with_retry, CollectWalChunksContext},
+    common::{CollectWalChunksContext, assemble_wal_chunks, collect_wal_chunks_with_retry},
     error::Error as BrError,
     wal::AssembledWalData,
 };
 use pd_client::{
-    util::{check_resp_header, get_all_stores_except_tiflash},
     PdClient, RegionStat,
+    util::{check_resp_header, get_all_stores_except_tiflash},
 };
-use rfengine::{RfEngine, MIN_EPOCH_ROTATE_LEN, TRUNCATE_ALL_INDEX};
+use rfengine::{MIN_EPOCH_ROTATE_LEN, RfEngine, TRUNCATE_ALL_INDEX};
 use rfstore::store::{ApplyContext, GcRunner};
 use security::{HttpClient, SecurityConfig};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tikv_util::{
     box_err, box_try, codec, debug, error,
     future::paired_future_callback,
@@ -66,7 +66,9 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use txn_types::{LockType, TimeStamp};
 
 use crate::{
-    apply_observer::{is_index_key, CdcApplyObserver, RegionEvents},
+    CdcMsg, Deregister, Error, KeyspaceService, KeyspaceStates, ReplicationScheduler,
+    ReplicationService, ReplicationWorkerConfig, Result,
+    apply_observer::{CdcApplyObserver, RegionEvents, is_index_key},
     delegate::{
         InitAlive, InitId, RegionDelegate, RegionResolver, RequestId, RequestInfo, RequestKey,
     },
@@ -77,15 +79,13 @@ use crate::{
     scheduler::get_cdc_status,
     ticdc_util::TiCdcError,
     util::{
-        build_request_range_for_keyspace, keyspace_prefix_len, post_to_ticdc,
-        send_request_to_store, ArcTimeStamp, ResolvedTsStats, DISPATCH_CDC_TIMEOUT,
+        ArcTimeStamp, DISPATCH_CDC_TIMEOUT, ResolvedTsStats, build_request_range_for_keyspace,
+        keyspace_prefix_len, post_to_ticdc, send_request_to_store,
     },
     wal::{
         StoreTargetAndLag, StoreWalProgresses, UpdateWalError, UpdateWalResult, WalCache,
         WalProgressFetcher, WalProgressTargets,
     },
-    CdcMsg, Deregister, Error, KeyspaceService, KeyspaceStates, ReplicationScheduler,
-    ReplicationService, ReplicationWorkerConfig, Result,
 };
 
 const MAX_INITIALIZE_SCAN_BATCH_BYTES: usize = 1024 * 1024;
@@ -981,8 +981,7 @@ impl ReplicationWorker {
         for pending_event in pending_events {
             trace!(
                 "{} handle_register_result: send pending event {:?}",
-                tag,
-                pending_event
+                tag, pending_event
             );
             sink.unbounded_send(CdcEvent::Event(pending_event), false)
                 .map_err(|e| cdc::Error::from(e))?;

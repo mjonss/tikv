@@ -4,7 +4,7 @@ use std::fs::File;
 
 use engine_traits::Result;
 use rocksdb::{
-    set_external_sst_file_global_seq_no, IngestExternalFileOptions as RawIngestExternalFileOptions,
+    IngestExternalFileOptions as RawIngestExternalFileOptions, set_external_sst_file_global_seq_no,
 };
 
 use crate::{engine::RocksEngine, r2e, util};
@@ -55,7 +55,7 @@ mod tests {
     use engine_traits::{ALL_CFS, CF_DEFAULT};
     use tempfile::Builder;
 
-    use crate::{util::new_engine_opt, RocksCfOptions, RocksDbOptions, RocksSstWriterBuilder};
+    use crate::{RocksCfOptions, RocksDbOptions, RocksSstWriterBuilder, util::new_engine_opt};
 
     #[test]
     fn test_ingest_multiple_file() {

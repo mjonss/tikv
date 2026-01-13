@@ -17,12 +17,12 @@ use kvproto::{
 };
 use protobuf::Message;
 use rfengine::{
-    raft_state_key, region_state_key, RfEngine, WriteBatch, REGION_META_KEY_BYTE, STORE_IDENT_KEY,
+    REGION_META_KEY_BYTE, RfEngine, STORE_IDENT_KEY, WriteBatch, raft_state_key, region_state_key,
 };
 use rfstore::store::{
-    load_raft_engine_meta,
+    RAFT_INIT_LOG_INDEX, RAFT_INIT_LOG_TERM, TERM_KEY, load_raft_engine_meta,
     peer_storage::{collect_prefix_regions, load_region_state},
-    write_engine_meta_bytes, RAFT_INIT_LOG_INDEX, RAFT_INIT_LOG_TERM, TERM_KEY,
+    write_engine_meta_bytes,
 };
 use tikv_util::{
     codec::{bytes::decode_bytes, number::NumberEncoder},

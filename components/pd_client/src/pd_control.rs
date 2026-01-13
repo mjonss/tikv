@@ -40,7 +40,7 @@ impl From<HttpClientError> for Error {
     fn from(err: HttpClientError) -> Self {
         match err {
             HttpClientError::Http(status, msg) => {
-                let msg = msg.trim_matches(&[' ', '\n', '\r', '"']);
+                let msg = msg.trim_matches([' ', '\n', '\r', '"']);
                 if status == StatusCode::NOT_FOUND {
                     Self::NotFound(msg.to_string())
                 } else if let Some(pd_err) = extract_pd_server_err(msg) {
@@ -703,7 +703,7 @@ where
 {
     struct HexVisitor;
 
-    impl<'de> serde::de::Visitor<'de> for HexVisitor {
+    impl serde::de::Visitor<'_> for HexVisitor {
         type Value = Vec<u8>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

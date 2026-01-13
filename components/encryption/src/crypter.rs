@@ -5,7 +5,7 @@ use derive_more::Deref;
 use engine_traits::EncryptionMethod as EtEncryptionMethod;
 use kvproto::encryptionpb::EncryptionMethod;
 use openssl::symm::{self, Cipher as OCipher};
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use tikv_util::{box_err, impl_display_as_debug};
 
 use crate::{Error, Result};

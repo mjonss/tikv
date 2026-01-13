@@ -17,8 +17,8 @@ use kvengine::dfs::DFSConfig;
 use kvproto::metapb;
 use nix::sys::signal::Signal;
 use pd_client::{
-    pd_control::{PdControl, PdScheduleConfig},
     PdClient,
+    pd_control::{PdControl, PdScheduleConfig},
 };
 use security::{RestfulClient, SecurityConfig, SecurityManager};
 use serde_derive::{Deserialize, Serialize};

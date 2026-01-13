@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 
 use bytes::Bytes;
-use kvengine::{read::Iterator as KvIterator, UserMeta, WRITE_CF};
+use kvengine::{UserMeta, WRITE_CF, read::Iterator as KvIterator};
 use kvproto::import_sstpb::{DuplicateDetectResponse, KvPair};
 use sst_importer::{Error, Result};
 use tikv_kv::Snapshot;
@@ -200,9 +200,9 @@ mod tests {
 
     use super::*;
     use crate::storage::{
+        Storage, TestStorageBuilderApiV1,
         lock_manager::{LockManager, MockLockManager},
         txn::commands,
-        Storage, TestStorageBuilderApiV1,
     };
 
     fn prewrite_data<E: Engine, L: LockManager, F: KvFormat>(

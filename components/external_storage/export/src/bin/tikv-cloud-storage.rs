@@ -34,9 +34,9 @@ fn main() {
 mod wait {
     use libc::c_int;
     use signal_hook::{
+        Signals,
         consts::{SIGHUP, SIGINT, SIGTERM, SIGUSR1, SIGUSR2},
         iterator::Signals,
-        Signals,
     };
     use slog_global::info;
 

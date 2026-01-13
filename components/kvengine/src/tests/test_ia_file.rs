@@ -7,6 +7,7 @@ use test_util::init_log_for_test;
 use tikv_util::time::Instant;
 
 use crate::{
+    Iterator,
     ia::{ia_file::IaFile, manager::IaManager, util::IaManagerOptionsBuilder},
     next, next_async,
     table::{
@@ -16,7 +17,6 @@ use crate::{
     },
     tests::{new_table, new_test_engine_opt},
     util::test_util::KeyBuilder,
-    Iterator,
 };
 
 #[rstest::rstest]
@@ -36,7 +36,7 @@ fn test_sync_read(#[case] concurrency: usize) {
         .worker_threads(2)
         .build()
         .unwrap();
-    let sync_read_concurrency = (concurrency + 1) / 2;
+    let sync_read_concurrency = concurrency.div_ceil(2);
     let options = IaManagerOptionsBuilder::default()
         .segment_size(4096)
         .sync_read(false, sync_read_concurrency, Duration::from_secs(3))

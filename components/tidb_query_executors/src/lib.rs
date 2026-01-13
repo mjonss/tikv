@@ -11,9 +11,6 @@
 #![allow(incomplete_features)]
 #![feature(proc_macro_hygiene)]
 #![feature(specialization)]
-#![feature(const_mut_refs)]
-#![feature(associated_type_bounds)]
-#![feature(is_sorted)]
 
 #[macro_use(other_err)]
 extern crate tidb_query_common;

@@ -279,7 +279,7 @@ impl BruteScoredSearcher {
 mod tests {
 
     use super::*;
-    use crate::query::test_util::{make_scored_query, make_unscored_query, PlainFtsQueryInfo};
+    use crate::query::test_util::{PlainFtsQueryInfo, make_scored_query, make_unscored_query};
 
     fn is_index_match(src: &str, query: &str) -> Result<bool> {
         let idx = crate::index_for_test(&[src])?.finalize()?;
@@ -478,7 +478,7 @@ mod benches {
     use std::{fs, hint::black_box, io};
 
     use super::*;
-    use crate::query::test_util::{make_scored_query, PlainFtsQueryInfo};
+    use crate::query::test_util::{PlainFtsQueryInfo, make_scored_query};
 
     fn prepare_bench_data() -> Vec<String> {
         use io::BufRead;

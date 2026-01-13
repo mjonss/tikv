@@ -1,8 +1,8 @@
 // Copyright 2023 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    sync::{atomic::Ordering, Arc},
-    thread::{sleep, JoinHandle},
+    sync::{Arc, atomic::Ordering},
+    thread::{JoinHandle, sleep},
     time::Duration,
 };
 
@@ -11,17 +11,17 @@ use futures::executor::block_on;
 use kvengine::{dfs, dfs::DFSConfig, table::ZSTD_COMPRESSION};
 use load_data::task::{LoadDataConfig, LoadDataContext};
 use pd_client::PdClient;
-use rand::{rngs::ThreadRng, Rng};
+use rand::{Rng, rngs::ThreadRng};
 use schema::schema::StorageClassSpec;
 use security::SecurityConfig;
 use test_cloud_server::{
-    keyspace::{make_row_key, ClusterKeyspaceClient, KeyspaceManager},
+    keyspace::{ClusterKeyspaceClient, KeyspaceManager, make_row_key},
     load_data::{build, cleanup, init_task, put_chunks},
 };
 use tikv_util::{info, time::Instant};
 use tokio::runtime::Runtime;
 
-use crate::{generate_random_string, i_to_key, LOAD_DATA_COUNTER, TABLE_COUNTER};
+use crate::{LOAD_DATA_COUNTER, TABLE_COUNTER, generate_random_string, i_to_key};
 
 const COMPRESSION_TYPE: u8 = ZSTD_COMPRESSION;
 

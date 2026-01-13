@@ -9,12 +9,12 @@ use security::SecurityManager;
 use tidb_query_datatype::codec::Datum;
 use tikv::{
     config::CoprReadPoolConfig,
-    coprocessor::{readpool_impl, Endpoint},
+    coprocessor::{Endpoint, readpool_impl},
     read_pool::ReadPool,
     server::Config,
     storage::{
-        kv::RocksEngine, lock_manager::MockLockManager, Engine, TestEngineBuilder,
-        TestStorageBuilderApiV1,
+        Engine, TestEngineBuilder, TestStorageBuilderApiV1, kv::RocksEngine,
+        lock_manager::MockLockManager,
     },
 };
 use tikv_util::{quota_limiter::QuotaLimiter, thread_group::GroupProperties};

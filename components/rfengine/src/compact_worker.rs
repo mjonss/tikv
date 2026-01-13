@@ -11,8 +11,8 @@ use std::{
     mem,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicU32, Ordering},
     },
     thread,
     thread::JoinHandle,
@@ -899,18 +899,18 @@ mod tests {
     use bytes::Buf;
     use kvproto::raft_serverpb::RegionLocalState;
     use protobuf::Message;
-    use rand::{distributions::Alphanumeric, Rng};
+    use rand::{Rng, distributions::Alphanumeric};
     use rfenginepb::{ChangeSet, PeerState, StoreBackupMeta, StoreRaftLogBackupMeta};
     use tikv_util::{config::ReadableSize, defer};
 
     use super::*;
     use crate::{
+        CompactWorker, RfEngine, RfEngineConfig, WalWriter, WriterType,
         log_batch::{RaftLogOp, RaftLogs},
-        manifest::{persist_change_set, Manifest},
+        manifest::{Manifest, persist_change_set},
         raft_log_file_name, region_state_key,
         test_util::{get_txn_endkey_prefix, get_txn_startkey_prefix, init_logger},
         write_batch::PeerBatch,
-        CompactWorker, RfEngine, RfEngineConfig, WalWriter, WriterType,
     };
 
     const RANDOM_STR_MAX_LEN: usize = 1024;

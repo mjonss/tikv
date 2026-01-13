@@ -8,8 +8,8 @@ use std::{
     marker::PhantomData,
     ops::Deref,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -22,11 +22,11 @@ use kvenginepb::TxnFileRefs;
 use log_wrappers::Value as LogValue;
 use protobuf::Message;
 use tidb_query_datatype::{
+    FieldTypeFlag,
     codec::{
         mysql::VectorFloat32Decoder,
         table::{decode_common_handle, decode_int_handle, decode_table_id},
     },
-    FieldTypeFlag,
 };
 use tikv_util::{
     box_try,
@@ -46,24 +46,24 @@ use crate::{
     limiter::RegionLimiter,
     metrics::{COLUMNAR_PREFETCH_CACHE_HIT_HISTOGRAM, COLUMNAR_PREFETCH_HISTOGRAM},
     table::{
+        AsyncMergeIterator, BoundedDataSet, ConstraintChecker, DataBound, InnerKey,
+        Iterator as TableIterator, SkipOpTxnFileIterator, SnapVersion, TxnFile, TxnFileIterator,
+        Value,
         blobtable::blobtable::{BlobPrefetcher, BlobTable},
         columnar::{
-            filter::TableScanCtx, Block, ColumnarConcatReader, ColumnarFile, ColumnarFilterReader,
-            ColumnarMergeReader, ColumnarMvccReader, ColumnarReader, ColumnarRowTableReader,
-            ColumnarTableReader, GLOBAL_COMMON_HANDLE_END, HANDLE_COL_ID,
+            Block, ColumnarConcatReader, ColumnarFile, ColumnarFilterReader, ColumnarMergeReader,
+            ColumnarMvccReader, ColumnarReader, ColumnarRowTableReader, ColumnarTableReader,
+            GLOBAL_COMMON_HANDLE_END, HANDLE_COL_ID, filter::TableScanCtx,
         },
         fts::{
-            validate_schema, FtsBruteForceCondReader, FtsBruteForceReader, FtsDeltaCache,
-            FtsDropScoreNullableReader, FtsJoinReader,
+            FtsBruteForceCondReader, FtsBruteForceReader, FtsDeltaCache,
+            FtsDropScoreNullableReader, FtsJoinReader, validate_schema,
         },
         memtable::{CfTable, Hint, SkipList, WriteBatch},
         schema_file::{Schema, SchemaBuf, SchemaFile},
         sstable::SsTable,
         table,
         vector_index::{VectorDistanceProjector, VectorItemsReader},
-        AsyncMergeIterator, BoundedDataSet, ConstraintChecker, DataBound, InnerKey,
-        Iterator as TableIterator, SkipOpTxnFileIterator, SnapVersion, TxnFile, TxnFileIterator,
-        Value,
     },
     table_id::encode_table_prefix_key,
     txn_chunk_manager::TxnChunkManager,
@@ -181,7 +181,7 @@ impl SnapAccess {
         Ok(Self { core })
     }
 
-    pub async fn construct_snapshot<'a>(
+    pub async fn construct_snapshot(
         tag: &str,
         ctx: &SnapCtx,
         mem_table_data: &[u8],
@@ -674,7 +674,7 @@ impl SnapAccessCore {
         if cf == LOCK_CF && !self.data.lock_txn_files.is_empty() {
             for txn_file in &self.data.lock_txn_files {
                 if skip_txn_file_with_start_ts
-                    .map_or(false, |start_ts| txn_file.start_ts() == start_ts)
+                    .is_some_and(|start_ts| txn_file.start_ts() == start_ts)
                 {
                     continue;
                 }
@@ -693,7 +693,7 @@ impl SnapAccessCore {
         }
         let scf = self.data.get_cf(cf);
         for lh in scf.levels.as_slice() {
-            if lh.tables.len() == 0 {
+            if lh.tables.is_empty() {
                 continue;
             }
             if lh.tables.len() == 1 {
@@ -740,7 +740,7 @@ impl SnapAccessCore {
 
         let scf = self.data.get_cf(cf);
         for lh in scf.levels.as_slice() {
-            if lh.tables.len() == 0 {
+            if lh.tables.is_empty() {
                 continue;
             }
             if lh.tables.len() == 1 {
@@ -793,7 +793,7 @@ impl SnapAccessCore {
 
         let scf = self.data.get_cf(WRITE_CF);
         for lh in scf.levels.as_slice() {
-            if lh.tables.len() == 0 || lh.max_ts <= since_ts {
+            if lh.tables.is_empty() || lh.max_ts <= since_ts {
                 continue;
             }
             if lh.tables.len() == 1 {
@@ -1374,7 +1374,7 @@ impl SnapAccessCore {
         }
     }
 
-    fn get_upper_bound<'a>(&'a self, buf: &'a mut Vec<u8>, txn_file: &TxnFile) -> InnerKey<'_> {
+    fn get_upper_bound<'a>(&'a self, buf: &'a mut Vec<u8>, txn_file: &TxnFile) -> InnerKey<'a> {
         if txn_file.biggest() < self.data.inner_end() {
             buf.extend_from_slice(txn_file.biggest().deref());
             buf.push(0);
@@ -1557,9 +1557,7 @@ impl SnapAccessCore {
         columns: &[ColumnInfo],
         read_ts: u64,
     ) -> Option<ColumnarMvccReader> {
-        let Some(schema) = self.new_schema_from_columns(table_id, columns) else {
-            return None;
-        };
+        let schema = self.new_schema_from_columns(table_id, columns)?;
         let mut readers: Vec<Box<dyn ColumnarReader>> = vec![];
         for mem in &self.data.mem_tbls {
             let skl = mem.get_cf(WRITE_CF);
@@ -3315,7 +3313,7 @@ impl ConstraintChecker for TxnFileConstraintChecker<'_> {
 mod tests {
     use std::{collections::BTreeMap, iter::Iterator, ops::Deref, sync::Arc};
 
-    use api_version::{api_v2::KEYSPACE_PREFIX_LEN, ApiV2};
+    use api_version::{ApiV2, api_v2::KEYSPACE_PREFIX_LEN};
     use bytes::{Buf, Bytes};
     use cloud_encryption::{EncryptionKey, MasterKey};
     use futures::executor::block_on;
@@ -3325,24 +3323,24 @@ mod tests {
     use tikv_util::memory::MemoryLimiter;
 
     use crate::{
+        ChangeSet, ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY, Shard, ShardRange, SnapAccess, UserMeta,
+        WRITE_CF,
         apply::create_snapshot_tables,
-        context::{new_meta_file_cache, IaCtx, PrepareType, SnapCtx},
+        context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
         dfs::{self, Dfs, InMemFs},
         read::MEM_DATA_FORMAT_V2,
         shard::ShardDataBuilder,
         table::{
-            self,
+            self, InnerKey, OP_PUT, OwnedInnerKey, TxnChunk, TxnChunkBuilder, TxnCtx, TxnFile,
+            TxnFileId,
             columnar::ColumnarMetaCache,
             file::InMemFile,
             fts::{FtsCache, FtsDeltaCache},
             memtable::CfTable,
-            sstable::{test_util::build_test_table_with_kvs, BlockCache},
-            InnerKey, OwnedInnerKey, TxnChunk, TxnChunkBuilder, TxnCtx, TxnFile, TxnFileId, OP_PUT,
+            sstable::{BlockCache, test_util::build_test_table_with_kvs},
         },
-        txn_chunk_manager::{with_pool_size, TxnChunkManager, TxnChunkManagerConfig},
+        txn_chunk_manager::{TxnChunkManager, TxnChunkManagerConfig, with_pool_size},
         util::test_util::KeyBuilder,
-        ChangeSet, Shard, ShardRange, SnapAccess, UserMeta, ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY,
-        WRITE_CF,
     };
 
     const KEYSPACE_ID: u32 = 42;

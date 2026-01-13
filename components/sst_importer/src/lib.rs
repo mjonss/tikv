@@ -25,7 +25,7 @@ pub mod sst_importer;
 
 pub use self::{
     config::Config,
-    errors::{error_inc, Error, Result},
+    errors::{Error, Result, error_inc},
     import_file::sst_meta_to_path,
     sst_importer::SstImporter,
     sst_writer::TxnSstWriter,

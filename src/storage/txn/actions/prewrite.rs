@@ -10,24 +10,24 @@ use kvproto::kvrpcpb::{
     WriteConflictReason,
 };
 use txn_types::{
-    is_short_value, Key, Mutation, MutationType, OldValue, TimeStamp, Value, Write, WriteType,
+    Key, Mutation, MutationType, OldValue, TimeStamp, Value, Write, WriteType, is_short_value,
 };
 
 use crate::storage::{
+    Snapshot,
     mvcc::{
+        Error, ErrorInner, Lock, LockType, MvccTxn, Result, SnapshotReader,
         metrics::{
             MVCC_CONFLICT_COUNTER, MVCC_DUPLICATE_CMD_COUNTER_VEC,
             MVCC_PREWRITE_ASSERTION_PERF_COUNTER_VEC,
         },
-        Error, ErrorInner, Lock, LockType, MvccTxn, Result, SnapshotReader,
     },
     txn::{
+        LockInfo,
         actions::check_data_constraint::{check_data_constraint, check_data_constraint_async},
         sched_pool::tls_can_enable,
         scheduler::LAST_CHANGE_TS,
-        LockInfo,
     },
-    Snapshot,
 };
 
 /// Prewrite a single mutation by creating and storing a lock and value.
@@ -184,7 +184,7 @@ pub struct TransactionProperties<'a> {
     pub txn_source: u64,
 }
 
-impl<'a> TransactionProperties<'a> {
+impl TransactionProperties<'_> {
     fn max_commit_ts(&self) -> TimeStamp {
         match &self.commit_kind {
             CommitKind::TwoPc => unreachable!(),
@@ -625,8 +625,7 @@ impl<'a> PrewriteMutation<'a> {
         let mut write = write;
 
         if write_loaded
-            && write.as_ref().map_or(
-                false,
+            && write.as_ref().is_some_and(
                 |(w, _)| matches!(w.gc_fence, Some(gc_fence_ts) if !gc_fence_ts.is_zero()),
             )
         {
@@ -638,7 +637,7 @@ impl<'a> PrewriteMutation<'a> {
         // Load the most recent version if prev write is not loaded yet, or the prev
         // write is not a data version (`Put` or `Delete`)
         let need_reload = !write_loaded
-            || write.as_ref().map_or(false, |(w, _)| {
+            || write.as_ref().is_some_and(|(w, _)| {
                 w.write_type != WriteType::Put && w.write_type != WriteType::Delete
             });
         if need_reload {
@@ -916,12 +915,12 @@ pub mod tests {
     use txn_types::{OldValue, TsSet};
 
     use super::*;
+    use crate::storage::{Engine, mvcc::tests::*};
     #[cfg(test)]
     use crate::storage::{
         kv::RocksSnapshot,
         txn::{commands::prewrite::fallback_1pc_locks, tests::*},
     };
-    use crate::storage::{mvcc::tests::*, Engine};
 
     fn optimistic_txn_props(primary: &[u8], start_ts: TimeStamp) -> TransactionProperties<'_> {
         TransactionProperties {

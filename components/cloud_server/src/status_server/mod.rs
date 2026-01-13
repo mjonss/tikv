@@ -13,29 +13,28 @@ use std::{
     time::Duration,
 };
 
-use api_version::{api_v2::TXN_KEY_PREFIX, ApiV2};
+use api_version::{ApiV2, api_v2::TXN_KEY_PREFIX};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use collections::{HashMap, HashMapExt, HashSet};
 use concurrency_manager::ConcurrencyManager;
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 use futures::{compat::Compat01As03, future::ok, prelude::*};
 use hyper::{
-    self, header,
-    header::{HeaderValue, ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_TYPE},
+    self, Body, Method, Request, Response, Server, StatusCode, header,
+    header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_TYPE, HeaderValue},
     server::{
+        Builder as HyperBuilder,
         accept::Accept,
         conn::{AddrIncoming, AddrStream},
-        Builder as HyperBuilder,
     },
     service::{make_service_fn, service_fn},
-    Body, Method, Request, Response, Server, StatusCode,
 };
 use hyper_rustls::acceptor::TlsStream;
 use keys::next_key;
 use kvengine::{
+    ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY, IdVer, Shard, ShardStats, ShardTag,
     dfs::FileType,
     table::{BoundedDataSet, InnerKey, SnapVersion},
-    IdVer, Shard, ShardStats, ShardTag, ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY,
 };
 use kvenginepb::ChangeSet;
 use kvproto::{
@@ -51,18 +50,19 @@ use pd_client::PdClient;
 use profile::*;
 use prometheus::TEXT_FORMAT;
 use protobuf::Message;
-use raftstore::{coprocessor::RegionInfoProvider, RegionInfo, RegionInfoAccessor};
+use raftstore::{RegionInfo, RegionInfoAccessor, coprocessor::RegionInfoProvider};
 use rfengine::{
-    load_store_ident, raft_state_key, Error, RfEngine, WriteBatch, RAFT_TRUNCATED_STATE_KEY,
+    Error, RAFT_TRUNCATED_STATE_KEY, RfEngine, WriteBatch, load_store_ident, raft_state_key,
 };
 use rfstore::{
+    RaftRouter, RaftStoreRouter,
     store::{
+        Callback, CasualMessage, RAFT_INIT_LOG_INDEX, RAFT_INIT_LOG_TERM, RegionSnapshot, StoreMsg,
+        TERM_KEY,
         peer_storage::{collect_prefix_regions, load_raft_engine_meta, load_region_state},
         state::RaftState,
-        write_engine_meta_bytes, write_peer_state, Callback, CasualMessage, RegionSnapshot,
-        StoreMsg, RAFT_INIT_LOG_INDEX, RAFT_INIT_LOG_TERM, TERM_KEY,
+        write_engine_meta_bytes, write_peer_state,
     },
-    RaftRouter, RaftStoreRouter,
 };
 use security::{self, SecurityConfig};
 use serde_json::Value;
@@ -73,10 +73,11 @@ use tikv::{
     storage::CloudStore,
 };
 use tikv_util::{
+    Either,
     codec::bytes::{decode_bytes, encode_bytes},
     config::{AbsoluteOrPercentSize, ReadableSize},
     future::paired_future_callback,
-    http::{HeaderExt, CONTENT_TYPE_PROTOBUF},
+    http::{CONTENT_TYPE_PROTOBUF, HeaderExt},
     init_task_local_sync,
     logger::set_log_level,
     metrics::{dump, dump_to},
@@ -84,14 +85,13 @@ use tikv_util::{
     sys::thread::ThreadBuildWrapper,
     time::{Instant, UnixSecs},
     timer::GLOBAL_TIMER_HANDLE,
-    Either,
 };
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     runtime::{Builder, Runtime},
     sync::{
-        oneshot::{self, Receiver, Sender},
         Semaphore,
+        oneshot::{self, Receiver, Sender},
     },
     task::JoinSet,
 };
@@ -1429,7 +1429,7 @@ impl StatusServer {
         let table_id = query_pairs.get("table_id");
         let columnar = query_pairs
             .get("columnar")
-            .map_or(false, |s| bool::from_str(s).unwrap_or(false));
+            .is_some_and(|s| bool::from_str(s).unwrap_or(false));
 
         let target_regions = if let Some(region_id) = region_id {
             let region_id = match u64::from_str(region_id) {

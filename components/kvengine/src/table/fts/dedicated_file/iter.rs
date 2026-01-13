@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::Bytes;
 use xorf::Filter;
 
@@ -165,8 +165,8 @@ mod tests {
 
     use super::*;
     use crate::table::fts::{
-        dedicated_file::test::dummy_tantivy_dir, DedicatedFileBuilder, DedicatedFileBuilderOptions,
-        EDedicatedFile,
+        DedicatedFileBuilder, DedicatedFileBuilderOptions, EDedicatedFile,
+        dedicated_file::test::dummy_tantivy_dir,
     };
 
     #[tokio::test]

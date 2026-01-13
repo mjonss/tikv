@@ -9,7 +9,7 @@ use tikv_util::{
     info,
 };
 
-use crate::{limiter::MAX_WAIT_TIME, ResourceEvent, ResourcePublisher, SeverityThreshold};
+use crate::{ResourceEvent, ResourcePublisher, SeverityThreshold, limiter::MAX_WAIT_TIME};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug, OnlineConfig)]
 #[serde(default)]

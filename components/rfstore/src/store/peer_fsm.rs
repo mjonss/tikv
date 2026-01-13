@@ -6,20 +6,19 @@ use std::{
     mem,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
-    u64,
 };
 
 use bytes::Buf;
 use error_code::ErrorCodeExt;
 use fail::fail_point;
 use kvengine::{
-    ia::ia_auto_file::report_transitions, table::schema_file::SchemaFile,
-    table_id::is_table_boundary_key, CheckMergeResult, IdVer, Shard, DEL_PREFIXES_KEY,
-    LARGE_NUM_COLUMNAR_TABLES_IN_SHARD, MANUAL_MAJOR_COMPACTION, MANUAL_MAJOR_COMPACTION_DISABLE,
-    MANUAL_MAJOR_COMPACTION_ENABLE, MANUAL_MAJOR_COMPACTION_ENABLE_COLUMNAR, TERM_KEY,
+    CheckMergeResult, DEL_PREFIXES_KEY, IdVer, LARGE_NUM_COLUMNAR_TABLES_IN_SHARD,
+    MANUAL_MAJOR_COMPACTION, MANUAL_MAJOR_COMPACTION_DISABLE, MANUAL_MAJOR_COMPACTION_ENABLE,
+    MANUAL_MAJOR_COMPACTION_ENABLE_COLUMNAR, Shard, TERM_KEY, ia::ia_auto_file::report_transitions,
+    table::schema_file::SchemaFile, table_id::is_table_boundary_key,
 };
 use kvproto::{
     import_sstpb::SwitchMode,
@@ -32,10 +31,10 @@ use kvproto::{
     raft_serverpb::{ExtraMessageType, PeerState, RaftMessage},
 };
 use protobuf::Message;
-use raft::{self, eraftpb::MessageType, GetEntriesContext, Storage};
+use raft::{self, GetEntriesContext, Storage, eraftpb::MessageType};
 use raft_proto::eraftpb;
 use raftstore::store::util;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use tikv_util::{
     box_err,
     codec::bytes::{decode_bytes, encode_bytes, encode_bytes_maybe_empty},
@@ -48,7 +47,13 @@ use txn_types::{Key, WriteBatchFlags};
 
 use super::{RequestInspector, SchemaTask, WorkerType};
 use crate::{
+    DiscardReason, Error, MERGE_REGION_WITH_TXN_FILE_LOCKS_ERR_MSG, RaftStoreRouter, Result,
     store::{
+        ApplyMetrics, ApplyMsg, CasualMessage, Config, CustomBuilder, Engines, MsgApplyResult,
+        PEER_TICK_CHECK_LONG, PEER_TICK_MAINTENANCE, PEER_TICK_PD_HEARTBEAT, PEER_TICK_RAFT,
+        PEER_TICK_RAFT_LOG_GC, PEER_TICK_SPLIT_CHECK, PdTask, PeerMsg, PersistReady,
+        RaftApplyState, RaftCommand, RaftContext, SignificantMsg, SnapState, StoreMeta, StoreMsg,
+        Ticker, TrimOverBoundParameter,
         cmd_resp::{bind_term, message_error, new_error, new_with_key_error},
         ingest::convert_sst,
         load_last_peer_state,
@@ -56,14 +61,8 @@ use crate::{
         notify_req_region_removed,
         peer::{Peer, StaleState},
         schema::{schema_file_is_matched_with_meta, shard_is_matched_with_meta},
-        util as _util, write_engine_meta, write_engine_meta_diff, ApplyMetrics, ApplyMsg,
-        CasualMessage, Config, CustomBuilder, Engines, MsgApplyResult, PdTask, PeerMsg,
-        PersistReady, RaftApplyState, RaftCommand, RaftContext, SignificantMsg, SnapState,
-        StoreMeta, StoreMsg, Ticker, TrimOverBoundParameter, PEER_TICK_CHECK_LONG,
-        PEER_TICK_MAINTENANCE, PEER_TICK_PD_HEARTBEAT, PEER_TICK_RAFT, PEER_TICK_RAFT_LOG_GC,
-        PEER_TICK_SPLIT_CHECK,
+        util as _util, write_engine_meta, write_engine_meta_diff,
     },
-    DiscardReason, Error, RaftStoreRouter, Result, MERGE_REGION_WITH_TXN_FILE_LOCKS_ERR_MSG,
 };
 
 /// Limits the maximum number of regions returned by error.
@@ -216,7 +215,7 @@ pub(crate) struct PeerMsgHandler<'a> {
     pub(crate) ctx: &'a mut RaftContext,
 }
 
-impl<'a> Deref for PeerMsgHandler<'a> {
+impl Deref for PeerMsgHandler<'_> {
     type Target = PeerFsm;
 
     fn deref(&self) -> &Self::Target {
@@ -224,7 +223,7 @@ impl<'a> Deref for PeerMsgHandler<'a> {
     }
 }
 
-impl<'a> DerefMut for PeerMsgHandler<'a> {
+impl DerefMut for PeerMsgHandler<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.fsm
     }

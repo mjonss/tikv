@@ -113,11 +113,11 @@ pub mod staticlib {
     };
 
     use external_storage::{
+        ExternalStorage,
         dylib_client::extern_to_io_err,
         request::{
-            anyhow_to_io_log_error, file_name_for_write, restore_sender, write_sender, DropPath,
+            DropPath, anyhow_to_io_log_error, file_name_for_write, restore_sender, write_sender,
         },
-        ExternalStorage,
     };
     use futures_io::AsyncRead;
     use protobuf::Message;

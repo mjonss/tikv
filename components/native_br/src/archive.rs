@@ -19,10 +19,11 @@ use security::SecurityConfig;
 use tikv_util::{error, info, mpsc::Receiver, time::Instant, warn};
 
 use crate::{
-    backup::{backup_file_full_path, IncrementalBackupFile},
+    backup::{IncrementalBackupFile, backup_file_full_path},
     common::{
-        collect_store_wal_rlog_files, create_pd_client, get_all_incremental_backups, LocalObject,
-        StoreRlog, StoreWalRlog, TableFile, TempLocalObject, INCREMENTAL_BACKUP_FOLDER_FORMAT,
+        INCREMENTAL_BACKUP_FOLDER_FORMAT, LocalObject, StoreRlog, StoreWalRlog, TableFile,
+        TempLocalObject, collect_store_wal_rlog_files, create_pd_client,
+        get_all_incremental_backups,
     },
     error::{Error, Result},
     restore::RestoreConfig,
@@ -1630,14 +1631,13 @@ impl ArchiveReader {
                 .dfs
                 .get_runtime()
                 .block_on(get_archived_object(self.dfs.as_ref(), archive_addr.clone()))
-                .map_err(|e| {
+                .inspect_err(|e| {
                     error!(
                         "{}, file id {}, archive addr {:?}",
                         e.to_string(),
                         file_id,
                         archive_addr
                     );
-                    e
                 });
         }
         Err(Error::ArchiveError(format!(

@@ -17,7 +17,7 @@ use kvengine::{
 use kvproto::metapb::{Region, Store};
 use pd_client::PdClient;
 use rand::seq::SliceRandom;
-use tikv_util::{debug, error, time::Instant, warn, HandyRwLock};
+use tikv_util::{HandyRwLock, debug, error, time::Instant, warn};
 use tokio::runtime::Runtime;
 
 const PD_CLIENT_INTERVAL: Duration = Duration::from_secs(2);

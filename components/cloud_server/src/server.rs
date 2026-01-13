@@ -3,7 +3,6 @@
 use std::{
     error::Error as StdError,
     ffi::CString,
-    i32,
     io::Error as IoError,
     net::{AddrParseError, IpAddr, SocketAddr},
     result,
@@ -19,35 +18,35 @@ use grpcio::{
     ChannelBuilder, Environment, Error as GrpcError, ResourceQuota, Server as GrpcServer,
     ServerBuilder,
 };
-use grpcio_health::{create_health, HealthService, ServingStatus};
+use grpcio_health::{HealthService, ServingStatus, create_health};
 use hyper::Error as HttpError;
 use kvproto::tikvpb::*;
 use openssl::error::ErrorStack as OpenSslError;
 use pd_client::Error as PdError;
 use protobuf::ProtobufError;
-use rfstore::{router::RaftStoreRouter, Error as RaftServerError};
+use rfstore::{Error as RaftServerError, router::RaftStoreRouter};
 use security::SecurityManager;
 use thiserror::Error;
 use tikv::{
     coprocessor::Endpoint,
     read_pool::ReadPool,
     server::{
+        Config, Proxy,
         load_statistics::*,
         metrics::{MEMORY_USAGE_GAUGE, SERVER_INFO_GAUGE_VEC},
         resolve::StoreAddrResolver,
-        Config, Proxy,
     },
     storage::{
-        kv::Error as EngineError, lock_manager::LockManager, Error as StorageError, Storage,
+        Error as StorageError, Storage, kv::Error as EngineError, lock_manager::LockManager,
     },
     tikv_build_version,
 };
 use tikv_util::{
+    Either,
     codec::Error as CodecError,
     config::VersionTrack,
     sys::{get_global_memory_usage, record_global_memory_usage},
     timer::GLOBAL_TIMER_HANDLE,
-    Either,
 };
 use tokio::runtime::{Builder as RuntimeBuilder, Handle as RuntimeHandle, Runtime};
 use tokio_timer::timer::Handle;
@@ -56,7 +55,7 @@ use super::{
     raft_client::{ConnectionBuilder, RaftClient},
     transport::ServerTransport,
 };
-use crate::{service::KvService, RaftKv};
+use crate::{RaftKv, service::KvService};
 
 const LOAD_STATISTICS_SLOTS: usize = 4;
 const LOAD_STATISTICS_INTERVAL: Duration = Duration::from_millis(100);
@@ -395,7 +394,7 @@ mod tests {
 
     use futures::executor::block_on;
     use grpcio::{ChannelBuilder, ConnectivityState, EnvBuilder, ServerBuilder};
-    use grpcio_health::{create_health, proto::HealthCheckRequest, HealthClient, HealthService};
+    use grpcio_health::{HealthClient, HealthService, create_health, proto::HealthCheckRequest};
 
     use super::duration_to_i32_ms;
 

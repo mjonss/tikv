@@ -3,8 +3,8 @@
 use std::{
     fmt, mem,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 

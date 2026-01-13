@@ -3,7 +3,7 @@
 use tidb_query_codegen::AggrFunction;
 use tidb_query_common::Result;
 use tidb_query_datatype::{
-    builder::FieldTypeBuilder, codec::data_type::*, expr::EvalContext, FieldTypeFlag, FieldTypeTp,
+    FieldTypeFlag, FieldTypeTp, builder::FieldTypeBuilder, codec::data_type::*, expr::EvalContext,
 };
 use tidb_query_expr::RpnExpression;
 use tipb::{Expr, ExprType, FieldType};
@@ -159,7 +159,8 @@ mod tests {
         state.push_result(&mut ctx, &mut result).unwrap();
         assert_eq!(result[0].to_int_vec(), &[Some(0)]);
 
-        update!(state, &mut ctx, Real::new(5.0).ok().as_ref()).unwrap();
+        let real_5 = Real::new(5.0).ok();
+        update!(state, &mut ctx, real_5.as_ref()).unwrap();
         update!(state, &mut ctx, Option::<&Real>::None).unwrap();
         update!(state, &mut ctx, Some(&7i64)).unwrap();
 

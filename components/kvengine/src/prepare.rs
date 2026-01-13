@@ -9,8 +9,8 @@ use std::{
     os::unix::fs::{FileExt, MetadataExt},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
 
@@ -25,26 +25,27 @@ use tikv_util::{mpsc::Receiver, time::Instant};
 use txn_types::TimeStamp;
 
 use crate::{
+    EngineCore,
     apply::ChangeSet,
     context::IaCtx,
     dfs::FileType,
     error::IoContext,
     ia::{
         ia_auto_file::IaAutoFile,
-        ia_file::{table_meta_file_local_path, IaFile},
+        ia_file::{IaFile, table_meta_file_local_path},
     },
     limiter::{DfsLoadLimiter, DfsLoadLimiterPermit},
     metrics::{ENGINE_LEVEL_WRITE_VEC, PREPARE_COUNTER_VEC},
     table::{
+        BoundedDataSet,
         file::{FdCache, File, InMemFile, LocalFile},
         get_local_dir,
         schema_file::SchemaFile,
-        sstable::{SsTable, SsTableCore, SsTableProperty, PROP_KEY_MAX_TS},
+        sstable::{PROP_KEY_MAX_TS, SsTable, SsTableCore, SsTableProperty},
         tiny_meta::{MetaPackReader, TypedTinyMeta},
         vector_index::VectorIndexFile,
-        BoundedDataSet,
     },
-    EngineCore, *,
+    *,
 };
 
 #[derive(Default)]
@@ -321,9 +322,8 @@ impl EngineCore {
                 .as_ref()
                 .and_then(|reader| reader.get(id))
                 .map(|tm| tm.try_convert_to(fm.file_type))
-                .map(|typed_tm| {
+                .inspect(|_| {
                     PREPARE_COUNTER_VEC.tiny_meta_hit.inc();
-                    typed_tm
                 })
                 .unwrap_or_default();
 

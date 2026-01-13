@@ -6,8 +6,8 @@ use dyn_clone::DynClone;
 use kvproto::raft_serverpb::RaftMessage;
 
 use crate::{
-    store::{CasualMessage, PeerMsg, RaftCommand, StoreMsg},
     RaftRouter, Result,
+    store::{CasualMessage, PeerMsg, RaftCommand, StoreMsg},
 };
 
 /// Transports messages between different Raft peers.

@@ -11,8 +11,8 @@ use futures::executor::block_on;
 use kvengine::dfs;
 use kvproto::{metapb, pdpb};
 use pd_client::{
-    pd_control::{CreateKeyspaceParams, CreateSchedulerParam, SchedulerStatus},
     PdClient,
+    pd_control::{CreateKeyspaceParams, CreateSchedulerParam, SchedulerStatus},
 };
 use rand::prelude::*;
 use security::{RestfulClient, SecurityConfig, SecurityManager};
@@ -23,10 +23,10 @@ use tokio::runtime::Runtime;
 use txn_types::Key;
 
 use crate::{
-    alloc_node_id_vec,
+    ServerCluster, ServerClusterBuilder, TikvWorkerOptions, alloc_node_id_vec,
     client::{CommitAction, MutateOptions},
     oss::prepare_dfs,
-    try_wait, try_wait_result_async, ServerCluster, ServerClusterBuilder, TikvWorkerOptions,
+    try_wait, try_wait_result_async,
 };
 
 #[test]

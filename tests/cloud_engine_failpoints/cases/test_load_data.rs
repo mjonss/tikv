@@ -9,11 +9,10 @@ use load_data::task::{LoadDataConfig, LoadDataContext};
 use pd_client::PdClient;
 use rand::Rng;
 use test_cloud_server::{
-    alloc_node_id_vec,
+    ServerCluster, alloc_node_id_vec,
     client::RequestOptions,
-    load_data::{build, cleanup, init_task, put_chunks, try_wait_finished, Error as LoadDataError},
+    load_data::{Error as LoadDataError, build, cleanup, init_task, put_chunks, try_wait_finished},
     oss::prepare_dfs,
-    ServerCluster,
 };
 use tikv::config::TikvConfig;
 

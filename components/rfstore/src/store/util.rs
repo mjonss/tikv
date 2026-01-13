@@ -5,8 +5,8 @@ use std::{
     fmt,
     fmt::{Debug, Display, Formatter},
     sync::{
-        atomic::{AtomicUsize, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicUsize, Ordering::Relaxed},
     },
     time::Duration,
 };
@@ -32,8 +32,8 @@ use tikv_util::{
 };
 
 use crate::{
-    store::{ProposalContext, StoreMsg, SPLIT_FLAG_ENCRYPTION_KEYS},
     Error, RaftRouter, Result,
+    store::{ProposalContext, SPLIT_FLAG_ENCRYPTION_KEYS, StoreMsg},
 };
 
 /// WARNING: `NORMAL_REQ_CHECK_VER` and `NORMAL_REQ_CHECK_CONF_VER` **MUST NOT**

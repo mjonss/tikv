@@ -12,9 +12,8 @@ use tikv_util::{
 use txn_types::TimeStamp;
 
 use crate::{
-    load_schema,
-    schema::{SchemaDiff, TableInfo, STATE_PUBLIC},
-    KvScanner,
+    KvScanner, load_schema,
+    schema::{STATE_PUBLIC, SchemaDiff, TableInfo},
 };
 
 const TIDB_SCHEMA_VERSION_KEY: &[u8] = b"SchemaVersionKey";

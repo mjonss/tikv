@@ -9,16 +9,16 @@ use kvengine::SnapAccess;
 use kvproto::coprocessor::KeyRange;
 use smallvec::SmallVec;
 use tidb_query_common::{
-    storage::{IntervalRange, Storage},
     Result,
+    storage::{IntervalRange, Storage},
 };
 use tidb_query_datatype::{
+    EvalType, FieldTypeAccessor,
     codec::{
         batch::{LazyBatchColumn, LazyBatchColumnVec},
         row, table,
     },
     expr::{EvalConfig, EvalContext},
-    EvalType, FieldTypeAccessor,
 };
 use tipb::{FieldType, TableScan};
 
@@ -472,9 +472,9 @@ mod tests {
         execute_stats::*, storage::test_fixture::FixtureStorage, util::convert_to_prefix_next,
     };
     use tidb_query_datatype::{
-        codec::{batch::LazyBatchColumnVec, data_type::*, datum, table, Datum},
-        expr::EvalConfig,
         Collation, EvalType, FieldTypeAccessor, FieldTypeTp,
+        codec::{Datum, batch::LazyBatchColumnVec, data_type::*, datum, table},
+        expr::EvalConfig,
     };
     use tipb::{ColumnInfo, FieldType};
 
@@ -503,7 +503,7 @@ mod tests {
         fn new() -> TableScanTestHelper {
             const TABLE_ID: i64 = 7;
             // [(row_id, columns)] where each column: (column id, datum)
-            let data = vec![
+            let data = [
                 (
                     1,
                     vec![

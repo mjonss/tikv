@@ -9,9 +9,9 @@ use tidb_query_datatype::{FieldTypeAccessor, FieldTypeFlag, FieldTypeTp};
 use tipb::ColumnInfo;
 
 use crate::table::{
+    Error, Result,
     columnar::{Block, ColumnarFilterReader},
     schema_file::{Schema, SchemaBuf},
-    Error, Result,
 };
 
 /// Column id reserved for the virtual score column appended when
@@ -293,9 +293,9 @@ mod tests {
     use crate::table::{
         columnar::{Block, ColumnarFilterReader, MockColumnarFilterReader},
         fts::{
-            reader::VIRTUAL_SCORE_COLUMN_ID,
-            test_util::{new_block, SchemaBuilder},
             IntPk,
+            reader::VIRTUAL_SCORE_COLUMN_ID,
+            test_util::{SchemaBuilder, new_block},
         },
     };
 

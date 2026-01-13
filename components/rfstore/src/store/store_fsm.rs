@@ -1,14 +1,14 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    collections::{btree_map::BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet, btree_map::BTreeMap},
     ops::{
         Bound::{Excluded, Included, Unbounded},
         Deref, DerefMut,
     },
     sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
         Arc,
+        atomic::{AtomicU64, Ordering::SeqCst},
     },
     thread::JoinHandle,
     time::Duration,
@@ -26,11 +26,11 @@ use kvproto::{
 };
 use pd_client::PdClient;
 use protobuf::Message;
-use raft::{eraftpb::ConfChangeType, StateRole};
+use raft::{StateRole, eraftpb::ConfChangeType};
 use raftstore::{
     coprocessor::{
-        split_observer::SplitObserver, BoxAdminObserver, CoprocessorHost, RegionChangeEvent,
-        RegionChangeReason,
+        BoxAdminObserver, CoprocessorHost, RegionChangeEvent, RegionChangeReason,
+        split_observer::SplitObserver,
     },
     store::{
         local_metrics::RaftMetrics,
@@ -42,7 +42,7 @@ use resource_control::ResourceController;
 use rfengine::{REGION_META_KEY_BYTE, TRUNCATE_ALL_INDEX};
 use sst_importer::SstImporter;
 use tikv_util::{
-    box_err,
+    RingQueue, box_err,
     codec::bytes::encode_bytes,
     config::VersionTrack,
     debug, error, info,
@@ -52,12 +52,11 @@ use tikv_util::{
     time::Instant,
     warn,
     worker::{Builder, LazyWorker, Scheduler},
-    RingQueue,
 };
 use time::Timespec;
 
 use super::{Config, *};
-use crate::{store::peer_worker::ApplyWorker, RaftRouter, RaftStoreRouter, Result};
+use crate::{RaftRouter, RaftStoreRouter, Result, store::peer_worker::ApplyWorker};
 
 pub const PENDING_MSG_CAP: usize = 100;
 const UNREACHABLE_BACKOFF: Duration = Duration::from_secs(10);

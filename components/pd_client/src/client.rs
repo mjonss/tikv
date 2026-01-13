@@ -5,11 +5,10 @@ use std::{
     convert::TryInto,
     fmt,
     sync::{
-        atomic::{AtomicI64, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicI64, AtomicU64, Ordering},
     },
     time::Duration,
-    u64,
 };
 
 use async_trait::async_trait;
@@ -33,19 +32,19 @@ use kvproto::{
 };
 use security::{GetSecurityManager, SecurityManager};
 use tikv_util::{
-    box_err, debug, error, info, thd_name,
-    time::{duration_to_sec, Instant},
+    Either, HandyRwLock, box_err, debug, error, info, thd_name,
+    time::{Instant, duration_to_sec},
     timer::GLOBAL_TIMER_HANDLE,
-    warn, Either, HandyRwLock,
+    warn,
 };
 use txn_types::TimeStamp;
-use yatp::{task::future::TaskCell, ThreadPool};
+use yatp::{ThreadPool, task::future::TaskCell};
 
 use super::{
+    BucketStat, Config, Error, FeatureGate, PdClient, PdFuture, REQUEST_TIMEOUT, RegionInfo,
+    RegionStat, Result, UnixSecs,
     metrics::*,
-    util::{call_option_inner, check_resp_header, sync_request, Client, PdConnector},
-    BucketStat, Config, Error, FeatureGate, PdClient, PdFuture, RegionInfo, RegionStat, Result,
-    UnixSecs, REQUEST_TIMEOUT,
+    util::{Client, PdConnector, call_option_inner, check_resp_header, sync_request},
 };
 use crate::{BucketMeta, LEADER_CHANGE_RETRY};
 
@@ -94,7 +93,7 @@ impl RpcClient {
 
         // -1 means the max.
         let retries = match cfg.retry_max_count {
-            -1 => std::isize::MAX,
+            -1 => isize::MAX,
             v => v.saturating_add(1),
         };
         let monitor = Arc::new(

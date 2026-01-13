@@ -18,7 +18,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use tantivy::{
     directory::{Directory, MmapDirectory, RamDirectory},
     schema::Schema,

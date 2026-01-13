@@ -1,7 +1,7 @@
 // Copyright 2024 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    cmp::{min, Ordering},
+    cmp::{Ordering, min},
     collections::HashMap,
     mem,
     ops::Deref,
@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use aligned_vec::{avec, AVec};
+use aligned_vec::{AVec, avec};
 use api_version::ApiV2;
 use arrow_buffer::i256;
 use async_trait::async_trait;
@@ -17,28 +17,27 @@ use bytes::Buf;
 use cloud_encryption::EncryptionKey;
 use futures::future::try_join_all;
 use tidb_query_datatype::{
+    FieldTypeFlag, FieldTypeTp,
     codec::{
-        datum,
+        Datum, datum,
         datum::{
-            decode, BYTES_FLAG, COMPACT_BYTES_FLAG, DECIMAL_FLAG, DURATION_FLAG, FLOAT_FLAG,
-            INT_FLAG, JSON_FLAG, NIL_FLAG, UINT_FLAG, VAR_INT_FLAG, VAR_UINT_FLAG,
-            VECTOR_FLOAT32_FLAG,
+            BYTES_FLAG, COMPACT_BYTES_FLAG, DECIMAL_FLAG, DURATION_FLAG, FLOAT_FLAG, INT_FLAG,
+            JSON_FLAG, NIL_FLAG, UINT_FLAG, VAR_INT_FLAG, VAR_UINT_FLAG, VECTOR_FLOAT32_FLAG,
+            decode,
         },
         mysql::{Decimal, DecimalDecoder, JsonEncoder, VectorFloat32Encoder},
-        row::v2::{decode_v2_i64, decode_v2_u64, RowSlice, CODEC_VERSION},
+        row::v2::{CODEC_VERSION, RowSlice, decode_v2_i64, decode_v2_u64},
         table::{
-            decode_common_handle, decode_int_handle, encode_common_handle_row_key, encode_row_key,
-            PREFIX_LEN,
+            PREFIX_LEN, decode_common_handle, decode_int_handle, encode_common_handle_row_key,
+            encode_row_key,
         },
-        Datum,
     },
-    FieldTypeFlag, FieldTypeTp,
 };
 use tikv_util::{
     codec::{
+        BytesSlice,
         bytes::{decode_bytes, decode_compact_bytes},
         number::{decode_f64, decode_i64, decode_u64, decode_var_i64, decode_var_u64},
-        BytesSlice,
     },
     deadline::Deadline,
 };
@@ -46,23 +45,23 @@ use tipb::ColumnInfo;
 
 use super::filter::{FilterOpResult, FilterOpResults, FilterOperator};
 use crate::{
+    WRITE_CF,
     dfs::FileType,
     ia::{manager::IaManager, types::FileSegmentIdent},
     table::{
-        self,
+        self, InnerKey,
         blobtable::blobtable::BlobTable,
         columnar::{
             columnar::{
-                decompress_pack, get_fixed_size, Block, ColumnBuffer, ColumnMeta, ColumnarFile,
-                TableMeta,
+                Block, ColumnBuffer, ColumnMeta, ColumnarFile, TableMeta, decompress_pack,
+                get_fixed_size,
             },
             get_primary_key,
         },
         file::File,
         schema_file::Schema,
-        search, InnerKey,
+        search,
     },
-    WRITE_CF,
 };
 
 pub const GLOBAL_COMMON_HANDLE_END: &[u8] = &[255];
@@ -2061,30 +2060,30 @@ pub mod tests {
     use schema::schema::StorageClassSpec;
     use test_util::init_log_for_test;
     use tidb_query_datatype::{
-        codec::row::v2::encoder_for_test::{Column, RowEncoder},
-        expr::EvalContext,
         Collation::Utf8Mb4GeneralCi,
         FieldTypeTp,
+        codec::row::v2::encoder_for_test::{Column, RowEncoder},
+        expr::EvalContext,
     };
 
     use super::*;
     use crate::{
+        UserMeta, WRITE_CF,
         table::{
             columnar::{
+                ColumnarMetaCache,
                 builder::{
+                    ColumnarFileBuilder, ColumnarTableBuildOptions, ColumnarTableBuilder,
                     new_common_handle_column_info, new_int_handle_column_info,
-                    new_version_column_info, ColumnarFileBuilder, ColumnarTableBuildOptions,
-                    ColumnarTableBuilder,
+                    new_version_column_info,
                 },
                 columnar::ColumnarFile,
                 reader::{ColumnarMvccReader, ColumnarReader, ColumnarTableReader},
-                ColumnarMetaCache,
             },
             file::{File, InMemFile},
             memtable::{CfTable, WriteBatch},
             schema_file::{SchemaBuf, SchemaBufBuilder},
         },
-        UserMeta, WRITE_CF,
     };
 
     /// A simple `ColumnarFilterReader` implementation for tests that returns a
@@ -2574,7 +2573,7 @@ pub mod tests {
                 false,
                 encryption_key.clone(),
             );
-            let files = vec![file_1, file_2, file_3];
+            let files = [file_1, file_2, file_3];
             let ref_rows = vec![
                 ref_1.pop().unwrap(),
                 ref_2.pop().unwrap(),
@@ -2628,7 +2627,7 @@ pub mod tests {
             let (file_1, ref_1) = build_table(1, &schema, 100, 150, 100);
             let (file_2, ref_2) = build_table(2, &schema, 160, 190, 100);
             let (file_3, ref_3) = build_table(3, &schema, 191, 240, 100);
-            let files = vec![file_1, file_2, file_3];
+            let files = [file_1, file_2, file_3];
             let ref_rows = vec![ref_1, ref_2, ref_3];
             let col_files: Vec<ColumnarFile> = files.iter().map(|f| ColumnarFile::open(f.clone(), None, columnar_meta_cache.clone()).unwrap()).collect();
             for _ in 0..50 {

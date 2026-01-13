@@ -10,8 +10,8 @@ use std::{
     path::{Path, PathBuf},
     ptr::NonNull,
     sync::{
-        atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicU32, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
     time::Duration,
@@ -358,6 +358,7 @@ impl WalWriter {
                     .read(true)
                     .write(true)
                     .create(true)
+                    .truncate(false)
                     .open(filename)?
             }
             WriterType::CliMode => {
@@ -368,6 +369,7 @@ impl WalWriter {
                     .read(true)
                     .write(true)
                     .create(true)
+                    .truncate(false)
                     .open(filename)?
             }
         };
@@ -725,6 +727,7 @@ impl DoubleWriter {
             );
             let slower_file = File::options()
                 .create(true)
+                .truncate(false)
                 .write(true)
                 .open(slower_file_path)?;
             slower_file.write_all_at(&delta_buf, slower_file_off)?;
@@ -876,6 +879,7 @@ mod tests {
 
     use super::DmaBuffer;
     use crate::{
+        BATCH_HEADER_SIZE, Error, RfEngine, WalHeader, WriteBatch,
         compact_worker::wal_file_name,
         config::Config,
         iterator::WalIterator,
@@ -884,7 +888,6 @@ mod tests {
             prepare_rfengine_with_idx,
         },
         writer::Version::V2,
-        Error, RfEngine, WalHeader, WriteBatch, BATCH_HEADER_SIZE,
     };
 
     #[test]

@@ -7,17 +7,17 @@ use kvproto::{
 };
 use protobuf::{Message, RepeatedField};
 use rfengine::{
-    raft_state_key, region_state_key, KV_ENGINE_META_DIFF_KEY, KV_ENGINE_META_KEY,
-    KV_ENGINE_META_SNAP_DIFF_KEY, PREPARE_BOOTSTRAP_KEY, STORE_IDENT_KEY, TRUNCATE_ALL_INDEX,
+    KV_ENGINE_META_DIFF_KEY, KV_ENGINE_META_KEY, KV_ENGINE_META_SNAP_DIFF_KEY,
+    PREPARE_BOOTSTRAP_KEY, STORE_IDENT_KEY, TRUNCATE_ALL_INDEX, raft_state_key, region_state_key,
 };
 use tikv_util::{box_err, store::new_peer};
 
-use super::peer_storage::{write_initial_raft_state, INIT_EPOCH_CONF_VER, INIT_EPOCH_VER};
+use super::peer_storage::{INIT_EPOCH_CONF_VER, INIT_EPOCH_VER, write_initial_raft_state};
 use crate::{
-    store::{
-        write_peer_state, Engines, EMPTY_KEY, RAFT_INIT_LOG_INDEX, RAFT_INIT_LOG_TERM, TERM_KEY,
-    },
     Result,
+    store::{
+        EMPTY_KEY, Engines, RAFT_INIT_LOG_INDEX, RAFT_INIT_LOG_TERM, TERM_KEY, write_peer_state,
+    },
 };
 
 pub fn initial_region(store_id: u64, region_id: u64, peer_id: u64) -> metapb::Region {

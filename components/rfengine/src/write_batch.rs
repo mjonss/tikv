@@ -1,7 +1,7 @@
 // Copyright 2022 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::Entry},
     ops::{Deref, DerefMut},
 };
 
@@ -9,7 +9,7 @@ use bytes::{Buf, BufMut, Bytes};
 use kvproto::raft_serverpb::RegionLocalState;
 use raft_proto::eraftpb;
 
-use crate::{log_batch::RaftLogOp, PeerMeta};
+use crate::{PeerMeta, log_batch::RaftLogOp};
 
 /// `WriteBatch` contains multiple regions' `RegionBatch`.
 #[derive(Default)]

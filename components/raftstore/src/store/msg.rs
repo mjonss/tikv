@@ -15,16 +15,16 @@ use kvproto::{
     replication_modepb::ReplicationStatus,
 };
 use raft::SnapshotStatus;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use tikv_util::{deadline::Deadline, escape, memory::HeapSize, time::Instant};
-use tracker::{get_tls_tracker_token, TrackerToken, GLOBAL_TRACKERS, INVALID_TRACKER_TOKEN};
+use tracker::{GLOBAL_TRACKERS, INVALID_TRACKER_TOKEN, TrackerToken, get_tls_tracker_token};
 
-use super::{local_metrics::TimeTracker, RegionSnapshot};
+use super::{RegionSnapshot, local_metrics::TimeTracker};
 use crate::store::{
+    SnapKey,
     fsm::apply::ChangeObserver,
     metrics::RaftEventDurationType,
     util::{KeysInfoFormatter, LatencyInspector},
-    SnapKey,
 };
 
 #[derive(Debug)]

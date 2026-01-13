@@ -12,7 +12,7 @@ use kvproto::kvrpcpb;
 use log_wrappers::Value;
 use security::{RestfulClient, SecurityManager};
 
-use crate::util::{Mutation, DEFAULT_INNER_KEY_OFFSET};
+use crate::util::{DEFAULT_INNER_KEY_OFFSET, Mutation};
 
 const TXN_ENTRY_OVERHEAD: usize =
     mem::size_of::<u16>() + mem::size_of::<u8>() + mem::size_of::<u32>();

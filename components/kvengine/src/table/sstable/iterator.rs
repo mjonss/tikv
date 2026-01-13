@@ -8,10 +8,9 @@ use log_wrappers::Value as LogValue;
 
 use super::SsTable;
 use crate::table::{
-    search,
-    sstable::{Index, BLOCK_FORMAT_V1},
-    table::{self, is_old_version, Value, VALUE_VERSION_LEN},
-    InnerKey, Iterator, LocalAddr,
+    InnerKey, Iterator, LocalAddr, search,
+    sstable::{BLOCK_FORMAT_V1, Index},
+    table::{self, VALUE_VERSION_LEN, Value, is_old_version},
 };
 
 #[derive(Default)]

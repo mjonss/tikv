@@ -8,8 +8,8 @@ use std::{
     io, ops,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -28,27 +28,27 @@ use kvproto::{metapb, metapb::Store};
 use pd_client::{PdClient, RpcClient};
 use protobuf::Message;
 use rfengine::{
-    find_latest_snapshot, get_integral_wal_chunks, parse_delayed_to_epoch_from_snapshot_key,
-    snapshot_store_meta_key, wal_chunk_file_prefix, wal_chunk_file_suffix, RfEngine, WalChunkMeta,
-    MAX_EPOCH_BACKWARD,
+    MAX_EPOCH_BACKWARD, RfEngine, WalChunkMeta, find_latest_snapshot, get_integral_wal_chunks,
+    parse_delayed_to_epoch_from_snapshot_key, snapshot_store_meta_key, wal_chunk_file_prefix,
+    wal_chunk_file_suffix,
 };
 use rfenginepb::{ClusterBackupMeta, StoreBackupMeta};
 use rfstore::store::state::RaftState;
 use security::{HttpClient, SecurityConfig, SecurityManager};
 use slog_global::{error, warn};
 use tikv_util::{
-    box_err, box_try, box_try_join, codec::bytes::decode_bytes, debug, http::HeaderExt, info,
-    time::Instant, Either,
+    Either, box_err, box_try, box_try_join, codec::bytes::decode_bytes, debug, http::HeaderExt,
+    info, time::Instant,
 };
 
 use crate::{
-    archive::{get_archived_wal_addresses, get_archived_wals_from_addresses, StoreMeta},
+    archive::{StoreMeta, get_archived_wal_addresses, get_archived_wals_from_addresses},
     backup::IncrementalBackupFile,
     error::{Error, HttpRequestError, Result},
     metrics::NATIVE_BR_RFENGINE_WAL_EPOCH_OVERWRITTEN_ERROR,
     wal::{
-        assemble_wal_chunks_to_wal_file, AssembledWalData, LocalWal, LocalWalChunks, WalChunkData,
-        WalOnlineChunk,
+        AssembledWalData, LocalWal, LocalWalChunks, WalChunkData, WalOnlineChunk,
+        assemble_wal_chunks_to_wal_file,
     },
 };
 
@@ -952,7 +952,7 @@ pub fn collect_snapshot_meta_rlog_files(
     object_cache_no_hook: Option<&ObjectCacheWithHook>,
 ) -> Result<StoreRlog> {
     // Must have no hook.
-    debug_assert!(object_cache_no_hook.map_or(true, |x| !x.has_hook()));
+    debug_assert!(object_cache_no_hook.is_none_or(|x| !x.has_hook()));
 
     let store_meta = cluster_backup
         .get_stores()

@@ -18,6 +18,7 @@ use crate::{
     dfs::FileType,
     meta::is_move_down,
     table::{
+        BoundedDataSet, SnapVersion, TxnFile,
         blobtable::blobtable::BlobTable,
         columnar::{ColumnarFile, ColumnarFileCache, ColumnarLevels, ColumnarMetaCache},
         file::File,
@@ -25,7 +26,6 @@ use crate::{
         sstable::{BlockCache, L0Table, NewSsTableCtx, SsTable},
         tiny_meta::{MetaPackScheduler, SstTinyMeta, TypedTinyMeta},
         vector_index::{VectorIndexCache, VectorIndexFile, VectorIndexes},
-        BoundedDataSet, SnapVersion, TxnFile,
     },
     table_id::get_table_id_from_ingest_files,
     *,

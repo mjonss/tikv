@@ -9,8 +9,8 @@ use std::{
     os::unix::fs::FileExt,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -19,8 +19,8 @@ use protobuf::Message;
 use tikv_util::{error, info, warn};
 
 use crate::{
-    metrics::RFENGINE_RLOG_GC_SIZE, raft_log_file_name, writer::EPOCH_SNAPSHOT_LEN, PeerMeta,
-    TRUNCATE_ALL_INDEX,
+    PeerMeta, TRUNCATE_ALL_INDEX, metrics::RFENGINE_RLOG_GC_SIZE, raft_log_file_name,
+    writer::EPOCH_SNAPSHOT_LEN,
 };
 
 const REWRITE_DIFF: u32 = 10;
@@ -93,6 +93,7 @@ impl Manifest {
         let file_path = manifest_path(dir);
         let file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .write(true)
             .read(true)
             .open(&file_path)?;

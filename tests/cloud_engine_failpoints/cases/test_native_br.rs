@@ -2,8 +2,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     thread,
     time::Duration,
@@ -11,7 +11,7 @@ use std::{
 
 use bytes::Bytes;
 use chrono::Utc;
-use cloud_worker::native_br::{test_utils::NativeBrSvcClient, BackupItem, RestoreState};
+use cloud_worker::native_br::{BackupItem, RestoreState, test_utils::NativeBrSvcClient};
 use collections::HashMap;
 use fail::cfg_callback;
 use futures::executor::block_on;
@@ -32,14 +32,14 @@ use pd_client::PdClient;
 use rand::Rng;
 use security::{HttpClientError, SecurityConfig, SecurityManager};
 use test_cloud_server::{
-    alloc_node_id, alloc_node_id_vec,
+    ServerCluster, ServerClusterBuilder, TikvWorkerOptions, TryWaiter, alloc_node_id,
+    alloc_node_id_vec,
     client::{
         ClusterClientOptions, CommitAction, MutateOptions, PrewriteExt, RequestOptions,
         TxnMutations, TxnWriteMethod,
     },
     oss::prepare_dfs,
     util::Mutation,
-    ServerCluster, ServerClusterBuilder, TikvWorkerOptions, TryWaiter,
 };
 use test_pd_client::PdWrapper;
 use tikv::config::TikvConfig;

@@ -2,10 +2,10 @@
 
 use bytes::Buf;
 use cloud_encryption::{EncryptionKey, MasterKey};
-use kvengine::{ShardMeta, ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY};
+use kvengine::{ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY, ShardMeta};
 use kvproto::{metapb, raft_serverpb::MergeState};
 use raft_proto::eraftpb::HardState;
-use rfstore::store::{state::RaftState, PreprocessRef, RAFT_INIT_LOG_TERM};
+use rfstore::store::{PreprocessRef, RAFT_INIT_LOG_TERM, state::RaftState};
 use tikv_util::{codec::bytes::encode_bytes, info};
 
 pub(crate) struct Preprocessor {

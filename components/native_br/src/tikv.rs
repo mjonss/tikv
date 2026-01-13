@@ -2,8 +2,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicI64, Ordering},
         Arc,
+        atomic::{AtomicI64, Ordering},
     },
     time::Duration,
 };
@@ -14,7 +14,7 @@ use hyper::Body;
 use parking_lot::Mutex;
 use pd_client::PdClient;
 use security::HttpClient;
-use tikv_util::{box_err, box_try, box_try_join, error, time::Instant, warn, Either};
+use tikv_util::{Either, box_err, box_try, box_try_join, error, time::Instant, warn};
 use tokio::sync::RwLock;
 
 use crate::{common::send_request_to_store_with_retry_opt, error::Result};

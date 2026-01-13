@@ -86,7 +86,7 @@ pub fn aligned_len(origin_len: usize) -> usize {
 struct AlignTo4K([u8; ALIGN_SIZE]);
 
 fn alloc_aligned(n_bytes: usize) -> Vec<u8> {
-    let n_units = (n_bytes + ALIGN_SIZE - 1) / ALIGN_SIZE;
+    let n_units = n_bytes.div_ceil(ALIGN_SIZE);
 
     let mut aligned: Vec<AlignTo4K> = Vec::with_capacity(n_units);
 

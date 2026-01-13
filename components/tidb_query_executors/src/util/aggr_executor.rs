@@ -31,14 +31,14 @@ use std::{convert::TryFrom, sync::Arc};
 
 use async_trait::async_trait;
 use tidb_query_aggr::*;
-use tidb_query_common::{storage::IntervalRange, Result};
+use tidb_query_common::{Result, storage::IntervalRange};
 use tidb_query_datatype::{
+    EvalType, FieldTypeAccessor,
     codec::{
         batch::{LazyBatchColumn, LazyBatchColumnVec},
         data_type::*,
     },
     expr::{EvalConfig, EvalContext},
-    EvalType, FieldTypeAccessor,
 };
 use tidb_query_expr::RpnExpression;
 use tipb::{Expr, FieldType};
@@ -385,10 +385,10 @@ pub mod tests {
     use tidb_query_codegen::AggrFunction;
     use tidb_query_common::Result;
     use tidb_query_datatype::{
+        Collation, FieldTypeTp,
         builder::FieldTypeBuilder,
         codec::{batch::LazyBatchColumnVec, data_type::*},
         expr::{EvalContext, EvalWarnings},
-        Collation, FieldTypeTp,
     };
 
     use crate::{interface::*, util::mock_executor::MockExecutor};
@@ -658,7 +658,7 @@ pub mod tests {
 
         let test_paging_size = [2, 5, 7];
         let expect_call_num = [1, 3, 4];
-        let expect_row_num = vec![vec![4], vec![0, 0, 5], vec![0, 0, 0, 6]];
+        let expect_row_num = [vec![4], vec![0, 0, 5], vec![0, 0, 0, 6]];
         let executor_builders: Vec<Box<dyn Fn(MockExecutor, Option<u64>) -> _>> =
             vec![Box::new(exec_fast), Box::new(exec_slow)];
         for test_case in 0..test_paging_size.len() {
@@ -680,7 +680,7 @@ pub mod tests {
             }
         }
 
-        let expect_row_num2 = vec![vec![4], vec![3, 0, 2], vec![3, 0, 1, 2]];
+        let expect_row_num2 = [vec![4], vec![3, 0, 2], vec![3, 0, 1, 2]];
         let exec_stream = |src_exec, paging_size| {
             let mut config = EvalConfig::default();
             config.paging_size = paging_size;

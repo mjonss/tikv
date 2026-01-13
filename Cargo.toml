@@ -316,7 +316,7 @@ cloud_worker = { path = "components/cloud_worker" }
 codec = { path = "components/codec" }
 collections = { path = "components/collections" }
 concurrency_manager = { path = "components/concurrency_manager" }
-crc32c = "=0.6.4"
+crc32c = "0.6.8"
 encryption = { path = "components/encryption" }
 encryption_export = { path = "components/encryption/export" }
 engine_rocks = { path = "components/engine_rocks" }

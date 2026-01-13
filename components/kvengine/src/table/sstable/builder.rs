@@ -11,8 +11,8 @@ use xorf::BinaryFuse8;
 
 use super::super::table::Value;
 use crate::table::{
-    blobtable::BlobRef, ChecksumType, InnerKey, SnapVersion, BIT_HAS_OLD_VERSION, LZ4_COMPRESSION,
-    NO_COMPRESSION, VALUE_VERSION_LEN, ZSTD_COMPRESSION,
+    BIT_HAS_OLD_VERSION, ChecksumType, InnerKey, LZ4_COMPRESSION, NO_COMPRESSION, SnapVersion,
+    VALUE_VERSION_LEN, ZSTD_COMPRESSION, blobtable::BlobRef,
 };
 pub const PROP_KEY_SMALLEST: &[u8] = b"smallest";
 pub const PROP_KEY_BIGGEST: &[u8] = b"biggest";

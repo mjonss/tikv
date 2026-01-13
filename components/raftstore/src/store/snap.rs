@@ -4,7 +4,7 @@ use std::{
     io::{self, ErrorKind},
 };
 
-use engine_traits::{CfName, CF_DEFAULT, CF_LOCK, CF_WRITE};
+use engine_traits::{CF_DEFAULT, CF_LOCK, CF_WRITE, CfName};
 use kvproto::raft_serverpb::RaftSnapshotData;
 use protobuf::Message;
 use raft::eraftpb::Snapshot as RaftSnapshot;

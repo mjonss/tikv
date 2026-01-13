@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use collections::HashMap;
-use engine_traits::{IterOptions, CF_DEFAULT, CF_WRITE};
+use engine_traits::{CF_DEFAULT, CF_WRITE, IterOptions};
 use kvengine::{
-    table::{table, InnerKey, Value},
     ShardMeta, UserMeta,
+    table::{InnerKey, Value, table},
 };
 use kvproto::raft_cmdpb::RaftCmdRequest;
 use sst_importer::SstImporter;

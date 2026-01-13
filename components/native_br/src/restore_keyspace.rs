@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use api_version::{api_v2::KEYSPACE_PREFIX_LEN, ApiV2};
+use api_version::{ApiV2, api_v2::KEYSPACE_PREFIX_LEN};
 use bytes::Bytes;
 use cloud_encryption::{EncryptionKey, MasterKey};
 use cloud_server::{RestoreShardResponse, TikvServer};
@@ -21,48 +21,48 @@ use collections::{HashMap, HashMapExt, HashSet};
 pub use engine_traits::ObjectCache;
 use engine_traits::ObjectCacheWithHook;
 use file_system::{IoRateLimitMode, IoRateLimiter};
-use http::{header, Request};
+use http::{Request, header};
 use hyper::Body;
 use itertools::Itertools;
 use kvengine::{
+    ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY, IdAllocator, IdVer, LoadTableFilterFn, PrepareOpts,
+    ShardMeta, ShardRange, ShardStats, ShardTag,
     dfs::{self, Dfs, FileType},
     ia::util::IaConfig,
     limiter::StoreLimiter,
     table::{BoundedDataSet, DataBound, InnerKey},
-    IdAllocator, IdVer, LoadTableFilterFn, PrepareOpts, ShardMeta, ShardRange, ShardStats,
-    ShardTag, ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY,
 };
 use kvenginepb as pb;
 use kvproto::{metapb, metapb::PeerRole, raft_serverpb::MergeState};
 use pb::VectorIndex;
-use pd_client::{pd_control::PdControl, PdClient};
+use pd_client::{PdClient, pd_control::PdControl};
 use protobuf::Message;
 use raft::eraftpb;
-use rfengine::{convert_to_decompressed_wal_chunk, RfEngine};
+use rfengine::{RfEngine, convert_to_decompressed_wal_chunk};
 use rfenginepb::ClusterBackupMeta;
 use rfstore::store::{
-    load_raft_engine_meta, parse_raft_cmd, rlog, state::RaftState, ApplyMsgs, PdIdAllocator,
-    PeerTag, PreprocessContext, RegionIdVer, StoreMsg,
+    ApplyMsgs, PdIdAllocator, PeerTag, PreprocessContext, RegionIdVer, StoreMsg,
+    load_raft_engine_meta, parse_raft_cmd, rlog, state::RaftState,
 };
 use security::SecurityConfig;
 use slog_global::{debug, error, info, warn};
 use tempdir::TempDir;
 use tikv::{config::TikvConfig, storage::mvcc::Key};
 use tikv_util::{
-    backoff::ExponentialBackoff, box_err, box_try, http::CONTENT_TYPE_PROTOBUF,
-    merge_range::MergeRanges, mpsc, retry::try_wait_result_async, time::Instant, HandyRwLock,
+    HandyRwLock, backoff::ExponentialBackoff, box_err, box_try, http::CONTENT_TYPE_PROTOBUF,
+    merge_range::MergeRanges, mpsc, retry::try_wait_result_async, time::Instant,
 };
 use tokio::{runtime::Runtime, sync::Semaphore};
 
 use crate::{
     archive::{
-        get_cluster_backup_file_and_meta, get_incremental_backup_with_name, get_not_found_files,
-        ArchiveReader, StoreMeta,
+        ArchiveReader, StoreMeta, get_cluster_backup_file_and_meta,
+        get_incremental_backup_with_name, get_not_found_files,
     },
     common::{
+        RawRegion, RegionMetaGetter, ReplayWalLogsContext, StorePeer, TableFile,
         collect_snapshot_meta_rlog_files, load_peer_raft_state, now, replay_wal_logs,
-        retain_sst_files, send_request_to_store, RawRegion, RegionMetaGetter, ReplayWalLogsContext,
-        StorePeer, TableFile,
+        retain_sst_files, send_request_to_store,
     },
     error::{
         Error,
@@ -72,8 +72,8 @@ use crate::{
     limiter::{SnapshotSize, ThroughputLimiter},
     lock::LockResolver,
     metrics::{
-        NATIVE_BR_RESTORED_DATA_SIZE, NATIVE_BR_RESTORED_KV_SIZE,
-        NATIVE_BR_RESTORE_PENDING_DATA_SIZE,
+        NATIVE_BR_RESTORE_PENDING_DATA_SIZE, NATIVE_BR_RESTORED_DATA_SIZE,
+        NATIVE_BR_RESTORED_KV_SIZE,
     },
     restore::RestoreConfig,
     rfengine_cache::RfEngineCache,
@@ -790,7 +790,7 @@ impl BackupCluster {
 
         for store in &cluster_meta.stores {
             let store_id = store.get_store_id();
-            if !store.keyspace_size.is_empty() && store.keyspace_size.get(&keyspace_id).is_none() {
+            if !store.keyspace_size.is_empty() && !store.keyspace_size.contains_key(&keyspace_id) {
                 info!(
                     "Keyspace {} skip store {} which has no data",
                     cluster.tag(),
@@ -1260,7 +1260,7 @@ impl BackupCluster {
 
         let snap = meta.get_snapshot();
         let raft_last_index = rf.get_last_index(peer_id);
-        let need_flush_mem_table = raft_last_index.map_or(false, |last_idx| {
+        let need_flush_mem_table = raft_last_index.is_some_and(|last_idx| {
             assert!(last_idx >= snap.get_data_sequence());
             last_idx > snap.get_data_sequence()
         });

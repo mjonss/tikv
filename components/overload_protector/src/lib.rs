@@ -6,8 +6,8 @@ extern crate serde_derive;
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicUsize, Ordering::Relaxed},
         Arc, RwLock,
+        atomic::{AtomicUsize, Ordering::Relaxed},
     },
     time::Duration,
 };

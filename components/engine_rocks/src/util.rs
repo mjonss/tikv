@@ -2,16 +2,16 @@
 
 use std::{fs, path::Path, str::FromStr, sync::Arc};
 
-use engine_traits::{Range, Result, CF_DEFAULT};
+use engine_traits::{CF_DEFAULT, Range, Result};
 use rocksdb::{
-    load_latest_options, CColumnFamilyDescriptor, CFHandle, ColumnFamilyOptions, Env,
-    Range as RocksRange, SliceTransform, DB,
+    CColumnFamilyDescriptor, CFHandle, ColumnFamilyOptions, DB, Env, Range as RocksRange,
+    SliceTransform, load_latest_options,
 };
 use slog_global::warn;
 
 use crate::{
-    cf_options::RocksCfOptions, db_options::RocksDbOptions, engine::RocksEngine, r2e,
-    rocks_metrics_defs::*, RocksStatistics,
+    RocksStatistics, cf_options::RocksCfOptions, db_options::RocksDbOptions, engine::RocksEngine,
+    r2e, rocks_metrics_defs::*,
 };
 
 pub fn new_default_engine(path: &str) -> Result<RocksEngine> {

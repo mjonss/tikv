@@ -6,16 +6,15 @@ use bytes::Bytes;
 use txn_types::{Lock, TimeStamp};
 
 use crate::{
-    dfs,
+    EXTRA_CF, LOCK_CF, WriteBatch, dfs,
     shard::{ShardCf, ShardCfBuilder, ShardDataBuilder},
     table,
     table::{
+        BIT_DELETE, ChecksumType, SnapVersion,
         file::InMemFile,
         sstable::{BlockCache, SsTable},
-        ChecksumType, SnapVersion, BIT_DELETE,
     },
-    tests::{new_table, new_test_engine_opt, TestEngine, DEF_BLOCK_SIZE, TABLE_KEY_PREFIX},
-    WriteBatch, EXTRA_CF, LOCK_CF,
+    tests::{DEF_BLOCK_SIZE, TABLE_KEY_PREFIX, TestEngine, new_table, new_test_engine_opt},
 };
 
 #[test]

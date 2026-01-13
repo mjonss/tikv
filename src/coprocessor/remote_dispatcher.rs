@@ -5,8 +5,8 @@ use std::{collections::VecDeque, fmt::Write, ops::Deref, sync::Arc, time::Durati
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes};
 use codec::number::NumberDecoder;
-use http::{header, StatusCode};
-use kvengine::{dfs::DFS_REMOTE_CACHE_ADDR_HEADER, SnapAccess, LOCK_CF};
+use http::{StatusCode, header};
+use kvengine::{LOCK_CF, SnapAccess, dfs::DFS_REMOTE_CACHE_ADDR_HEADER};
 use kvproto::{
     coprocessor::{KeyRange, Response},
     kvrpcpb::ExecDetailsV2,
@@ -19,7 +19,7 @@ use tikv_kv::Statistics;
 use tikv_util::{
     backoff::ExponentialBackoff,
     deadline::Deadline,
-    http::{HeaderExt, CONTENT_TYPE_PROTOBUF},
+    http::{CONTENT_TYPE_PROTOBUF, HeaderExt},
     retry::sleep_async,
 };
 use tipb::{DagRequest, ExecType, Executor, ExprType::ColumnRef};
@@ -27,8 +27,8 @@ use txn_types::{TimeStamp, TsSet};
 
 use crate::{
     coprocessor::{
+        Error, MEMTRACE_ROOT, REQ_TYPE_DAG, ReqContext, RequestHandler, Result,
         metrics::{COPR_REMOTE_DAG_ESTIMATE_BLOCKS_HISTOGRAM, COPR_REMOTE_PROCESSED_SIZE},
-        Error, ReqContext, RequestHandler, Result, MEMTRACE_ROOT, REQ_TYPE_DAG,
     },
     storage::txn::check_locks,
 };

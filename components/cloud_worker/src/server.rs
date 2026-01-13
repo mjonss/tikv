@@ -6,34 +6,34 @@ use bytes::{Buf, Bytes};
 use cloud_encryption::MasterKey;
 use cloud_server::StatusServer as CloudStatusServer;
 use dashmap::DashMap;
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 use http::{
+    HeaderValue, Method, Request, Response, StatusCode,
     header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_TYPE},
     request::Parts,
-    HeaderValue, Method, Request, Response, StatusCode,
 };
 use hyper::{
+    Body,
     server::accept::Accept,
     service::{make_service_fn, service_fn},
-    Body,
 };
 use kvengine::{
+    CURRENT_COMPACTOR_VERSION, CompactionCtx, CompactionRequest, CompactionType,
+    INCOMPATIBLE_COMPACTOR_ERROR_CODE, IdAllocator, SnapAccess,
     context::{IaCtx, MetaFileCacheWeighter, PrepareType, SnapCtx},
     dfs,
-    dfs::{Dfs, DFS_REMOTE_CACHE_ADDR_HEADER},
+    dfs::{DFS_REMOTE_CACHE_ADDR_HEADER, Dfs},
     local_compact,
     metrics::ENGINE_REMOTE_COMPACT_EXCEED_MEMORY_LIMIT_COUNTER,
     table::{
+        ChecksumType,
         columnar::ColumnarMetaCache,
         file::File,
         fts::{FtsCache, FtsDeltaCache},
         schema_file::SchemaFile,
         sstable::BlockCache,
-        ChecksumType,
     },
     txn_chunk_manager::TxnChunkManager,
-    CompactionCtx, CompactionRequest, CompactionType, IdAllocator, SnapAccess,
-    CURRENT_COMPACTOR_VERSION, INCOMPATIBLE_COMPACTOR_ERROR_CODE,
 };
 use pd_client::PdClient;
 use prometheus::TEXT_FORMAT;
@@ -43,15 +43,15 @@ use rfstore::store::{PdIdAllocator, RegionSnapshot};
 use security::HttpClient;
 use tikv::{
     coprocessor::{
-        remote_dispatcher::decode_remote_cop_request, REQ_TYPE_ANALYZE, REQ_TYPE_CHECKSUM,
-        REQ_TYPE_DAG,
+        REQ_TYPE_ANALYZE, REQ_TYPE_CHECKSUM, REQ_TYPE_DAG,
+        remote_dispatcher::decode_remote_cop_request,
     },
     server::status_server::StatusServer,
 };
 use tikv_util::{
     deadline::Deadline,
     error,
-    http::{HeaderExt, CONTENT_TYPE_PROTOBUF},
+    http::{CONTENT_TYPE_PROTOBUF, HeaderExt},
     info,
     memory::MemoryLimiter,
     metrics::{dump, dump_to},
@@ -62,13 +62,13 @@ use tikv_util::{
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
+    Config,
     load_data::{self, LoadDataManager},
     metrics::*,
     native_br::{self, NativeBrManager},
     txn_chunk,
     txn_chunk::TxnChunkHandler,
     worker_limiter::WorkerLimiter,
-    Config,
 };
 
 pub(crate) struct Context {

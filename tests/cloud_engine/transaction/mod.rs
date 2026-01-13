@@ -15,9 +15,9 @@ mod txn_file;
 use bytes::Bytes;
 use kvproto::{kvrpcpb, kvrpcpb::WriteConflictReason};
 use test_cloud_server::{
+    ServerCluster,
     client::{Error, RequestOptions, TxnMutations},
     util::Mutation,
-    ServerCluster,
 };
 use tikv_util::time::Instant;
 

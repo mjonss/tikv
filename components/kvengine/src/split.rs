@@ -5,14 +5,14 @@ use std::{
     collections::HashMap,
     iter::Iterator,
     sync::{
-        atomic::{Ordering, Ordering::Release},
         Arc,
+        atomic::{Ordering, Ordering::Release},
     },
 };
 
 use api_version::{
-    api_v2::{is_whole_keyspace_range, KEYSPACE_PREFIX_LEN},
     ApiV2, KeyMode, KvFormat,
+    api_v2::{KEYSPACE_PREFIX_LEN, is_whole_keyspace_range},
 };
 use bytes::{Buf, Bytes};
 use collections::HashSet;
@@ -22,8 +22,8 @@ use slog_global::info;
 
 use crate::{
     table::{
-        columnar::ColumnarLevels, vector_index::VectorIndexes, BoundedDataSet, DataBound, InnerKey,
-        SnapVersion,
+        BoundedDataSet, DataBound, InnerKey, SnapVersion, columnar::ColumnarLevels,
+        vector_index::VectorIndexes,
     },
     table_id::{get_table_id_from_data_bound, keys_belong_to_same_table, merge_columnar_table_ids},
     *,

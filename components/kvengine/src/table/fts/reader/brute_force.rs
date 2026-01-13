@@ -7,10 +7,10 @@ use clara_fts::BruteScoredSearcher;
 
 use super::VIRTUAL_SCORE_COLUMN_ID;
 use crate::table::{
-    columnar::{Block, ColumnBuffer, ColumnarFilterReader},
-    fts::util::{build_stringify_fn, empty_stringify_fn, StringifyFn},
-    schema_file::{Schema, SchemaBuf},
     Error, Result,
+    columnar::{Block, ColumnBuffer, ColumnarFilterReader},
+    fts::util::{StringifyFn, build_stringify_fn, empty_stringify_fn},
+    schema_file::{Schema, SchemaBuf},
 };
 
 pub struct FtsBruteForceReader<R> {
@@ -319,7 +319,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use bytes::Buf;
-    use clara_fts::test_util::{make_scored_query, make_unscored_query, PlainFtsQueryInfo};
+    use clara_fts::test_util::{PlainFtsQueryInfo, make_scored_query, make_unscored_query};
     use tidb_query_datatype::FieldTypeTp;
 
     use super::*;
@@ -330,7 +330,7 @@ mod tests {
         },
         fts::{
             iter::{CommonPk, IntPk},
-            test_util::{new_block, new_columnar, SchemaBuilder},
+            test_util::{SchemaBuilder, new_block, new_columnar},
         },
         schema_file::Schema,
     };

@@ -28,18 +28,17 @@ use std::{
     marker::PhantomData,
     mem,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
-    u64,
 };
 
 use collections::HashMap;
 use concurrency_manager::{ConcurrencyManager, KeyHandleGuard, TrackedBackupTs};
 use crossbeam::utils::CachePadded;
 use engine_traits::{CF_DEFAULT, CF_LOCK, CF_WRITE};
-use futures::{compat::Future01CompatExt, StreamExt};
+use futures::{StreamExt, compat::Future01CompatExt};
 use kvproto::{
     kvrpcpb::{self, CommandPri, Context, DiskFullOpt, ExtraOp},
     pdpb::QueryKind,
@@ -47,56 +46,55 @@ use kvproto::{
 use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
 use pd_client::{Feature, FeatureGate};
 use raftstore::{
+    RegionInfoAccessor,
     coprocessor::RegionInfoProvider,
     store::{FlowStatsReporter, TxnExt},
-    RegionInfoAccessor,
 };
 use resource_metering::{FutureExt, ResourceTagFactory};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use tikv_kv::{Modify, Snapshot, SnapshotExt, WriteData, WriteEvent};
 use tikv_util::{
     deadline::Deadline,
     quota_limiter::QuotaLimiter,
     sys::thread::ThreadBuildWrapper,
-    time::{duration_to_sec, Instant},
+    time::{Instant, duration_to_sec},
     timer::GLOBAL_TIMER_HANDLE,
 };
-use tracker::{get_tls_tracker_token, set_tls_tracker_token, TrackerToken};
+use tracker::{TrackerToken, get_tls_tracker_token, set_tls_tracker_token};
 
 use crate::{
     command_process_read, command_process_write,
     read_pool::ReadPoolHandle,
     server::lock_manager::waiter_manager,
     storage::{
+        DynamicConfigs, Error as StorageError, ErrorInner as StorageErrorInner,
+        PessimisticLockKeyResult, PessimisticLockResults,
         config::Config,
         errors::SharedError,
         get_priority_tag,
         kv::{
-            self, destroy_tls_engine, set_tls_engine, with_tls_engine, Engine,
-            Result as EngineResult, SnapContext, Statistics,
+            self, Engine, Result as EngineResult, SnapContext, Statistics, destroy_tls_engine,
+            set_tls_engine, with_tls_engine,
         },
         lock_manager::{
-            self,
+            self, DiagnosticContext, LockManager, LockWaitToken,
             lock_wait_context::{LockWaitContext, PessimisticLockKeyCallback},
             lock_waiting_queue::{DelayedNotifyAllFuture, LockWaitEntry, LockWaitQueues},
-            DiagnosticContext, LockManager, LockWaitToken,
         },
         metrics::*,
         mvcc::{Error as MvccError, ErrorInner as MvccErrorInner, ReleasedLock},
         txn::{
+            Error, ProcessResult,
             commands::{
-                self, txn_file, txn_file::TxnFileCommand, Command, ReleasedLocks, ResponsePolicy,
-                WriteContext, WriteResult, WriteResultLockInfo,
+                self, Command, ReleasedLocks, ResponsePolicy, WriteContext, WriteResult,
+                WriteResultLockInfo, txn_file, txn_file::TxnFileCommand,
             },
             flow_controller::{FlowControlHelper, FlowController},
             latch::Lock,
             region_latch::{GlobalLatches, WakeupTask},
             sched_pool::{tls_collect_query, tls_collect_scan_details},
-            Error, ProcessResult,
         },
         types::StorageCallback,
-        DynamicConfigs, Error as StorageError, ErrorInner as StorageErrorInner,
-        PessimisticLockKeyResult, PessimisticLockResults,
     },
 };
 
@@ -2004,12 +2002,12 @@ mod tests {
         config::UnifiedReadPoolConfig,
         read_pool::build_tokio_pool,
         storage::{
+            RocksEngine, TestEngineBuilder, TxnStatus,
             kv::{Error as KvError, ErrorInner as KvErrorInner},
             lock_manager::{MockLockManager, WaitTimeout},
             mvcc::{self, Mutation},
             test_util::latest_feature_gate,
             txn::{commands, commands::TypedCommand, flow_controller::FlowController, latch::*},
-            RocksEngine, TestEngineBuilder, TxnStatus,
         },
     };
 

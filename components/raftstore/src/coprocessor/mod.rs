@@ -3,8 +3,8 @@
 use std::{
     fmt::{self, Debug, Formatter},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     vec::IntoIter,
 };
@@ -16,7 +16,7 @@ use kvproto::{
     raft_serverpb::RaftApplyState,
 };
 use pd_client::BucketMeta;
-use raft::{eraftpb, StateRole};
+use raft::{StateRole, eraftpb};
 
 pub mod config;
 pub mod dispatcher;
@@ -53,7 +53,7 @@ pub struct ObserverContext<'a> {
     pub bypass: bool,
 }
 
-impl<'a> ObserverContext<'a> {
+impl ObserverContext<'_> {
     pub fn new(region: &Region) -> ObserverContext<'_> {
         ObserverContext {
             region,

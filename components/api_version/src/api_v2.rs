@@ -4,9 +4,8 @@ use bytes::Buf;
 use codec::{byte::MemComparableByteCodec, number::NumberDecoder};
 use engine_traits::Result;
 use tikv_util::codec::{
-    bytes as codecBytes,
+    Error, bytes as codecBytes,
     number::{self, NumberEncoder},
-    Error,
 };
 use txn_types::{Key, TimeStamp};
 
@@ -253,8 +252,8 @@ mod tests {
     use txn_types::Key;
 
     use crate::{
-        api_v2::{is_one_or_multi_whole_keyspace_range, is_whole_keyspace_range, TXN_KEY_PREFIX},
         ApiV2,
+        api_v2::{TXN_KEY_PREFIX, is_one_or_multi_whole_keyspace_range, is_whole_keyspace_range},
     };
 
     #[test]

@@ -18,17 +18,17 @@ use clap::Args;
 use engine_traits::ListObjectContent;
 use kvengine::{
     dfs,
-    dfs::{try_parse_all_file_id, DFSConfig, Dfs, FileType, S3Fs},
+    dfs::{DFSConfig, Dfs, FileType, S3Fs, try_parse_all_file_id},
 };
 use kvproto::metapb::Store;
 use native_br::{
     common::create_pd_client,
     error::{Error, Result},
 };
-use pd_client::{util::get_all_stores_except_tiflash, RpcClient};
+use pd_client::{RpcClient, util::get_all_stores_except_tiflash};
 use security::{GetSecurityManager, SecurityConfig, SecurityManager};
 use tikv_util::{box_err, config::ReadableDuration, error, info, warn};
-use tokio::sync::{mpsc::Sender, Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, mpsc::Sender};
 
 /// DFS GC Rules:
 ///
@@ -40,16 +40,16 @@ use tokio::sync::{mpsc::Sender, Mutex, Semaphore};
 ///
 /// * For files NOT in used:
 ///
-///     1. The file will be removed if it's NOT removed.
+///   1. The file will be removed if it's NOT removed.
 ///
-///     2. The file will be permanently removed when:
+///   2. The file will be permanently removed when:
 ///
-///         2a. The file IS removed, and,
+///   2a. The file IS removed, and,
 ///
-///         2b. `gc_lifetime` is configured, and,
+///   2b. `gc_lifetime` is configured, and,
 ///
-///         2c. the duration since file last modified is longer than
-/// `gc_lifetime`.
+///   2c. the duration since file last modified is longer than
+///   `gc_lifetime`.
 ///
 /// NOTE:
 ///
@@ -58,7 +58,7 @@ use tokio::sync::{mpsc::Sender, Mutex, Semaphore};
 ///
 /// * A file is "removed" when it's in "STANDARD_IA" storage class or tagged
 ///   with "delete=true".
-
+///
 /// DFSGC arguments
 #[derive(Args)]
 pub struct DfsGcArgs {

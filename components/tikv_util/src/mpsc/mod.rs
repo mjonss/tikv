@@ -8,8 +8,8 @@ pub mod future;
 use std::{
     cell::Cell,
     sync::{
-        atomic::{AtomicBool, AtomicIsize, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicIsize, Ordering},
     },
     time::Duration,
 };

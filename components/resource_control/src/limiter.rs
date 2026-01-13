@@ -3,8 +3,8 @@
 use std::{
     ops::{Add, Deref, Sub},
     sync::{
-        atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering, Ordering::Relaxed},
     },
     time::{Duration, Instant},
 };
@@ -12,7 +12,7 @@ use std::{
 use dashmap::DashMap;
 use tikv_util::{error, info};
 
-use crate::{AtomicDuration, AtomicTime, Config, TimeUnit, ACTIVE_KEYSPACE_READ_BYTES};
+use crate::{ACTIVE_KEYSPACE_READ_BYTES, AtomicDuration, AtomicTime, Config, TimeUnit};
 
 const MIN_WAIT_TIME_INTERVAL: Duration = Duration::from_millis(1);
 

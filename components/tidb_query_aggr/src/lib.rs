@@ -3,8 +3,10 @@
 //! This crate provides aggregate functions for batch executors.
 
 #![allow(incomplete_features)]
+#![allow(clippy::macro_metavars_in_unsafe)]
 #![feature(proc_macro_hygiene)]
 #![feature(specialization)]
+#![feature(stmt_expr_attributes)]
 
 #[macro_use(box_try)]
 extern crate tikv_util;
@@ -35,13 +37,13 @@ pub use self::parser::{AggrDefinitionParser, AllAggrDefinitionParser};
 /// incremental update model:
 ///
 /// - Each aggregate function associates a state structure, storing partially
-/// computed aggregate results.
+///   computed aggregate results.
 ///
 /// - The caller calls `update()` or `update_vector()` for each row to update
-/// the state.
+///   the state.
 ///
 /// - The caller finally calls `push_result()` to aggregate a summary value and
-/// push it into the given data container.
+///   push it into the given data container.
 ///
 /// This trait can be auto derived by using `tidb_query_codegen::AggrFunction`.
 pub trait AggrFunction: std::fmt::Debug + Send + 'static {
@@ -109,37 +111,47 @@ pub trait ConcreteAggrFunctionState: std::fmt::Debug + Send + 'static {
 
 #[macro_export]
 macro_rules! update_concrete {
-    ($state:expr, $ctx:expr, $value:expr) => {
-        unsafe { $state.update_concrete_unsafe($ctx, $value.unsafe_into()) }
-    };
+    ($state:expr, $ctx:expr, $value:expr) => {{
+        let value = $value;
+        unsafe { $state.update_concrete_unsafe($ctx, value.unsafe_into()) }
+    }};
 }
 
 #[macro_export]
 macro_rules! update_vector {
-    ($state:expr, $ctx:expr, $physical_values:expr, $logical_rows:expr) => {
+    ($state:expr, $ctx:expr, $physical_values:expr, $logical_rows:expr) => {{
+        let physical_values = $physical_values;
+        let logical_rows = $logical_rows;
         unsafe {
             $state.update_vector_unsafe(
                 $ctx,
-                $physical_values.phantom_data().unsafe_into(),
-                $physical_values.unsafe_into(),
-                $logical_rows,
+                physical_values.phantom_data().unsafe_into(),
+                physical_values.unsafe_into(),
+                logical_rows,
             )
         }
-    };
+    }};
 }
 
 #[macro_export]
+#[allow(clippy::macro_metavars_in_unsafe)]
 macro_rules! update_repeat {
-    ($state:expr, $ctx:expr, $value:expr, $repeat_times:expr) => {
-        unsafe { $state.update_repeat_unsafe($ctx, $value.unsafe_into(), $repeat_times) }
-    };
+    ($state:expr, $ctx:expr, $value:expr, $repeat_times:expr) => {{
+        let value = $value;
+        let repeat_times = $repeat_times;
+        unsafe { $state.update_repeat_unsafe($ctx, value.unsafe_into(), repeat_times) }
+    }};
 }
 
 #[macro_export]
 macro_rules! update {
-    ($state:expr, $ctx:expr, $value:expr) => {
-        unsafe { $state.update_unsafe($ctx, $value.unsafe_into()) }
-    };
+    ($state:expr, $ctx:expr, $value:expr) => {{
+        let value = $value;
+        #[allow(clippy::macro_metavars_in_unsafe)]
+        unsafe {
+            $state.update_unsafe($ctx, value.unsafe_into())
+        }
+    }};
 }
 
 #[macro_export]
@@ -433,10 +445,11 @@ mod tests {
         // Update using other data type should panic.
         let result = panic_hook::recover_safe(|| {
             let mut s = s.clone();
+            let real = Real::new(1.0).ok();
             let _ = update!(
                 &mut s as &mut dyn AggrFunctionStateUpdatePartial<_>,
                 &mut ctx,
-                Real::new(1.0).ok().as_ref()
+                real.as_ref()
             );
         });
         result.unwrap_err();

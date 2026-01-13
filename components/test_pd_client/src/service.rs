@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use kvproto::pdpb::*;
-use pd_client::{errors::Error as ClientError, PdClient};
+use pd_client::{PdClient, errors::Error as ClientError};
 use test_pd::{PdMocker, Result};
 use tikv_util::time::UnixSecs;
 

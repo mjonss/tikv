@@ -1,15 +1,15 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     sync::{Arc, OnceLock},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use tantivy::{
+    Term,
     query::{BooleanQuery, Occur, Query as TantivyQuery, TermQuery},
     tokenizer::TextAnalyzer,
-    Term,
 };
 
 mod bm25;

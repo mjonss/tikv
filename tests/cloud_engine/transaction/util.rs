@@ -4,8 +4,8 @@ use std::{sync::mpsc, thread, time::Duration};
 
 use kvproto::kvrpcpb::{Assertion, Op};
 use test_cloud_server::{
-    client::{ClusterClient, PrewriteExt, RequestOptions, TxnMutations},
     ServerCluster,
+    client::{ClusterClient, PrewriteExt, RequestOptions, TxnMutations},
 };
 use tikv_util::{info, time::Instant};
 use txn_types::TimeStamp;

@@ -4,17 +4,17 @@ use std::{
     fmt, mem,
     result::Result as StdResult,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
 use cdc::{
-    metrics::{CDC_PENDING_BYTES_GAUGE, CDC_PENDING_LOCKS_BYTES_GAUGE},
     CdcEvent, Conn, ConnId, Sink,
+    metrics::{CDC_PENDING_BYTES_GAUGE, CDC_PENDING_LOCKS_BYTES_GAUGE},
 };
 use collections::HashMap;
-use kvengine::{table::SnapVersion, IdVer, ShardTag};
+use kvengine::{IdVer, ShardTag, table::SnapVersion};
 use kvproto::cdcpb;
 use log_wrappers::Value as LogValue;
 use protobuf::Message;
@@ -22,7 +22,7 @@ use resolved_ts::Resolver;
 use tikv_util::{debug, error, info, warn};
 use txn_types::TimeStamp;
 
-use crate::{error::Result, util::build_request_range, Error};
+use crate::{Error, error::Result, util::build_request_range};
 
 /// An identifier of a ChangeDataRequest.
 ///

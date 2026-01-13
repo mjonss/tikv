@@ -5,11 +5,11 @@ use std::path::PathBuf;
 use clap::Args;
 use log_wrappers::Value as LogValue;
 use native_br::common::create_pd_client;
-use pd_client::{util::RegionLike, PdClient};
+use pd_client::{PdClient, util::RegionLike};
 use security::SecurityConfig;
 use tikv_client::{
-    transaction::{Client as TiKVClient, ResolveLocksOptions},
     Timestamp, TimestampExt,
+    transaction::{Client as TiKVClient, ResolveLocksOptions},
 };
 use tikv_util::{codec::bytes::decode_bytes, config::ReadableDuration};
 

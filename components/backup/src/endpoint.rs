@@ -4,15 +4,15 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     fmt,
-    sync::{atomic::*, mpsc, Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock, atomic::*, mpsc},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use async_channel::SendError;
 use concurrency_manager::ConcurrencyManager;
-use engine_traits::{name_to_cf, CfName, SstCompressionType};
+use engine_traits::{CfName, SstCompressionType, name_to_cf};
 use external_storage::{BackendConfig, HdfsConfig};
-use external_storage_export::{create_storage, ExternalStorage};
+use external_storage_export::{ExternalStorage, create_storage};
 use futures::channel::mpsc::*;
 use kvproto::{
     brpb::*,
@@ -25,10 +25,10 @@ use raftstore::coprocessor::RegionInfoProvider;
 use tikv::{
     config::BackupConfig,
     storage::{
+        Statistics,
         kv::{Engine, SnapContext},
         mvcc::Error as MvccError,
         txn::{CloudStore, EntryBatch, Error as TxnError, TxnEntryScanner, TxnEntryStore},
-        Statistics,
     },
 };
 use tikv_util::{
@@ -42,11 +42,12 @@ use tokio::runtime::Runtime;
 use txn_types::{Key, Lock, TimeStamp};
 
 use crate::{
+    Error,
     metrics::*,
     softlimit::{CpuStatistics, SoftLimit, SoftLimitByCpu},
     utils::{ControlThreadPool, KeyValueCodec},
     writer::BackupWriterBuilder,
-    Error, *,
+    *,
 };
 
 const BACKUP_BATCH_LIMIT: usize = 1024;
@@ -998,8 +999,8 @@ pub mod tests {
     use rand::Rng;
     use tempfile::TempDir;
     use tikv::storage::{
-        txn::tests::{must_commit, must_prewrite_put},
         RocksEngine, TestEngineBuilder,
+        txn::tests::{must_commit, must_prewrite_put},
     };
     use tikv_util::{config::ReadableSize, store::new_peer};
     use tokio::time;

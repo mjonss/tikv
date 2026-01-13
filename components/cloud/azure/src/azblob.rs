@@ -13,27 +13,27 @@ use azure_core::{
 use azure_identity::token_credentials::{ClientSecretCredential, TokenCredentialOptions};
 use azure_storage::{
     blob::prelude::*,
-    core::{prelude::*, ConnectionStringBuilder},
+    core::{ConnectionStringBuilder, prelude::*},
 };
 use chrono::{Duration as ChronoDuration, Utc};
 use cloud::blob::{
-    none_to_empty, BlobConfig, BlobStorage, BucketConf, PutResource, StringNonEmpty,
+    BlobConfig, BlobStorage, BucketConf, PutResource, StringNonEmpty, none_to_empty,
 };
 use futures_util::{
+    TryStreamExt,
     io::{AsyncRead, AsyncReadExt},
     stream,
     stream::StreamExt,
-    TryStreamExt,
 };
 pub use kvproto::brpb::{AzureBlobStorage as InputConfig, CloudDynamic};
 use oauth2::{ClientId, ClientSecret};
 use tikv_util::{
     debug,
-    stream::{retry, RetryError},
+    stream::{RetryError, retry},
 };
 use tokio::{
     sync::Mutex,
-    time::{timeout, Duration},
+    time::{Duration, timeout},
 };
 
 const ENV_CLIENT_ID: &str = "AZURE_CLIENT_ID";

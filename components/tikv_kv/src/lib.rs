@@ -5,7 +5,6 @@
 //! [`Server`](crate::server::Server). The [`BTreeEngine`](kv::BTreeEngine) and
 //! [`RocksEngine`](RocksEngine) are used for testing only.
 
-#![feature(bound_map)]
 #![feature(min_specialization)]
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
@@ -37,7 +36,7 @@ use std::{
 
 use collections::HashMap;
 use concurrency_manager::TrackedBackupTs;
-use engine_traits::{CfName, IterOptions, ReadOptions, CF_DEFAULT, CF_LOCK};
+use engine_traits::{CF_DEFAULT, CF_LOCK, CfName, IterOptions, ReadOptions};
 use error_code::{self, ErrorCode, ErrorCodeExt};
 use futures::{compat::Future01CompatExt, prelude::*};
 use into_other::IntoOther;
@@ -62,8 +61,8 @@ pub use self::{
     raft_extension::{FakeExtension, RaftExtension},
     rocksdb_engine::{RocksEngine, RocksSnapshot},
     stats::{
-        CfStatistics, FlowStatistics, FlowStatsReporter, StageLatencyStats, Statistics,
-        StatisticsSummary, RAW_VALUE_TOMBSTONE,
+        CfStatistics, FlowStatistics, FlowStatsReporter, RAW_VALUE_TOMBSTONE, StageLatencyStats,
+        Statistics, StatisticsSummary,
     },
 };
 
@@ -646,7 +645,8 @@ impl ErrorCodeExt for Error {
 
 thread_local! {
     // A pointer to thread local engine. Use raw pointer and `UnsafeCell` to reduce runtime check.
-    static TLS_ENGINE_ANY: UnsafeCell<*mut ()> = UnsafeCell::new(ptr::null_mut());
+    static TLS_ENGINE_ANY: UnsafeCell<*mut ()> =
+        const { UnsafeCell::new(ptr::null_mut()) };
 }
 
 /// Execute the closure on the thread local engine.
@@ -1135,8 +1135,8 @@ pub mod tests {
                     Some((format!("key_{}", i / 2 * 2), format!("value_{}", i / 2)))
                 } else {
                     Some((
-                        format!("key_{}", (i + 1) / 2 * 2),
-                        format!("value_{}", (i + 1) / 2),
+                        format!("key_{}", i.div_ceil(2) * 2),
+                        format!("value_{}", i.div_ceil(2)),
                     ))
                 }
             } else if seek_mode != SeekMode::Normal {

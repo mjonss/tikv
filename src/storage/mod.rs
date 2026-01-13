@@ -66,15 +66,15 @@ use std::{
     marker::PhantomData,
     mem,
     sync::{
-        atomic::{self, AtomicBool, AtomicU64, Ordering},
         Arc,
+        atomic::{self, AtomicBool, AtomicU64, Ordering},
     },
 };
 
 use api_version::{ApiV1, ApiV2, KeyMode, KvFormat};
 use collections::HashMap;
 use concurrency_manager::ConcurrencyManager;
-use engine_traits::{CfName, CF_DEFAULT, CF_LOCK, CF_WRITE, DATA_CFS};
+use engine_traits::{CF_DEFAULT, CF_LOCK, CF_WRITE, CfName, DATA_CFS};
 use futures::prelude::*;
 use kvproto::{
     kvrpcpb::{ApiVersion, CommandPri, Context, GetRequest, IsolationLevel, KeyRange, LockInfo},
@@ -82,8 +82,8 @@ use kvproto::{
 };
 use pd_client::FeatureGate;
 use raftstore::{
-    store::{util::build_key_range, ReadStats, TxnExt, WriteStats},
     RegionInfoAccessor,
+    store::{ReadStats, TxnExt, WriteStats, util::build_key_range},
 };
 use rand::prelude::*;
 use resource_metering::{FutureExt, ResourceTagFactory};
@@ -91,15 +91,15 @@ use tikv_kv::{OnAppliedCb, SnapshotExt};
 use tikv_util::{
     future::try_poll,
     quota_limiter::QuotaLimiter,
-    time::{duration_to_ms, duration_to_sec, Instant, ThreadReadId},
+    time::{Instant, ThreadReadId, duration_to_ms, duration_to_sec},
 };
 use tracker::{
-    clear_tls_tracker_token, set_tls_tracker_token, with_tls_tracker, TrackedFuture, TrackerToken,
+    TrackedFuture, TrackerToken, clear_tls_tracker_token, set_tls_tracker_token, with_tls_tracker,
 };
 use txn_types::{Key, KvPair, Lock, TimeStamp, TsSet, Value};
 
 pub use self::{
-    errors::{get_error_kind_from_header, get_tag_from_header, Error, ErrorHeaderKind, ErrorInner},
+    errors::{Error, ErrorHeaderKind, ErrorInner, get_error_kind_from_header, get_tag_from_header},
     kv::{
         CfStatistics, Cursor, CursorBuilder, Engine, FlowStatistics, FlowStatsReporter, Iterator,
         RocksEngine, ScanMode, Snapshot, StageLatencyStats, Statistics, TestEngineBuilder,
@@ -117,12 +117,12 @@ use crate::{
     server::lock_manager::waiter_manager,
     storage::{
         config::Config,
-        kv::{with_tls_engine, Modify, WriteData},
+        kv::{Modify, WriteData, with_tls_engine},
         lock_manager::{LockManager, MockLockManager},
         metrics::{CommandKind, *},
         txn::{
-            commands::TypedCommand, flow_controller::FlowController,
-            scheduler::Scheduler as TxnScheduler, Command,
+            Command, commands::TypedCommand, flow_controller::FlowController,
+            scheduler::Scheduler as TxnScheduler,
         },
         types::StorageCallbackType,
     },
@@ -396,11 +396,10 @@ impl<E: Engine, L: LockManager, F: KvFormat> Storage<E, L, F> {
     /// When config.api_version = V1: accept request of V1 only.
     /// When config.api_version = V2: accept the following:
     ///   * Request of V1 from TiDB, for compatibility.
-    ///   * Request of V2 with legal prefix.
-    /// See the following for detail:
-    ///   * rfc: https://github.com/tikv/rfcs/blob/master/text/0069-api-v2.md.
-    ///   * proto: https://github.com/pingcap/kvproto/blob/master/proto/kvrpcpb.proto,
-    ///     enum APIVersion.
+    ///   * Request of V2 with legal prefix. See the following for detail:
+    ///     * rfc: https://github.com/tikv/rfcs/blob/master/text/0069-api-v2.md.
+    ///     * proto: https://github.com/pingcap/kvproto/blob/master/proto/kvrpcpb.proto,
+    ///       enum APIVersion.
     // TODO: refactor to use `Api` parameter.
     fn check_api_version(
         storage_api_version: ApiVersion,
@@ -611,9 +610,8 @@ impl<E: Engine, L: LockManager, F: KvFormat> Storage<E, L, F> {
                         res
                     };
                     // map storage::txn::Error -> storage::Error
-                    res.map_err(Error::from).map(|r| {
+                    res.map_err(Error::from).inspect(|_| {
                         KV_COMMAND_KEYREAD_HISTOGRAM_STATIC.get(CMD).observe(1_f64);
-                        r
                     })
                 };
                 metrics::tls_collect_scan_details(CMD, &statistics);
@@ -1676,7 +1674,10 @@ pub struct TxnTestSnapshot<S: Snapshot> {
 
 impl<S: Snapshot> Snapshot for TxnTestSnapshot<S> {
     type Iter = S::Iter;
-    type Ext<'a> = TxnTestSnapshotExt<'a> where S: 'a;
+    type Ext<'a>
+        = TxnTestSnapshotExt<'a>
+    where
+        S: 'a;
 
     fn get(&self, key: &Key) -> tikv_kv::Result<Option<Value>> {
         self.snapshot.get(key)
@@ -1710,7 +1711,7 @@ impl<S: Snapshot> Snapshot for TxnTestSnapshot<S> {
 
 pub struct TxnTestSnapshotExt<'a>(&'a Arc<TxnExt>);
 
-impl<'a> SnapshotExt for TxnTestSnapshotExt<'a> {
+impl SnapshotExt for TxnTestSnapshotExt<'_> {
     fn get_txn_ext(&self) -> Option<&Arc<TxnExt>> {
         Some(self.0)
     }
@@ -1854,8 +1855,8 @@ pub mod test_util {
     use std::{
         fmt::Debug,
         sync::{
-            mpsc::{channel, Sender},
             Mutex,
+            mpsc::{Sender, channel},
         },
     };
 
@@ -2221,9 +2222,9 @@ mod tests {
     use std::{
         iter::Iterator,
         sync::{
-            atomic::{AtomicBool, Ordering},
-            mpsc::{channel, Sender},
             Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc::{Sender, channel},
         },
         time::Duration,
     };
@@ -2261,10 +2262,9 @@ mod tests {
             },
             mvcc::LockType,
             txn::{
-                commands,
+                Error as TxnError, ErrorInner as TxnErrorInner, commands,
                 commands::{AcquirePessimisticLock, Prewrite},
                 tests::must_rollback,
-                Error as TxnError, ErrorInner as TxnErrorInner,
             },
             types::{PessimisticLockKeyResult, PessimisticLockResults},
         },
@@ -5636,12 +5636,25 @@ mod tests {
         // Check msg validation.
         match msg {
             Msg::WaitFor {
+                token,
+                region_id,
+                region_epoch,
+                term,
                 start_ts,
                 wait_info,
                 is_first_lock,
                 timeout,
-                ..
+                cancel_callback,
+                diag_ctx,
             } => {
+                let _ = (
+                    token,
+                    region_id,
+                    region_epoch,
+                    term,
+                    cancel_callback,
+                    diag_ctx,
+                );
                 assert_eq!(start_ts, TimeStamp::new(20));
                 assert_eq!(
                     wait_info.lock_digest,
@@ -5654,7 +5667,10 @@ mod tests {
                 assert_eq!(timeout, Some(WaitTimeout::Millis(100)));
             }
 
-            _ => panic!("unexpected msg"),
+            Msg::RemoveLockWait { token } => {
+                let _ = token;
+                panic!("unexpected msg");
+            }
         }
     }
 

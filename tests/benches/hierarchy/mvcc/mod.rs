@@ -1,17 +1,18 @@
 // Copyright 2018 TiKV Project Authors. Licensed under Apache-2.0.
 
 use concurrency_manager::ConcurrencyManager;
-use criterion::{black_box, BatchSize, Bencher, Criterion};
+use criterion::{BatchSize, Bencher, Criterion, black_box};
+use futures::executor::block_on;
 use kvproto::kvrpcpb::{AssertionLevel, Context, PrewriteRequestPessimisticAction::*};
 use test_util::KvGenerator;
 use tikv::storage::{
     kv::{Engine, WriteData},
     mvcc::{self, MvccReader, MvccTxn, SnapshotReader},
-    txn::{cleanup, commit, prewrite, CommitKind, TransactionKind, TransactionProperties},
+    txn::{CommitKind, TransactionKind, TransactionProperties, cleanup, commit, prewrite},
 };
 use txn_types::{Key, Mutation, TimeStamp};
 
-use super::{BenchConfig, EngineFactory, DEFAULT_ITERATIONS, DEFAULT_KV_GENERATOR_SEED};
+use super::{BenchConfig, DEFAULT_ITERATIONS, DEFAULT_KV_GENERATOR_SEED, EngineFactory};
 
 fn setup_prewrite<E, F>(
     engine: &mut E,
@@ -60,7 +61,7 @@ where
         .unwrap();
     }
     let write_data = WriteData::from_modifies(txn.into_modifies());
-    let _ = tikv_kv::write(engine, &ctx, write_data, None);
+    let _ = block_on(tikv_kv::write(engine, &ctx, write_data, None));
     let keys: Vec<Key> = kvs.iter().map(|(k, _)| Key::from_raw(k)).collect();
     let snapshot = engine.snapshot(Default::default()).unwrap();
     (snapshot, keys)

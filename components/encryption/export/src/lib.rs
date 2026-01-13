@@ -7,15 +7,15 @@ use aws::{AwsKms, STORAGE_VENDOR_NAME_AWS};
 #[cfg(feature = "cloud-aws")]
 use cloud::kms::Config as CloudConfig;
 use cloud::{
-    kms::{EncryptedKey as CloudEncryptedKey, KmsProvider as CloudKmsProvider},
     Error as CloudError,
+    kms::{EncryptedKey as CloudEncryptedKey, KmsProvider as CloudKmsProvider},
 };
 use derive_more::Deref;
 #[cfg(feature = "cloud-aws")]
 pub use encryption::KmsBackend;
 pub use encryption::{
-    from_engine_encryption_method, Backend, DataKeyManager, DataKeyManagerArgs, DecrypterReader,
-    EncryptionConfig, Error, FileConfig, Iv, KmsConfig, MasterKeyConfig, Result,
+    Backend, DataKeyManager, DataKeyManagerArgs, DecrypterReader, EncryptionConfig, Error,
+    FileConfig, Iv, KmsConfig, MasterKeyConfig, Result, from_engine_encryption_method,
 };
 use encryption::{
     DataKeyPair, EncryptedKey, FileBackend, KmsProvider, PlainKey, PlaintextBackend,

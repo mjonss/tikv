@@ -5,8 +5,8 @@ mod vector_index;
 
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -15,10 +15,11 @@ use api_version::ApiV2;
 use bytes::Buf;
 use codec::number::NumberEncoder;
 use dashmap::DashMap;
-use futures::{executor::block_on, future::ok, TryStreamExt};
+use futures::{TryStreamExt, executor::block_on, future::ok};
 use hyper::Body;
 use kvengine::{
-    context::{new_meta_file_cache, IaCtx, PrepareType, SnapCtx},
+    ColumnarIndexStats, ColumnarStatusResp, Engine, STORAGE_CLASS_KEY, SnapAccess, WRITE_CF,
+    context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
     dfs,
     dfs::{FileType, S3Fs},
     ia::{
@@ -28,14 +29,13 @@ use kvengine::{
     table::{
         columnar,
         columnar::{
-            filter::TableScanCtx, new_int_handle_column_info, new_version_column_info,
-            ColumnarFilterReader, ColumnarMetaCache,
+            ColumnarFilterReader, ColumnarMetaCache, filter::TableScanCtx,
+            new_int_handle_column_info, new_version_column_info,
         },
         fts::{FtsCache, FtsDeltaCache},
-        schema_file::{build_schema_file, Schema, SchemaBuf},
+        schema_file::{Schema, SchemaBuf, build_schema_file},
         sstable::{BlockCache, BlockCacheType},
     },
-    ColumnarIndexStats, ColumnarStatusResp, Engine, SnapAccess, STORAGE_CLASS_KEY, WRITE_CF,
 };
 use kvproto::coprocessor::DelegateResponse;
 use pd_client::PdClient;
@@ -43,20 +43,20 @@ use protobuf::Message;
 use rand::Rng;
 use schema::schema::{StorageClass, StorageClassSpec};
 use test_cloud_server::{
+    ServerCluster,
     client::{CommitAction, MutateOptions},
     keyspace::CreateKeyspaceOptions,
     must_wait,
     oss::prepare_dfs,
-    ServerCluster,
 };
 use test_pd_client::PdClientExt;
 use tidb_query_datatype::{
+    Collation, FieldTypeAccessor, FieldTypeTp,
     codec::{
         row::v2::encoder_for_test::{Column, RowEncoder},
         table::encode_row_key,
     },
     expr::EvalContext,
-    Collation, FieldTypeAccessor, FieldTypeTp,
 };
 use tikv_util::{
     codec::bytes::encode_bytes,

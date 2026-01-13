@@ -18,10 +18,10 @@ use tikv_client::Value;
 use tikv_util::{debug, error, info};
 
 use crate::{
+    Error,
     kv::{DuplicateEntry, SstMeta},
     metrics::LOAD_DATA_TASK_STATE,
     task::{LoadTaskMsg, LoadTaskScheduler, LoadTaskStates, TaskContext},
-    Error,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

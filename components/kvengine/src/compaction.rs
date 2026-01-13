@@ -2,12 +2,12 @@
 
 use std::{
     cmp::Ordering as CmpOrdering,
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     hash::Hash,
     iter::Iterator as StdIterator,
     ops::{Deref, Sub},
     path::PathBuf,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 
@@ -32,23 +32,29 @@ use table::{
 };
 use tidb_query_common::util::convert_to_prefix_next;
 use tidb_query_datatype::{
-    codec::table::{
-        decode_common_handle, decode_int_handle, decode_table_id, encode_row_key,
-        encode_row_key_prefix, ID_LEN, TABLE_PREFIX_LEN,
-    },
     VECTOR_INDEX_SPEC_KEY_DISTANCE_METRIC,
+    codec::table::{
+        ID_LEN, TABLE_PREFIX_LEN, decode_common_handle, decode_int_handle, decode_table_id,
+        encode_row_key, encode_row_key_prefix,
+    },
 };
 use tikv_util::{
-    backoff::ExponentialBackoff, box_err, retry::sleep_async, sys::thread::ThreadBuildWrapper,
-    time::Instant, HandyRwLock,
+    HandyRwLock, backoff::ExponentialBackoff, box_err, retry::sleep_async,
+    sys::thread::ThreadBuildWrapper, time::Instant,
 };
 use tokio::sync::mpsc;
 
 use crate::{
-    dfs,
+    EXTRA_CF,
+    Error::{
+        CompactionNotRetryable, FallbackLocalCompactorDisabled, IncompatibleRemoteCompactor,
+        RemoteCompaction, RemoteCompactorIsBusy, TableError,
+    },
+    Iterator, LOCK_CF, WRITE_CF, dfs,
     dfs::FileType,
     metrics::{ENGINE_COMPACTION_RESULT_COUNTER, ENGINE_COMPACTION_TRIGGER_COUNTER},
     table::{
+        BoundedDataSet, ChecksumType, DataBound, InnerKey, SnapVersion,
         blobtable::{
             blobtable::BlobTable,
             builder::{BlobTableBuildOptions, BlobTableBuilder},
@@ -62,19 +68,14 @@ use crate::{
         file::{File, InMemFile, LocalFile},
         get_local_dir,
         schema_file::SchemaFile,
-        sstable::{self, builder::TableBuilderOptions, BlockCache, L0Builder, SsTable},
+        sstable::{self, BlockCache, L0Builder, SsTable, builder::TableBuilderOptions},
         vector_index::{VectorIndexBuildOptions, VectorIndexBuilder},
-        BoundedDataSet, ChecksumType, DataBound, InnerKey, SnapVersion,
     },
     table_id::{get_table_id_from_data_bound, is_bound_overlap_with_table_ids},
     util::{
         new_blob_create_pb, new_columnar_create_pb, new_table_create_pb, new_vector_index_file_pb,
     },
-    Error::{
-        CompactionNotRetryable, FallbackLocalCompactorDisabled, IncompatibleRemoteCompactor,
-        RemoteCompaction, RemoteCompactorIsBusy, TableError,
-    },
-    Iterator, EXTRA_CF, LOCK_CF, WRITE_CF, *,
+    *,
 };
 
 const MAJOR_COMPACTION_MIN_REQUEST_VERSION: u32 = 3;
@@ -1529,7 +1530,7 @@ impl Engine {
         let scf = data.get_cf(cf as usize);
         let upper_level = &scf.levels[level - 1];
         let lower_level = &scf.levels[level];
-        if upper_level.tables.len() == 0 {
+        if upper_level.tables.is_empty() {
             info!("{} no upper level {} table", tag, level - 1);
             return None;
         }
@@ -5514,7 +5515,7 @@ impl CompactRunner {
                     let tag = ShardTag::new(self.engine.get_engine_id(), id_ver);
                     info!("{} compaction paused", tag; "seq" => seq, "old_seq" => ?old_seq);
                     debug_assert!(
-                        old_seq.map_or(true, |old| old <= seq),
+                        old_seq.is_none_or(|old| old <= seq),
                         "{}: compaction paused old_seq {:?} > seq {}",
                         tag,
                         old_seq,

@@ -4,12 +4,12 @@ mod chunk;
 
 use test::Bencher;
 use tidb_query_datatype::{
+    FieldTypeTp,
     codec::{
         chunk::{Chunk, ChunkEncoder},
         datum::Datum,
         mysql::*,
     },
-    FieldTypeTp,
 };
 use tipb::FieldType;
 

@@ -6,7 +6,7 @@ use api_version::ApiV2;
 use bytes::Bytes;
 use cloud_worker::get_keyspace_stats_from_store;
 use codec::number::NumberEncoder;
-use hyper::{http, Body};
+use hyper::{Body, http};
 use kvengine::table::{
     columnar::{new_int_handle_column_info, new_version_column_info},
     schema_file::{Schema, SchemaBuf, SchemaFile},
@@ -19,7 +19,7 @@ use log_wrappers::Value;
 use rfstore::store::RegionIdVer;
 use schema::schema::StorageClassSpec;
 use security::{SecurityConfig, SecurityManager};
-use tidb_query_datatype::{codec::table::TABLE_PREFIX, Collation, FieldTypeTp};
+use tidb_query_datatype::{Collation, FieldTypeTp, codec::table::TABLE_PREFIX};
 use tikv::storage::mvcc::Key;
 use tikv_util::{
     codec::bytes::{decode_bytes, encode_bytes},

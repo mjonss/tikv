@@ -335,7 +335,7 @@ pub mod test_util {
     use raft_proto::{eraftpb, eraftpb::EntryType};
     use tikv_util::time::Instant;
 
-    use crate::{region_state_key, RfEngine, WriteBatch};
+    use crate::{RfEngine, WriteBatch, region_state_key};
 
     static INIT: Once = Once::new();
 

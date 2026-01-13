@@ -1,7 +1,7 @@
 // Copyright 2022 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    sync::{mpsc, Arc},
+    sync::{Arc, mpsc},
     thread,
     time::Duration,
 };
@@ -11,7 +11,7 @@ use grpcio::EnvBuilder;
 use kvproto::metapb::*;
 use pd_client::{PdClientV2, RegionInfo, RpcClientV2};
 use security::{SecurityConfig, SecurityManager};
-use test_pd::{mocker::*, util::*, Server as MockServer};
+use test_pd::{Server as MockServer, mocker::*, util::*};
 use tikv_util::config::ReadableDuration;
 
 fn new_test_server_and_client(
@@ -69,8 +69,8 @@ fn test_pd_client_deadlock() {
         request!(client => block_on(get_gc_safe_point())),
         request!(client => block_on(get_store_and_stats(0))),
         request!(client => get_operator(0)),
-        request!(client => load_global_config_by_names(vec![])),
-        request!(client => load_global_config_by_path("".to_string())),
+        request!(client => block_on(load_global_config_by_names(vec![]))),
+        request!(client => block_on(load_global_config_by_path("".to_string()))),
     ];
 
     for (name, func) in test_funcs {

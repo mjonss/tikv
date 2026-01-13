@@ -3,9 +3,9 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use clara_fts::test_util::{make_unscored_query, PlainFtsQueryInfo};
+use clara_fts::test_util::{PlainFtsQueryInfo, make_unscored_query};
 
-use super::{lp_key, merge_fts_l0_l1, PackedFileMergeOpt};
+use super::{PackedFileMergeOpt, lp_key, merge_fts_l0_l1};
 use crate::table::fts::{
     dedicated_file::{DedicatedFile, DedicatedFileBuilderOptions, EDedicatedFile},
     iter::{IntPk, OrderedPkIterator, PkReader, PkType},

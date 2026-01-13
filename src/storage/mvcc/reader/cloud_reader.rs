@@ -1,7 +1,7 @@
 // Copyright 2022 TiKV Project Authors. Licensed under Apache-2.0.
 
 use bytes::Bytes;
-use kvengine::{UserMeta, EXTRA_CF, LOCK_CF, WRITE_CF};
+use kvengine::{EXTRA_CF, LOCK_CF, UserMeta, WRITE_CF};
 use txn_types::{Key, Lock, OldValue, TimeStamp, Value, Write, WriteType};
 
 use crate::storage::mvcc::{Result, TxnCommitRecord};

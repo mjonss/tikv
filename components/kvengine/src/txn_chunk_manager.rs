@@ -6,15 +6,15 @@ use std::{
     ops::Deref,
     path::PathBuf,
     sync::{
-        atomic::{AtomicI64, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicI64, AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use bytes::{Buf, Bytes};
 use cloud_encryption::EncryptionKey;
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 use futures::executor::block_on;
 use regex::Regex;
 use tikv_util::{
@@ -26,18 +26,17 @@ use tikv_util::{
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 
 use crate::{
-    dfs,
+    Error, Result, dfs,
     dfs::{Dfs, FileType},
     error::IoContext,
     table,
     table::{
+        TxnCtx, TxnFile, TxnFileId,
         file::{FdCache, InMemFile, LocalFile},
         get_local_dir,
         sstable::BlockCache,
         txn_file::TxnChunk,
-        TxnCtx, TxnFile, TxnFileId,
     },
-    Error, Result,
 };
 
 const READ_DFS_CONCURRENCY: usize = 4;
@@ -622,7 +621,7 @@ mod tests {
     use super::*;
     use crate::{
         dfs::InMemFs,
-        table::{sstable::BlockCacheType, InnerKey, TxnChunkBuilder, OP_PUT},
+        table::{InnerKey, OP_PUT, TxnChunkBuilder, sstable::BlockCacheType},
     };
 
     #[rstest]

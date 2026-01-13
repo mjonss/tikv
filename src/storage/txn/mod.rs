@@ -28,9 +28,9 @@ pub use self::{
         acquire_pessimistic_lock::{acquire_pessimistic_lock, acquire_pessimistic_lock_async},
         cleanup::{cleanup, cleanup_async},
         commit::{commit, commit_async},
-        prewrite::{prewrite, prewrite_async, CommitKind, TransactionKind, TransactionProperties},
+        prewrite::{CommitKind, TransactionKind, TransactionProperties, prewrite, prewrite_async},
     },
-    cloud_store::{check_locks, CloudStore, CloudStoreScanner},
+    cloud_store::{CloudStore, CloudStoreScanner, check_locks},
     commands::{Command, RESOLVE_LOCK_BATCH_SIZE},
     latch::{Latches, Lock},
     region_latch::GlobalLatches,
@@ -41,9 +41,9 @@ pub use self::{
     },
 };
 use crate::storage::{
+    Error as StorageError, Result as StorageResult,
     mvcc::Error as MvccError,
     types::{MvccInfo, PessimisticLockResults, PrewriteResult, SecondaryLocksStatus, TxnStatus},
-    Error as StorageError, Result as StorageResult,
 };
 
 /// Process result of a command.

@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use collections::HashSet;
 use kvproto::{kvrpcpb::ApiVersion, raft_cmdpb::*};
-use raftstore::{store::*, Result};
+use raftstore::{Result, store::*};
 use test_pd_client::TestPdClient;
 use tikv_util::time::ThreadReadId;
 

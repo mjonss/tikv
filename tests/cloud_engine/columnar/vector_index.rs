@@ -1,7 +1,7 @@
 // Copyright 2024 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 
@@ -9,7 +9,8 @@ use api_version::ApiV2;
 use dashmap::DashMap;
 use futures::executor::block_on;
 use kvengine::{
-    context::{new_meta_file_cache, IaCtx, PrepareType, SnapCtx},
+    SnapAccess,
+    context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
     dfs,
     dfs::{FileType, S3Fs},
     ia::{
@@ -18,31 +19,30 @@ use kvengine::{
     },
     table::{
         columnar::{
-            new_int_handle_column_info, new_version_column_info, Block, ColumnarFilterReader,
-            ColumnarMetaCache, VectorIndexDef,
+            Block, ColumnarFilterReader, ColumnarMetaCache, VectorIndexDef,
+            new_int_handle_column_info, new_version_column_info,
         },
         fts::{FtsCache, FtsDeltaCache},
-        schema_file::{build_schema_file, Schema, SchemaBuf},
+        schema_file::{Schema, SchemaBuf, build_schema_file},
         sstable::BlockCache,
-        vector_index::{VectorIndexCache, VectorIndexConfig, VIRTUAL_DISTANCE_COLUMN_ID},
+        vector_index::{VIRTUAL_DISTANCE_COLUMN_ID, VectorIndexCache, VectorIndexConfig},
     },
-    SnapAccess,
 };
 use pd_client::PdClient;
 use protobuf::Message;
 use schema::schema::StorageClassSpec;
 use test_cloud_server::{
+    ServerCluster,
     copr::{build_row_key, build_row_val},
     must_wait,
     oss::prepare_dfs,
-    ServerCluster,
 };
 use tidb_query_datatype::{
-    codec::table::{decode_int_handle, encode_row_key},
-    expr::EvalContext,
     FieldTypeAccessor, FieldTypeTp, VECTOR_INDEX_SPEC_KEY_DISTANCE_METRIC,
     VECTOR_INDEX_SPEC_KEY_DISTANCE_METRIC_VAL_COSINE, VECTOR_INDEX_SPEC_KEY_DISTANCE_METRIC_VAL_L2,
     VECTOR_INDEX_TYPE_VECTOR32_HNSW,
+    codec::table::{decode_int_handle, encode_row_key},
+    expr::EvalContext,
 };
 use tikv_util::memory::MemoryLimiter;
 use tipb::{AnnQueryInfo, ColumnInfo};
@@ -51,8 +51,8 @@ use txn_types::Key;
 use crate::{
     alloc_node_id,
     columnar::{
-        create_keyspace_and_split_tables, send_collect_columnar_index_stats_request,
-        send_schema_file_request, DelegateResponse,
+        DelegateResponse, create_keyspace_and_split_tables,
+        send_collect_columnar_index_stats_request, send_schema_file_request,
     },
     info, request_dump_snapshot_on_store,
 };

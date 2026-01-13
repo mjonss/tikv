@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cloud_encryption::EncryptionKey;
 use collections::HashSet;
-use kvengine::{ShardMeta, ENCRYPTION_KEY};
+use kvengine::{ENCRYPTION_KEY, ShardMeta};
 use kvproto::{
     raft_serverpb::{MergeState, PeerState, RaftMessage},
     *,
@@ -21,9 +21,9 @@ use raft_proto::{
 use raft_serverpb::RegionLocalState;
 use raftstore::store::{util, util::conf_state_from_region};
 use rfengine::{
-    self, raft_state_key, region_state_key, KV_ENGINE_META_DIFF_KEY, KV_ENGINE_META_KEY,
-    KV_ENGINE_META_SNAP_DIFF_KEY, RAFT_STATE_KEY_BYTE, RAFT_TRUNCATED_STATE_KEY,
-    REGION_META_KEY_PREFIX,
+    self, KV_ENGINE_META_DIFF_KEY, KV_ENGINE_META_KEY, KV_ENGINE_META_SNAP_DIFF_KEY,
+    RAFT_STATE_KEY_BYTE, RAFT_TRUNCATED_STATE_KEY, REGION_META_KEY_PREFIX, raft_state_key,
+    region_state_key,
 };
 use tikv_util::{box_err, debug, info, warn};
 
@@ -323,7 +323,7 @@ impl PeerStorage {
     pub(crate) fn initial_flushed(&self) -> bool {
         self.shard_meta
             .as_ref()
-            .map_or(false, |m| m.initial_flushed())
+            .is_some_and(|m| m.initial_flushed())
     }
 
     #[inline]

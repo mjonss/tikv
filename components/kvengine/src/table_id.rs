@@ -6,7 +6,7 @@ use std::{collections::HashSet, ops::Deref};
 
 use bytes::BufMut;
 use tidb_query_datatype::codec::table::{
-    decode_table_id, RECORD_PREFIX_SEP, TABLE_PREFIX, TABLE_PREFIX_KEY_LEN,
+    RECORD_PREFIX_SEP, TABLE_PREFIX, TABLE_PREFIX_KEY_LEN, decode_table_id,
 };
 use tikv_util::codec::number::NumberEncoder;
 

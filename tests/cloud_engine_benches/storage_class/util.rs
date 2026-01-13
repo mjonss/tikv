@@ -1,7 +1,7 @@
 // Copyright 2024 TiKV Project Authors. Licensed under Apache-2.0.
 
 use kvengine::SnapAccess;
-use rand::{thread_rng, RngCore as _};
+use rand::{RngCore as _, thread_rng};
 use tikv::storage::txn::CloudStoreScanner;
 use txn_types::{Key, TsSet};
 

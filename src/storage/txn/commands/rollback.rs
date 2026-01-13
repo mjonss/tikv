@@ -4,18 +4,17 @@
 use txn_types::{Key, ReqType, TimeStamp};
 
 use crate::storage::{
+    ProcessResult, Snapshot,
     kv::WriteData,
     lock_manager::LockManager,
     mvcc::{MvccTxn, SnapshotReader},
     txn::{
-        cleanup, cleanup_async,
+        Result, cleanup, cleanup_async,
         commands::{
             Command, CommandExt, ReaderWithStats, ReleasedLocks, ResponsePolicy, TypedCommand,
             WriteCommand, WriteContext, WriteResult,
         },
-        Result,
     },
-    ProcessResult, Snapshot,
 };
 
 command! {
@@ -83,7 +82,7 @@ impl<S: Snapshot + 'static, L: LockManager> WriteCommand<S, L> for Rollback {
 mod tests {
     use kvproto::kvrpcpb::PrewriteRequestPessimisticAction::*;
 
-    use crate::storage::{txn::tests::*, TestEngineBuilder};
+    use crate::storage::{TestEngineBuilder, txn::tests::*};
 
     #[test]
     fn rollback_lock_with_existing_rollback() {

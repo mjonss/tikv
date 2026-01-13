@@ -14,8 +14,8 @@ use futures::executor::block_on;
 use kvengine::table::OwnedInnerKey;
 use native_br::common::create_pd_client;
 use pd_client::{
-    pd_control::{PdControl, RegionInfo},
     PdClient,
+    pd_control::{PdControl, RegionInfo},
 };
 use security::{SecurityConfig, SecurityManager};
 use tidb_query_datatype::codec::table::decode_table_id;

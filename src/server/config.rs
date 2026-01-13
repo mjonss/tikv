@@ -1,6 +1,6 @@
 // Copyright 2016 TiKV Project Authors. Licensed under Apache-2.0.
 
-use std::{cmp, i32, isize, sync::Arc, time::Duration};
+use std::{cmp, sync::Arc, time::Duration};
 
 use collections::HashMap;
 use grpcio::{CompressionAlgorithms, ResourceQuota};

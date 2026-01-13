@@ -9,10 +9,11 @@ use raft_proto::eraftpb::Entry;
 use tikv_util::time::Instant;
 
 use crate::{
+    PeerStats, TRUNCATE_ALL_INDEX, WriteBatch,
     engine::PeerData,
     log_batch::RaftLogBlock,
     metrics::{ENGINE_APPLY_DURATION_HISTOGRAM, ENGINE_FETCH_ENTRIES_DURATION_HISTOGRAM},
-    region_state_key, PeerStats, WriteBatch, TRUNCATE_ALL_INDEX,
+    region_state_key,
 };
 
 #[derive(Default)]
@@ -267,7 +268,7 @@ impl RaftPeers {
                 .ok_or(engine_traits::Error::EntriesUnavailable)?;
             total_size += entry.compute_size() as usize;
             buf.push(entry);
-            if max_size.map_or(false, |s| total_size >= s) {
+            if max_size.is_some_and(|s| total_size >= s) {
                 // At least return one entry regardless of size limit.
                 break;
             }

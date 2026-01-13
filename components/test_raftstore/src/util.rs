@@ -2,13 +2,13 @@
 
 use std::{
     path::Path,
-    sync::{mpsc, Arc},
+    sync::{Arc, mpsc},
     thread,
     time::Duration,
 };
 
 use encryption_export::{FileConfig, MasterKeyConfig};
-use engine_rocks::{config::BlobRunMode, RocksEngine};
+use engine_rocks::{RocksEngine, config::BlobRunMode};
 use engine_traits::Peekable;
 use futures::executor::block_on;
 use grpcio::{ChannelBuilder, Environment};
@@ -25,11 +25,11 @@ use kvproto::{
 use pd_client::PdClient;
 use protobuf::RepeatedField;
 use raft::eraftpb::ConfChangeType;
-use raftstore::{store::*, Result};
+use raftstore::{Result, store::*};
 use test_pd_client::TestPdClient;
 use tikv::{config::*, storage::point_key_range};
 pub use tikv_util::store::{find_peer, new_learner_peer, new_peer};
-use tikv_util::{config::*, escape, time::ThreadReadId, HandyRwLock};
+use tikv_util::{HandyRwLock, config::*, escape, time::ThreadReadId};
 use txn_types::Key;
 
 use crate::{Cluster, Config, ServerCluster, Simulator};

@@ -5,7 +5,8 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use codec::prelude::NumberEncoder;
 use futures::executor::block_on;
 use kvengine::{
-    context::{new_meta_file_cache, IaCtx, PrepareType, SnapCtx},
+    ShardStats, SnapAccess, WRITE_CF,
+    context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
     dfs::S3Fs,
     ia::{
         manager::IaManager,
@@ -16,8 +17,7 @@ use kvengine::{
         fts::{FtsCache, FtsDeltaCache},
         sstable::{BlockCache, BlockCacheType},
     },
-    txn_chunk_manager::{with_pool_size, TxnChunkManager, TxnChunkManagerConfig},
-    ShardStats, SnapAccess, WRITE_CF,
+    txn_chunk_manager::{TxnChunkManager, TxnChunkManagerConfig, with_pool_size},
 };
 use kvproto::{
     coprocessor::{self as coppb, Request},
@@ -29,18 +29,18 @@ use rstest::rstest;
 use security::SecurityConfig;
 use tempfile::TempDir;
 use test_cloud_server::{
-    client::{ClusterClient, ClusterClientOptions, TxnMutations, TxnWriteMethod},
-    oss::{prepare_dfs, ObjectStorageService},
-    util::Mutation,
     ServerCluster, ServerClusterBuilder, TikvWorkerOptions,
+    client::{ClusterClient, ClusterClientOptions, TxnMutations, TxnWriteMethod},
+    oss::{ObjectStorageService, prepare_dfs},
+    util::Mutation,
 };
 use test_coprocessor::{
-    next_id, offset_for_column, Column, ColumnBuilder, DagChunkSpliter, DagSelect, Table,
-    TableBuilder, TYPE_LONG, TYPE_VAR_CHAR,
+    Column, ColumnBuilder, DagChunkSpliter, DagSelect, TYPE_LONG, TYPE_VAR_CHAR, Table,
+    TableBuilder, next_id, offset_for_column,
 };
 use test_pd_client::PdWrapper;
 use tidb_query_datatype::{
-    codec::{datum, table, Datum},
+    codec::{Datum, datum, table},
     expr::EvalContext,
 };
 use tikv::coprocessor::{Error as CopError, REQ_TYPE_ANALYZE, REQ_TYPE_CHECKSUM, REQ_TYPE_DAG};

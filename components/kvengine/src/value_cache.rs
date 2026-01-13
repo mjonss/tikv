@@ -7,12 +7,12 @@ use std::{
 };
 
 use bytes::Bytes;
-use quick_cache::{sync::GuardResult, Equivalent};
+use quick_cache::{Equivalent, sync::GuardResult};
 
 use crate::{
+    SnapAccess, UserMeta,
     metrics::{ENGINE_VALUE_CACHE_CACHE_FILL, ENGINE_VALUE_CACHE_CACHE_HIT},
     table::{AtomicSnapVersion, InnerKey, OwnedInnerKey, SnapVersion},
-    SnapAccess, UserMeta,
 };
 
 // ValueCache caches the values in the engine.

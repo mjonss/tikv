@@ -7,15 +7,14 @@ use schema::schema::{StorageClass, StorageClassSpec, StorageClassTransitRule};
 use test_util::init_log_for_test;
 
 use crate::{
+    LOCK_CF, STORAGE_CLASS_KEY, Shard, ShardRange, StorageClassStats, WRITE_CF,
     ia::util::IaManagerOptionsBuilder,
     shard::{ShardCf, ShardCfBuilder, ShardDataBuilder},
     table::sstable::{BlockCache, L0Table},
     tests::{
-        new_l0table_file, new_table, new_test_engine_opt,
+        DEF_BLOCK_SIZE, new_l0table_file, new_table, new_test_engine_opt,
         test_ia_auto_file::convert_local_sst_to_auto, test_ia_file::convert_local_sst_to_ia,
-        DEF_BLOCK_SIZE,
     },
-    Shard, ShardRange, StorageClassStats, LOCK_CF, STORAGE_CLASS_KEY, WRITE_CF,
 };
 
 const KV_SIZE_PER_ENTRY: u64 = 27;

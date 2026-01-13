@@ -10,12 +10,12 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use kvproto::{coprocessor::KeyRange, metapb::Region};
 use tidb_query_common::{
+    Result,
     error::StorageError,
     storage::{
         FindRegionResult, IntervalRange, OwnedKvPair, PointRange, RegionStorageAccessor,
         Result as StorageResult, StateRole, Storage,
     },
-    Result,
 };
 use tidb_query_datatype::{
     codec::{batch::LazyBatchColumnVec, data_type::VectorValue},
@@ -278,7 +278,7 @@ impl MockRegionStorageAccessor {
     }
 
     pub fn with_regions_data(data: Vec<(Region, StateRole)>) -> Self {
-        assert!(data.is_sorted_by(|a, b| { a.0.start_key.partial_cmp(&b.0.start_key) }));
+        assert!(data.is_sorted_by(|a, b| { a.0.start_key.as_slice() <= b.0.start_key.as_slice() }));
         Self::Data(data)
     }
 

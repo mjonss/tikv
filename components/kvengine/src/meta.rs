@@ -8,12 +8,12 @@ use std::{
 };
 
 use api_version::{
-    api_v2::{is_whole_keyspace_range, KEYSPACE_PREFIX_LEN},
     ApiV2,
+    api_v2::{KEYSPACE_PREFIX_LEN, is_whole_keyspace_range},
 };
 use bytes::{Buf, Bytes};
 use kvenginepb as pb;
-use kvenginepb::{get_any_snap_from_changeset, SchemaMeta, TxnFileRef, VectorIndex};
+use kvenginepb::{SchemaMeta, TxnFileRef, VectorIndex, get_any_snap_from_changeset};
 use protobuf::Message;
 use schema::schema::StorageClassSpec;
 use slog_global::*;
@@ -26,7 +26,7 @@ use crate::{
     table_id::{
         get_table_id_from_data_bound, get_table_id_from_ingest_files, merge_columnar_table_ids,
     },
-    util::{is_matched_vector_index, is_same_vector_index, TxnFileLocks, TxnFileRefPropertyHelper},
+    util::{TxnFileLocks, TxnFileRefPropertyHelper, is_matched_vector_index, is_same_vector_index},
 };
 
 #[derive(Default, Clone, Debug)]
@@ -666,8 +666,7 @@ impl ShardMeta {
     )> {
         let ingest_tables = ingest_files.get_table_creates();
         // Ingest tables should be sorted, but we still check here for safety.
-        let is_sorted =
-            ingest_tables.is_sorted_by(|x, y| x.lower_bound().partial_cmp(&y.lower_bound()));
+        let is_sorted = ingest_tables.is_sorted_by(|x, y| x.lower_bound() <= y.lower_bound());
 
         // Ingest files of load data will be in bottom level of WRITE_CF only.
         for (&existed_file_id, existed_file) in self.files.iter().filter(|(_, f)| {
@@ -1755,12 +1754,6 @@ pub fn new_change_set(shard_id: u64, shard_ver: u64) -> pb::ChangeSet {
 }
 
 pub const GLOBAL_SHARD_END_KEY: &[u8] = &[255, 255, 255, 255, 255, 255, 255, 255];
-
-trait MetaReader {
-    fn iterate_meta<F>(&self, f: F) -> Result<()>
-    where
-        F: Fn(&pb::ChangeSet) -> Result<()>;
-}
 
 #[derive(Default, Clone, Debug)]
 pub struct SchemaFileMeta {

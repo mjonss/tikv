@@ -10,8 +10,8 @@ use std::{
     os::unix::fs::FileExt,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -29,6 +29,7 @@ use tikv_util::{
 use tokio::task::JoinHandle;
 
 use crate::{
+    Error, MAX_EPOCH_BACKWARD, Result, WalChunkMeta,
     compact_worker::CompactTask,
     compress_lz4, decompress_lz4, decompress_lz4_to_buffer,
     engine::get_delayed_to_epoch_id,
@@ -39,7 +40,6 @@ use crate::{
     parse_delayed_to_epoch_from_snapshot_key, snapshot_store_meta_key, wal_chunk_file_key,
     wal_chunk_file_prefix, wal_file_name,
     writer::EPOCH_SNAPSHOT_LEN,
-    Error, Result, WalChunkMeta, MAX_EPOCH_BACKWARD,
 };
 
 #[derive(Debug)]

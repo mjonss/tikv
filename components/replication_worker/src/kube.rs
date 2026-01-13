@@ -4,21 +4,21 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use k8s_openapi::{
+    Metadata,
     api::{
         apps::v1::StatefulSet,
         core::v1::{EnvVar, PersistentVolumeClaim, Service, ServicePort, ServiceSpec},
     },
     apimachinery::pkg::{apis::meta::v1::ObjectMeta, util::intstr::IntOrString},
-    Metadata,
 };
-use kube::{api::PostParams, Api};
+use kube::{Api, api::PostParams};
 use pd_client::PdClient;
 use security::SecurityConfig;
 use tikv_util::{box_try, info, warn};
 
 use crate::{
-    bootstrap, util::new_keyspace_pd_client, Error, KeyspaceService, KeyspaceStates,
-    ReplicationWorkerConfig, Result,
+    Error, KeyspaceService, KeyspaceStates, ReplicationWorkerConfig, Result, bootstrap,
+    util::new_keyspace_pd_client,
 };
 
 pub(crate) const K8S_LABEL_NAME: &str = "app.kubernetes.io/name";

@@ -74,6 +74,7 @@ pub struct ChangefeedRequest {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 struct ErrorInfo {
     addr: String,
     code: String,
@@ -81,6 +82,7 @@ struct ErrorInfo {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 struct TaskStatus {
     capture_id: String,
     table_ids: Vec<u64>,

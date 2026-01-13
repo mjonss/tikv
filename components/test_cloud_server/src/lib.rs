@@ -1,7 +1,6 @@
 // Copyright 2022 TiKV Project Authors. Licensed under Apache-2.0.
 
 #![feature(slice_pattern)]
-#![feature(extract_if)]
 #![feature(assert_matches)]
 
 pub mod client;
@@ -31,7 +30,7 @@ lazy_static::lazy_static! {
     static ref NODE_ALLOCATOR: AtomicU16 = AtomicU16::new(1);
 
     // Ref: https://nexte.st/docs/configuration/env-vars/?h=env#environment-variables-nextest-sets
-    static ref IN_NEXTEST: bool = std::env::var("NEXTEST").map_or(false, |x| x == "1");
+    static ref IN_NEXTEST: bool = std::env::var("NEXTEST").is_ok_and(|x| x == "1");
 }
 
 pub fn alloc_node_id() -> u16 {
@@ -59,11 +58,11 @@ fn random_alloc_node_id() -> u16 {
         sync::Mutex,
     };
 
-    use libc::{fcntl, flock, F_SETLK, F_WRLCK, SEEK_SET};
+    use libc::{F_SETLK, F_WRLCK, SEEK_SET, fcntl, flock};
     use rand::Rng;
 
     lazy_static::lazy_static! {
-        static ref LOCK_FILE: File = OpenOptions::new().read(true).create(true).write(true).open(std::env::temp_dir().join("cse-alloc-node-id.lock")).unwrap();
+        static ref LOCK_FILE: File = OpenOptions::new().read(true).create(true).truncate(false).write(true).open(std::env::temp_dir().join("cse-alloc-node-id.lock")).unwrap();
         static ref ALLOCATED_NODE_IDS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
     }
     let fd = LOCK_FILE.as_raw_fd();

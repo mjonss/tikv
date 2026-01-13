@@ -10,7 +10,7 @@ mod util;
 use std::{
     cmp,
     collections::{
-        hash_map::Entry as HashMapEntry, HashMap as StdHashMap, HashSet as StdHashSet, VecDeque,
+        HashMap as StdHashMap, HashSet as StdHashSet, VecDeque, hash_map::Entry as HashMapEntry,
     },
     fmt, fs, io, mem, ops,
     path::{Path, PathBuf},
@@ -26,11 +26,11 @@ use collections::{HashMap, HashMapExt, HashSet};
 pub use error::{Error, Result};
 use file_system::{IoRateLimitMode, IoRateLimiter};
 use kvengine::{
+    IdVer, MetaIterator, Shard, ShardMeta, ShardTag, TERM_KEY,
     dfs::Dfs,
     ia::util::IaConfig,
     limiter::StoreLimiter,
     table::tiny_meta::{CompactKeeper, MetaPackConfig, MetaPacker},
-    IdVer, MetaIterator, Shard, ShardMeta, ShardTag, TERM_KEY,
 };
 use kvenginepb::ChangeSet;
 use kvproto::{
@@ -42,8 +42,8 @@ use kvproto::{
 use log_wrappers::Value as LogValue;
 use native_br::{
     common::{
-        collect_snapshot_meta_rlog_files, get_latest_backup_meta, replay_wal_logs_from_backup,
-        ReplayWalLogsContext,
+        ReplayWalLogsContext, collect_snapshot_meta_rlog_files, get_latest_backup_meta,
+        replay_wal_logs_from_backup,
     },
     error::Error as BrError,
 };
@@ -51,19 +51,20 @@ use pd_client::PdClient;
 use protobuf::Message;
 use raft_proto::{eraftpb, eraftpb::Entry};
 use rfengine::{
-    iterator::WalIterator, raft_state_key, region_state_key, RaftLogOp, RfEngine, WriteBatch,
-    TRUNCATE_ALL_INDEX,
+    RaftLogOp, RfEngine, TRUNCATE_ALL_INDEX, WriteBatch, iterator::WalIterator, raft_state_key,
+    region_state_key,
 };
 use rfenginepb::{ClusterBackupMeta, StoreBackupMeta};
 use rfstore::{
-    store::{
-        get_preprocess_cmd, is_region_initialized, load_last_raft_state_from_wb, rlog,
-        state::{RaftApplyState, RaftState},
-        write_engine_meta, AffectMemtable, Applier, ApplyContext, ApplyMsgs, MetaChangeListener,
-        PdIdAllocator, PeerMsg, PeerTag, PreprocessContext, PreprocessRef, RecoverHandler,
-        RegionIdVer, StoreMsg, RAFT_INIT_LOG_INDEX,
-    },
     RaftRouter,
+    store::{
+        AffectMemtable, Applier, ApplyContext, ApplyMsgs, MetaChangeListener, PdIdAllocator,
+        PeerMsg, PeerTag, PreprocessContext, PreprocessRef, RAFT_INIT_LOG_INDEX, RecoverHandler,
+        RegionIdVer, StoreMsg, get_preprocess_cmd, is_region_initialized,
+        load_last_raft_state_from_wb, rlog,
+        state::{RaftApplyState, RaftState},
+        write_engine_meta,
+    },
 };
 use security::SecurityConfig;
 use serde_derive::{Deserialize, Serialize};

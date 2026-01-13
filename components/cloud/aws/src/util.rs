@@ -8,7 +8,7 @@ use std::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use cloud::metrics;
-use futures::{future::TryFutureExt, Future};
+use futures::{Future, future::TryFutureExt};
 use rusoto_core::{
     region::Region,
     request::{HttpClient, HttpConfig},
@@ -18,7 +18,7 @@ use rusoto_credential::{
 };
 use rusoto_sts::WebIdentityProvider;
 use tikv_util::{
-    stream::{retry_ext, RetryError, RetryExt},
+    stream::{RetryError, RetryExt, retry_ext},
     warn,
 };
 

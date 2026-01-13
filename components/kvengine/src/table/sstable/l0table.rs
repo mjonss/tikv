@@ -9,13 +9,12 @@ use kvenginepb::L0Create;
 
 use super::*;
 use crate::{
-    max_ts_by_cf,
+    NUM_CFS, WRITE_CF, max_ts_by_cf,
     table::{
-        blobtable::BlobRef, file::File, table::Result, BoundedDataSet, ChecksumType, DataBound,
-        Error, InnerKey, SnapVersion, Value, NO_COMPRESSION,
+        BoundedDataSet, ChecksumType, DataBound, Error, InnerKey, NO_COMPRESSION, SnapVersion,
+        Value, blobtable::BlobRef, file::File, table::Result,
     },
     util::new_l0_create_pb,
-    NUM_CFS, WRITE_CF,
 };
 
 const L0_FOOTER_SIZE: usize = std::mem::size_of::<L0Footer>();

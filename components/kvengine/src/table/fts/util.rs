@@ -3,8 +3,8 @@
 use std::borrow::Cow;
 
 use tidb_query_datatype::{
-    codec::collation::{encoding::*, Encoding},
     Collation, FieldTypeAccessor,
+    codec::collation::{Encoding, encoding::*},
 };
 use tipb::ColumnInfo;
 

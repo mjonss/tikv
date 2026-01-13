@@ -6,12 +6,14 @@ use std::{
     io::Cursor,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bytes::Bytes;
 
-use super::merge_utils::{compute_merge_mapping, merge_tantivy_indexes, MergeMapping};
+use super::merge_utils::{MergeMapping, compute_merge_mapping, merge_tantivy_indexes};
 use crate::table::{
+    SnapVersion,
     fts::{
+        IntPk,
         dedicated_file::{
             DedicatedFileBuildSummary, DedicatedFileBuilder, DedicatedFileBuilderOptions,
         },
@@ -20,9 +22,7 @@ use crate::table::{
             EPackedFileLp, PackedFile, PackedFileBuildSummary, PackedFileBuilder,
             PackedFileBuilderOptions,
         },
-        IntPk,
     },
-    SnapVersion,
 };
 
 /// Options for merging FTS PackedFiles.

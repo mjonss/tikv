@@ -6,8 +6,8 @@ use std::{
     os::unix::fs::{FileExt, MetadataExt},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering::Relaxed},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
 
@@ -339,7 +339,7 @@ impl File for LocalFile {
     ) -> table::Result<(Bytes, FileMmapGuard)> {
         if offset
             .checked_add(length as u64)
-            .map_or(true, |end| end > self.size)
+            .is_none_or(|end| end > self.size)
         {
             return Err(table::Error::InvalidFileSize);
         }
@@ -475,7 +475,7 @@ impl File for InMemFile {
     ) -> table::Result<(Bytes, FileMmapGuard)> {
         if offset
             .checked_add(length as u64)
-            .map_or(true, |end| end > self.size)
+            .is_none_or(|end| end > self.size)
         {
             return Err(table::Error::InvalidFileSize);
         }

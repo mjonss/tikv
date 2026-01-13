@@ -3,14 +3,14 @@
 use std::io::{Read, Write};
 
 pub use cloud::kms::Config as CloudConfig;
-#[cfg(feature = "cloud-aws")]
-use encryption_export::{create_cloud_backend, KmsConfig};
 use encryption_export::{Backend, Error, Result};
+#[cfg(feature = "cloud-aws")]
+use encryption_export::{KmsConfig, create_cloud_backend};
 use file_system::{File, OpenOptions};
 use ini::ini::Ini;
 use kvproto::encryptionpb::EncryptedContent;
 use protobuf::Message;
-use structopt::{clap::arg_enum, StructOpt};
+use structopt::{StructOpt, clap::arg_enum};
 use tikv_util::box_err;
 
 arg_enum! {

@@ -19,8 +19,8 @@ use std::{
     mem::MaybeUninit,
     ops::DerefMut,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };

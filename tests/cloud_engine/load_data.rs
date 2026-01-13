@@ -16,12 +16,12 @@ use log_wrappers::hex;
 use pd_client::PdClient;
 use protobuf::Message;
 use test_cloud_server::{
+    ServerCluster,
     client::{RefStore, RequestOptions},
     load_data::{
-        build, cleanup, init_task, put_chunks, Error as LoadDataError, Result as LoadDataResult,
+        Error as LoadDataError, Result as LoadDataResult, build, cleanup, init_task, put_chunks,
     },
     oss::ObjectStorageService,
-    ServerCluster,
 };
 use tidb_query_datatype::codec::table;
 use tikv::config::TikvConfig;

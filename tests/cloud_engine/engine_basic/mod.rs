@@ -17,9 +17,9 @@ use pd_client::PdClient;
 use protobuf::Message;
 use replication_worker::CdcApplyObserver;
 use rfstore::store::ApplyContext;
-use test_cloud_server::{client::TxnMutations, must_wait, try_wait, util::Mutation, ServerCluster};
+use test_cloud_server::{ServerCluster, client::TxnMutations, must_wait, try_wait, util::Mutation};
 use test_util::init_log_for_test;
-use tikv::storage::{txn::CloudStoreScanner, Scanner};
+use tikv::storage::{Scanner, txn::CloudStoreScanner};
 use tikv_util::{codec::bytes::encode_bytes, config::ReadableSize};
 use txn_types::{Key, TsSet};
 

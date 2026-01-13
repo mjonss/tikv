@@ -4,8 +4,8 @@ use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicBool, Ordering::Relaxed},
         Arc, RwLock,
+        atomic::{AtomicBool, Ordering::Relaxed},
     },
     time::Duration,
 };

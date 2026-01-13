@@ -7,8 +7,8 @@ use tipb::FieldType;
 
 use super::*;
 use crate::{
-    codec::collation::Collator, match_template_collator, match_template_evaltype, Collation,
-    EvalType, FieldTypeAccessor,
+    Collation, EvalType, FieldTypeAccessor, codec::collation::Collator, match_template_collator,
+    match_template_evaltype,
 };
 
 /// A scalar value container, a.k.a. datum, for all concrete eval types.
@@ -208,7 +208,7 @@ pub enum ScalarValueRef<'a> {
     VectorFloat32(Option<VectorFloat32Ref<'a>>),
 }
 
-impl<'a> ScalarValueRef<'a> {
+impl ScalarValueRef<'_> {
     #[inline]
     #[allow(clippy::clone_on_copy)]
     pub fn to_owned(self) -> ScalarValue {
@@ -419,9 +419,9 @@ macro_rules! impl_as_ref {
             }
         }
 
-        impl<'a> ScalarValueRef<'a> {
+        impl ScalarValueRef<'_> {
             #[inline]
-            pub fn $name(&'a self) -> Option<&'a $ty> {
+            pub fn $name(&self) -> Option<&$ty> {
                 Evaluable::borrow_scalar_value_ref(*self)
             }
         }
@@ -446,14 +446,14 @@ impl ScalarValue {
     }
 }
 
-impl<'a> ScalarValueRef<'a> {
+impl ScalarValueRef<'_> {
     #[inline]
-    pub fn as_json(&'a self) -> Option<JsonRef<'a>> {
+    pub fn as_json(&self) -> Option<JsonRef<'_>> {
         EvaluableRef::borrow_scalar_value_ref(*self)
     }
 
     #[inline]
-    pub fn as_vector_float32(&'a self) -> Option<VectorFloat32Ref<'a>> {
+    pub fn as_vector_float32(&self) -> Option<VectorFloat32Ref<'_>> {
         EvaluableRef::borrow_scalar_value_ref(*self)
     }
 }
@@ -465,21 +465,21 @@ impl ScalarValue {
     }
 }
 
-impl<'a> ScalarValueRef<'a> {
+impl ScalarValueRef<'_> {
     #[inline]
-    pub fn as_bytes(&'a self) -> Option<BytesRef<'a>> {
+    pub fn as_bytes(&self) -> Option<BytesRef<'_>> {
         EvaluableRef::borrow_scalar_value_ref(*self)
     }
 }
 
-impl<'a> Ord for ScalarValueRef<'a> {
+impl Ord for ScalarValueRef<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other)
             .expect("Cannot compare two ScalarValueRef in different type")
     }
 }
 
-impl<'a> PartialOrd for ScalarValueRef<'a> {
+impl PartialOrd for ScalarValueRef<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match_template_evaltype! {
             TT, match (self, other) {
@@ -492,13 +492,13 @@ impl<'a> PartialOrd for ScalarValueRef<'a> {
     }
 }
 
-impl<'a> PartialEq<ScalarValue> for ScalarValueRef<'a> {
+impl PartialEq<ScalarValue> for ScalarValueRef<'_> {
     fn eq(&self, other: &ScalarValue) -> bool {
         self == &other.as_scalar_value_ref()
     }
 }
 
-impl<'a> PartialEq<ScalarValueRef<'a>> for ScalarValue {
+impl PartialEq<ScalarValueRef<'_>> for ScalarValue {
     fn eq(&self, other: &ScalarValueRef<'_>) -> bool {
         other == self
     }

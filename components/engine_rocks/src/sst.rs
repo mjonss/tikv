@@ -2,13 +2,13 @@
 
 use std::sync::Arc;
 
-use engine_traits::{Error, IterOptions, Result, SstCompressionType, SstMetaInfo, CF_DEFAULT};
+use engine_traits::{CF_DEFAULT, Error, IterOptions, Result, SstCompressionType, SstMetaInfo};
 use fail::fail_point;
 use kvproto::import_sstpb::SstMeta;
 use rocksdb::{
-    rocksdb::supported_compression, ColumnFamilyOptions, DBCompressionType, DBIterator, Env,
-    EnvOptions, ExternalSstFileInfo as RawExternalSstFileInfo, SequentialFile, SstFileReader,
-    SstFileWriter, DB,
+    ColumnFamilyOptions, DB, DBCompressionType, DBIterator, Env, EnvOptions,
+    ExternalSstFileInfo as RawExternalSstFileInfo, SequentialFile, SstFileReader, SstFileWriter,
+    rocksdb::supported_compression,
 };
 
 use crate::{engine::RocksEngine, options::RocksReadOptions, r2e};

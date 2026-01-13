@@ -14,16 +14,16 @@ use test_coprocessor::*;
 use test_raftstore::{Cluster, ServerCluster};
 use test_storage::*;
 use tidb_query_datatype::{
-    codec::{datum, table::encode_row_key, Datum},
-    expr::EvalContext,
     FieldTypeTp,
+    codec::{Datum, datum, table::encode_row_key},
+    expr::EvalContext,
 };
 use tikv::{
     coprocessor::{REQ_TYPE_ANALYZE, REQ_TYPE_CHECKSUM},
     server::Config,
     storage::TestEngineBuilder,
 };
-use tikv_kv::{destroy_tls_engine, set_tls_engine, with_tls_engine, RocksEngine};
+use tikv_kv::{RocksEngine, destroy_tls_engine, set_tls_engine, with_tls_engine};
 use tikv_util::{codec::number::*, config::ReadableSize};
 use tipb::{
     AnalyzeColumnsReq, AnalyzeReq, AnalyzeType, ChecksumRequest, Chunk, Expr, ExprType,
@@ -170,7 +170,7 @@ fn test_stream_batch_row_limit() {
 
     let resps = handle_streaming_select(&endpoint, req, check_range);
     assert_eq!(resps.len(), 3);
-    let expected_output_counts = vec![vec![2_i64], vec![2_i64], vec![1_i64]];
+    let expected_output_counts = [vec![2_i64], vec![2_i64], vec![1_i64]];
     for (i, resp) in resps.into_iter().enumerate() {
         let mut chunk = Chunk::default();
         chunk.merge_from_bytes(resp.get_data()).unwrap();

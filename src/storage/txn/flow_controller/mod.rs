@@ -93,8 +93,7 @@ impl FlowControlHelper {
     }
 
     pub fn enabled(&self) -> bool {
-        self.flow_controller.enabled()
-            || self.region_limiter.as_ref().map_or(false, |s| s.enabled())
+        self.flow_controller.enabled() || self.region_limiter.as_ref().is_some_and(|s| s.enabled())
     }
 
     pub fn is_unlimited(&self) -> bool {
@@ -102,7 +101,7 @@ impl FlowControlHelper {
             && self
                 .region_limiter
                 .as_ref()
-                .map_or(true, |s| s.is_unlimited(self.region_id))
+                .is_none_or(|s| s.is_unlimited(self.region_id))
     }
 
     pub fn consume(&self) -> Duration {

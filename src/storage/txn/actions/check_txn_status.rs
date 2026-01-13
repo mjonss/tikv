@@ -4,12 +4,12 @@
 use txn_types::{Key, Lock, TimeStamp, Write, WriteType};
 
 use crate::storage::{
+    Snapshot, TxnStatus,
     mvcc::{
-        metrics::MVCC_CHECK_TXN_STATUS_COUNTER_VEC, reader::OverlappedWrite, ErrorInner, LockType,
-        MvccTxn, ReleasedLock, Result, SnapshotReader, TxnCommitRecord,
+        ErrorInner, LockType, MvccTxn, ReleasedLock, Result, SnapshotReader, TxnCommitRecord,
+        metrics::MVCC_CHECK_TXN_STATUS_COUNTER_VEC, reader::OverlappedWrite,
     },
     txn::commands::{find_mvcc_infos_by_key, find_mvcc_infos_by_key_async},
-    Snapshot, TxnStatus,
 };
 
 // Check whether there's an overlapped write record, and then perform rollback.

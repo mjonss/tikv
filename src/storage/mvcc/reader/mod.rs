@@ -9,7 +9,7 @@ use txn_types::{TimeStamp, Write, WriteType};
 #[cfg(test)]
 pub use self::reader::tests as reader_tests;
 pub use self::{
-    cloud_reader::{parse_write, CloudReader},
+    cloud_reader::{CloudReader, parse_write},
     reader::{MvccReader, SnapshotReader},
     scanner::{has_data_in_range, has_data_in_range_async},
 };

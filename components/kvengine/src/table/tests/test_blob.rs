@@ -4,10 +4,10 @@ use std::{mem::size_of, sync::Arc};
 
 use super::*;
 use crate::table::{
-    blobtable::{blobtable::BlobTable, builder::BlobTableBuilder, BlobRef},
-    file::InMemFile,
-    sstable::{test_util::*, SsTable},
     Iterator,
+    blobtable::{BlobRef, blobtable::BlobTable, builder::BlobTableBuilder},
+    file::InMemFile,
+    sstable::{SsTable, test_util::*},
 };
 
 #[cfg(test)]

@@ -8,11 +8,11 @@ use raftstore::{
     errors::{Error as RaftStoreError, Result as RaftStoreResult},
     router::RaftStoreRouter,
     store::{
-        msg::{PeerMsg, SignificantMsg},
         SignificantRouter,
+        msg::{PeerMsg, SignificantMsg},
     },
 };
-use tikv_util::mpsc::{loose_bounded, LooseBoundedSender, Receiver};
+use tikv_util::mpsc::{LooseBoundedSender, Receiver, loose_bounded};
 
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]

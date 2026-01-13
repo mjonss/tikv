@@ -3,7 +3,7 @@
 use std::{
     cmp,
     collections::{HashMap, VecDeque},
-    mem, u64, usize,
+    mem,
 };
 
 use kvproto::{
@@ -13,19 +13,18 @@ use kvproto::{
 use protobuf::Message;
 use raftstore::store::metrics::*;
 use tikv_util::{
-    box_err,
-    codec::number::{NumberEncoder, MAX_VAR_U64_LEN},
+    MustConsumeVec, box_err,
+    codec::number::{MAX_VAR_U64_LEN, NumberEncoder},
     debug, error,
     memory::HeapSize,
     time::{duration_to_sec, monotonic_raw_now},
-    MustConsumeVec,
 };
 use time::Timespec;
 use uuid::Uuid;
 
 use crate::{
-    store::{util::PeerTag, Callback},
     Result,
+    store::{Callback, util::PeerTag},
 };
 
 const READ_QUEUE_SHRINK_SIZE: usize = 64;

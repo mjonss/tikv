@@ -9,8 +9,8 @@ use futures::{executor::block_on, future::join_all};
 use kvengine::{
     dfs::{self, Dfs, FileType},
     table::{
-        txn_file::{TxnChunkBuilder, OP_PUT},
         InnerKey,
+        txn_file::{OP_PUT, TxnChunkBuilder},
     },
 };
 use kvproto::{
@@ -24,7 +24,7 @@ use kvproto::{
 use pd_client::PdClient;
 use security::SecurityConfig;
 use test_cloud_server::{
-    client,
+    ServerCluster, ServerClusterBuilder, TikvWorkerOptions, client,
     client::{
         ClusterClient, ClusterClientOptions, CommitAction, Error as ClientError, MutateOptions,
         RequestOptions, TxnMutations, TxnWriteMethod,
@@ -34,7 +34,6 @@ use test_cloud_server::{
     try_wait,
     txn::txn_file::TxnFileHelper,
     util::Mutation,
-    ServerCluster, ServerClusterBuilder, TikvWorkerOptions,
 };
 use test_pd_client::PdWrapper;
 use tikv_util::{info, time::Instant, warn};

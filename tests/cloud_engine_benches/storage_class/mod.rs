@@ -4,12 +4,12 @@ mod util;
 
 use std::time::Duration;
 
-use criterion::{black_box, Bencher, Criterion};
+use criterion::{Bencher, Criterion, black_box};
 use futures::executor::block_on;
 use kvengine::{SnapAccess, WRITE_CF};
 use pd_client::PdClient;
 use rfstore::store::RegionSnapshot;
-use test_cloud_server::{alloc_node_id, must_wait, ServerCluster};
+use test_cloud_server::{ServerCluster, alloc_node_id, must_wait};
 use tikv::storage::{CloudStore, Scanner, Store as _};
 use tikv_util::{config::ReadableSize, info};
 use txn_types::{Key, TsSet};

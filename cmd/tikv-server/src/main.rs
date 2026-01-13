@@ -4,13 +4,14 @@
 
 use std::{path::Path, process};
 
-use clap::{crate_authors, App, Arg};
+use clap::{App, Arg, crate_authors};
 use cloud_server::{
+    TikvServer,
     setup::{ensure_no_unrecognized_config, validate_and_persist_config},
-    signal_handler, TikvServer,
+    signal_handler,
 };
 use serde_json::{Map, Value};
-use tikv::config::{to_flatten_config_info, TikvConfig};
+use tikv::config::{TikvConfig, to_flatten_config_info};
 
 fn main() {
     let build_timestamp = option_env!("TIKV_BUILD_TIME");

@@ -18,8 +18,8 @@ use futures_util::stream::empty;
 use kvproto::{errorpb, kvrpcpb::Context, raft_cmdpb::Response};
 pub use raft_extension::RaftRouterWrap;
 use raftstore::{
-    errors::Error as RaftServerError, router::RaftStoreRouter, store::RegionSnapshot,
-    RegionInfoAccessor,
+    RegionInfoAccessor, errors::Error as RaftServerError, router::RaftStoreRouter,
+    store::RegionSnapshot,
 };
 use thiserror::Error;
 use tikv_kv::{Modify, OnAppliedCb, WriteEvent};

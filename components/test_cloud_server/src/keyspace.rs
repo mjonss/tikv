@@ -3,7 +3,7 @@
 use std::{
     fmt, mem, ops,
     ops::{Deref, DerefMut, Range},
-    sync::{atomic::AtomicU32, Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, atomic::AtomicU32},
     time::Duration,
 };
 
@@ -11,15 +11,15 @@ use api_version::ApiV2;
 use bytes::BufMut;
 use codec::number::NumberEncoder;
 use dashmap::{
-    mapref::{entry::Entry, one::Ref},
     DashMap,
+    mapref::{entry::Entry, one::Ref},
 };
 use kvengine::table::schema_file::Schema;
 use kvproto::kvrpcpb::Op;
 use rand::{
+    Rng,
     distributions::Distribution,
     prelude::{IteratorRandom, SliceRandom, ThreadRng},
-    Rng,
 };
 use schema::schema::StorageClassSpec;
 use tikv_client::TimestampExt;
@@ -29,7 +29,7 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use crate::{
     client::{ClusterTxnClient, RefStore, Result},
     table::TableMeta,
-    util::{build_schemas, Mutation, TableSchemaOptions},
+    util::{Mutation, TableSchemaOptions, build_schemas},
 };
 
 #[derive(Clone, Default)]
@@ -260,7 +260,7 @@ impl KeyspaceManagerCore {
             .get_mut(&keyspace_id)
             .unwrap()
             .pending_destroy_range
-            .extract_if(|task| task.ts < gc_safepoint)
+            .extract_if(.., |task| task.ts < gc_safepoint)
             .collect()
     }
 }

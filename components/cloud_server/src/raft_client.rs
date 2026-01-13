@@ -8,8 +8,8 @@ use std::{
     pin::Pin,
     result,
     sync::{
-        atomic::{AtomicI32, AtomicU8, Ordering},
         Arc, Mutex,
+        atomic::{AtomicI32, AtomicU8, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -17,11 +17,11 @@ use std::{
 use collections::{HashMap, HashSet};
 use crossbeam::queue::ArrayQueue;
 use futures::{
+    Future, Sink,
     channel::oneshot,
     compat::Future01CompatExt,
     ready,
     task::{Context, Poll, Waker},
-    Future, Sink,
 };
 use futures_timer::Delay;
 use grpcio::{
@@ -34,13 +34,13 @@ use kvproto::{
 };
 use rfstore::{errors::DiscardReason, router::RaftStoreRouter};
 use security::SecurityManager;
-use tikv::server::{self, load_statistics::ThreadLoadPool, metrics::*, Config, StoreAddrResolver};
+use tikv::server::{self, Config, StoreAddrResolver, load_statistics::ThreadLoadPool, metrics::*};
 use tikv_util::{
     config::{Tracker, VersionTrack},
     lru::LruCache,
     timer::GLOBAL_TIMER_HANDLE,
 };
-use yatp::{task::future::TaskCell, ThreadPool};
+use yatp::{ThreadPool, task::future::TaskCell};
 
 static CONN_ID: AtomicI32 = AtomicI32::new(0);
 
@@ -455,7 +455,7 @@ where
         if let Some(tx) = self.lifetime.take() {
             let should_fallback = [sink_err, recv_err]
                 .iter()
-                .any(|e| e.as_ref().map_or(false, grpc_error_is_unimplemented));
+                .any(|e| e.as_ref().is_some_and(grpc_error_is_unimplemented));
 
             let res = if should_fallback {
                 // Asks backend to fallback.
@@ -695,7 +695,7 @@ async fn start<S, R>(
         // reuse channel if the address is the same.
         if addr_channel
             .as_ref()
-            .map_or(true, |(_, prev_addr)| prev_addr != &addr)
+            .is_none_or(|(_, prev_addr)| prev_addr != &addr)
         {
             addr_channel = Some((back_end.connect(&addr), addr.clone()));
         }

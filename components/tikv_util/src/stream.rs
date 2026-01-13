@@ -14,8 +14,8 @@ use bytes::Bytes;
 use futures::stream::{self, Stream};
 use futures_util::io::AsyncRead;
 use http::status::StatusCode;
-use rand::{thread_rng, Rng};
-use rusoto_core::{request::HttpDispatchError, RusotoError};
+use rand::{Rng, thread_rng};
+use rusoto_core::{RusotoError, request::HttpDispatchError};
 use tokio::{runtime::Builder, time::sleep};
 
 /// Wrapper of an `AsyncRead` instance, exposed as a `Sync` `Stream` of `Bytes`.
@@ -234,6 +234,7 @@ mod tests {
 
     #[test]
     fn test_retry_is_send_even_return_type_not_sync() {
+        #[allow(dead_code)]
         struct BangSync(Option<RefCell<()>>);
         let fut = retry(|| futures::future::ok::<_, HttpDispatchError>(BangSync(None)));
         assert_send(fut)

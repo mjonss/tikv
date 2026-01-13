@@ -10,8 +10,8 @@ use protobuf::Message;
 use tikv_util::box_err;
 
 use crate::{
+    DEL_PREFIXES_KEY, DeletePrefixes, ShardMeta, ShardTag, UserMeta,
     table::{SnapVersion, TxnFile},
-    DeletePrefixes, ShardMeta, ShardTag, UserMeta, DEL_PREFIXES_KEY,
 };
 
 /// A helper function to evenly distribute `total` into `count` parts.
@@ -132,7 +132,7 @@ pub fn is_matched_vector_index(
 /// 1. `ShardMeta.commit_merge` (merge `ShardMeta` on region merge).
 /// 2. `kvengine::Engine::commit_merge` (merge `Shard` on region merge).
 /// 3. `restore_keyspace::BackupCluster::gather_sstables` (merge `ShardMeta` on
-/// merging backup regions).
+///    merging backup regions).
 pub struct PropertiesHelper {
     del_prefixes: DeletePrefixes,
 

@@ -3,23 +3,23 @@
 use std::{
     cell::{RefCell, RefMut},
     cmp::min,
-    collections::{vec_deque, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, vec_deque},
     fmt::{self, Debug, Formatter},
     mem,
     ops::RangeBounds,
-    sync::{atomic::AtomicU64, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicU64},
     time::Duration,
     vec::Drain,
 };
 
-use api_version::{api_v2::is_whole_keyspace_range, ApiV2};
+use api_version::{ApiV2, api_v2::is_whole_keyspace_range};
 use bytes::{Buf, Bytes};
 use cloud_encryption::EncryptionKey;
 use fail::fail_point;
 use kvengine::{
+    ChangeSet, ENCRYPTION_KEY, EXTRA_CF, Engine, FilePrepareType, LOCK_CF, PrepareOpts, SnapAccess,
+    TRIM_OVER_BOUND, TRIM_OVER_BOUND_ENABLE, TXN_FILE_REF, UserMeta, WriteBatch,
     encode_extra_txn_status_key, get_shard_property, mvcc, table::InnerKey, util::PropertiesHelper,
-    ChangeSet, Engine, FilePrepareType, PrepareOpts, SnapAccess, UserMeta, WriteBatch,
-    ENCRYPTION_KEY, EXTRA_CF, LOCK_CF, TRIM_OVER_BOUND, TRIM_OVER_BOUND_ENABLE, TXN_FILE_REF,
 };
 use kvenginepb::{TxnFileRef, TxnFileRefs};
 use kvproto::{
@@ -31,12 +31,12 @@ use kvproto::{
     },
 };
 use log_wrappers::Value;
-use pd_client::{new_bucket_write_stats, BucketStat};
+use pd_client::{BucketStat, new_bucket_write_stats};
 use prometheus::local::LocalHistogram;
 use protobuf::{Message, RepeatedField};
 use raft::{
-    eraftpb::{ConfChange, ConfChangeType, ConfChangeV2, EntryType},
     StateRole,
+    eraftpb::{ConfChange, ConfChangeType, ConfChangeV2, EntryType},
 };
 use raft_proto::eraftpb;
 use raftstore::store::{
@@ -49,7 +49,7 @@ use rand::Rng;
 use tikv_util::{
     box_err, debug, error, info,
     store::{find_peer, find_peer_mut, remove_peer},
-    time::{duration_to_sec, Instant},
+    time::{Instant, duration_to_sec},
     warn,
 };
 use time::Timespec;
@@ -57,12 +57,12 @@ use txn_types::LockType;
 
 use super::*;
 use crate::{
+    RaftRouter, RaftStoreRouter,
     errors::*,
     store::{
         cmd_resp::{bind_term, err_resp},
         metrics::{LOCK_CACHE_CAPCITY, LOCK_CACHE_LEN, STORE_PROPOSE_SWITCH_MEM_TABLE_COUNTER},
     },
-    RaftRouter, RaftStoreRouter,
 };
 
 pub(crate) struct PendingCmd {
@@ -834,11 +834,12 @@ impl Applier {
     ///
     /// An apply operation can fail in the following situations:
     ///   1. it encounters an error that will occur on all stores, it can
-    /// continue applying next entry safely, like epoch not match for
-    /// example;   2. it encounters an error that may not occur on all
-    /// stores, in this case we should try to apply the entry again or
-    /// panic. Considering that this usually due to disk operation fail,
-    /// which is rare, so just panic is ok.
+    ///      continue applying next entry safely, like epoch not match for
+    ///      example;
+    ///   2. it encounters an error that may not occur on all stores, in this
+    ///      case we should try to apply the entry again or panic. Considering
+    ///      that this usually due to disk operation fail, which is rare, so
+    ///      just panic is ok.
     fn apply_raft_log(
         &mut self,
         ctx: &mut ApplyContext,
@@ -893,7 +894,7 @@ impl Applier {
                     self.region = regions.last().unwrap().clone();
                 }
                 ExecResult::DeleteRange { .. } => {}
-                ExecResult::UnsafeDestroy { .. } => {}
+                ExecResult::UnsafeDestroy => {}
                 ExecResult::PrepareMerge { region } => {
                     self.region = region.clone();
                 }
@@ -1959,7 +1960,7 @@ impl Applier {
     ///
     /// 1. Preprocess restore shard
     /// 2. Prepare restore shard, pause applying of custom logs (until seq of
-    /// restore shard)
+    ///    restore shard)
     /// 3. Apply custom logs before seq of restore shard
     /// 4. Apply restore shard, resume applying of custom logs
     /// 5. Apply custom logs after seq of restore shard
@@ -2403,9 +2404,6 @@ pub(crate) fn region_apply_conf_change(
     Ok(region)
 }
 
-#[derive(Clone)]
-pub(crate) struct ApplyRouter {}
-
 pub use kvengine::shard::TERM_KEY;
 
 pub trait ApplyObserver: Send {
@@ -2584,7 +2582,7 @@ impl PausedApplyQueue {
             // Otherwise, this message would block following available entries.
             if front
                 .last_raft_index()
-                .map_or(true, |idx| !Self::index_should_pause(idx, seq))
+                .is_none_or(|idx| !Self::index_should_pause(idx, seq))
             {
                 self.queue.pop_front()
             } else if Self::index_should_pause(front.first_raft_index().unwrap(), seq) {

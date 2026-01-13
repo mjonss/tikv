@@ -5,10 +5,9 @@ use std::assert_matches::assert_matches;
 use cloud_server::ASYNC_WRITE_CALLBACK_DROPPED_ERR_MSG;
 use kvproto::kvrpcpb::Op;
 use test_cloud_server::{
-    alloc_node_id_vec,
+    ServerCluster, alloc_node_id_vec,
     client::{Error as ClientError, TxnMutations},
     util::Mutation,
-    ServerCluster,
 };
 
 use crate::cases::i_to_key;

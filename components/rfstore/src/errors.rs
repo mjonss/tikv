@@ -299,10 +299,6 @@ impl ErrorCodeExt for Error {
             Error::Coprocessor(e) => e.error_code(),
             Error::Transport(_) => error_code::raftstore::TRANSPORT,
             Error::Encryption(e) => e.error_code(),
-            #[cfg(feature = "prost-codec")]
-            Error::ProstDecode(_) => error_code::raftstore::PROTOBUF,
-            #[cfg(feature = "prost-codec")]
-            Error::ProstEncode(_) => error_code::raftstore::PROTOBUF,
             Error::DataIsNotReady { .. } => error_code::raftstore::DATA_IS_NOT_READY,
             Error::DeadlineExceeded => error_code::raftstore::DEADLINE_EXCEEDED,
 

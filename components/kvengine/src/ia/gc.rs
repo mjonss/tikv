@@ -12,13 +12,13 @@ use std::{
 use tikv_util::{box_err, config::ReadableDuration, time::Instant};
 
 use crate::{
+    Error as KvError, IoContext,
     ia::{
         ia_file::parse_table_meta_filename,
         manager::IaManager,
         types::{FileSegmentIdent, SEGMENT_LOCAL_FILE_SUFFIX, TABLE_META_LOCAL_FILE_SUFFIX},
         util::TEMPORARY_FILE_SUFFIX,
     },
-    Error as KvError, IoContext,
 };
 
 #[derive(Debug, thiserror::Error)]

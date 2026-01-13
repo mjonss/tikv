@@ -4,7 +4,7 @@ use std::{thread, time::Duration};
 
 use futures::executor::block_on;
 use pd_client::PdClient;
-use test_cloud_server::{client::RequestOptions, try_wait, ServerCluster};
+use test_cloud_server::{ServerCluster, client::RequestOptions, try_wait};
 use test_pd_client::PdClientExt;
 use tikv::config::TikvConfig;
 use tikv_util::{

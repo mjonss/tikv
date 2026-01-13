@@ -12,24 +12,23 @@ use std::{
 use anyhow::bail;
 use bstr::ByteSlice;
 use bytes::Bytes;
-use cloud_server::{server::GRPC_THREAD_PREFIX, TikvServer};
-use cloud_worker::{local_gc::LocalGcConfig, native_br::NativeBrConfig, CloudWorker};
+use cloud_server::{TikvServer, server::GRPC_THREAD_PREFIX};
+use cloud_worker::{CloudWorker, local_gc::LocalGcConfig, native_br::NativeBrConfig};
 use dashmap::DashMap;
 use engine_traits::ObjectCache;
 use futures::{executor::block_on, future::try_join_all};
 use grpcio::{Channel, ChannelBuilder, EnvBuilder, Environment};
-use hyper::{http, Body, Request};
+use hyper::{Body, Request, http};
 use kvengine::{
-    dfs,
+    ShardStats, dfs,
     dfs::{DFSConnOptions, Dfs, FileType},
     ia::{gc::IaGcConfig, util::IaConfig},
     table::{
         file::InMemFile,
-        schema_file::{build_schema_file, SchemaFile},
+        schema_file::{SchemaFile, build_schema_file},
         sstable::BlockCacheType,
     },
     txn_chunk_manager::TxnChunkManagerConfig,
-    ShardStats,
 };
 use kvproto::{
     kvrpcpb::{Mutation, Op},
@@ -39,12 +38,12 @@ use kvproto::{
 };
 use log_wrappers::Value;
 use native_br::limiter::{RateLimitConfig, ThroughputLimiter};
-use pd_client::{check_regions_boundary, pd_control, PdClient};
+use pd_client::{PdClient, check_regions_boundary, pd_control};
 use raftstore::RegionInfoAccessor;
 use rand::prelude::*;
 use rfstore::{
-    store::{cmd_resp::message_error, Callback, CustomBuilder},
     RaftStoreRouter,
+    store::{Callback, CustomBuilder, cmd_resp::message_error},
 };
 use security::{SecurityConfig, SecurityManager};
 use tempfile::TempDir;
@@ -67,7 +66,7 @@ use crate::{
     alloc_node_id_vec,
     client::{ApiV2NoPrefixCodec, ClusterClient, ClusterClientOptions, ClusterTxnClient, RefStore},
     keyspace::{ClusterKeyspaceClient, CreateKeyspaceOptions, KeyspaceManager},
-    oss::{prepare_dfs, ObjectStorageService},
+    oss::{ObjectStorageService, prepare_dfs},
     scheduler::Scheduler,
     tikv_bin::wait_tikv_worker_healthy,
     txn::{lock_resolver::LockResolver, txn_file::TxnFileHelper},
@@ -1931,7 +1930,7 @@ impl ClusterDataStats {
                         assert!(prev_key < key, "region {} buckets {:?}", region_id, buckets);
                     }
                 }
-                let expected_bucket_count = (shard_level_size + bucket_size - 1) / bucket_size;
+                let expected_bucket_count = shard_level_size.div_ceil(bucket_size);
                 let actual_bucket_count = buckets.count() as u64;
                 let ratio = expected_bucket_count as f64 / actual_bucket_count as f64;
                 if !(0.3..=3.0).contains(&ratio) {

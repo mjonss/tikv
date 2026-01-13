@@ -2,8 +2,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicU64, Ordering::Relaxed},
     },
     time::Duration,
 };
@@ -13,24 +13,23 @@ use futures::future::join_all;
 use pd_client::PdClient;
 use rand::prelude::*;
 use sqlx::{
-    types::{
-        chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc},
-        BigDecimal,
-    },
     Column, MySql, Pool, Row, TypeInfo,
+    types::{
+        BigDecimal,
+        chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc},
+    },
 };
 use test_cloud_server::{keyspace::KeyspaceManager, tidb::TidbCluster};
 use tikv_util::{debug, error, info, time::Instant};
 use tokio::sync::Mutex;
 
 use crate::{
-    request_major_compact_on_store,
+    COLUMNAR_RETRY_COUNTER, COLUMNAR_WRITE_COUNTER, Running, request_major_compact_on_store,
     sql_util::{
-        get_engine_hint, is_db_error_retryable, wait_tiflash_or_columnar_replicas_available,
-        DEADLOCK_ERR_MSG,
+        DEADLOCK_ERR_MSG, get_engine_hint, is_db_error_retryable,
+        wait_tiflash_or_columnar_replicas_available,
     },
     test_tidb::Switches,
-    Running, COLUMNAR_RETRY_COUNTER, COLUMNAR_WRITE_COUNTER,
 };
 
 const COLUMNAR_DB_NAME: &str = "columnar_db";

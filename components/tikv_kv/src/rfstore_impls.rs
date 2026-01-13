@@ -22,7 +22,7 @@ pub struct RegionSnapshotExt<'a> {
     snapshot: &'a rfstore::store::RegionSnapshot,
 }
 
-impl<'a> SnapshotExt for RegionSnapshotExt<'a> {
+impl SnapshotExt for RegionSnapshotExt<'_> {
     #[inline]
     fn get_data_version(&self) -> Option<u64> {
         None

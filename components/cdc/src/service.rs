@@ -3,8 +3,8 @@
 use std::{
     collections::hash_map::Entry,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 

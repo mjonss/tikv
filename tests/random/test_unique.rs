@@ -12,13 +12,13 @@ use test_cloud_server::{keyspace::KeyspaceManager, tidb::TidbCluster};
 use tikv_util::{debug, error, info, time::Instant, warn};
 
 use crate::{
-    sql_util::{
-        gen_padding, is_duplicate_entry_err, is_error_retryable, retry_or_panic, Transaction,
-        MAX_PADDING_SIZE,
-    },
-    test_tidb::connect_tidb,
     Running, UNIQUE_TABLE_DDL_COUNTER, UNIQUE_WORKLOAD_CONFLICT_COUNTER,
     UNIQUE_WORKLOAD_TXN_COUNTER,
+    sql_util::{
+        MAX_PADDING_SIZE, Transaction, gen_padding, is_duplicate_entry_err, is_error_retryable,
+        retry_or_panic,
+    },
+    test_tidb::connect_tidb,
 };
 
 const UNIQUE_WORKLOAD_CONCURRENCY: usize = 4;

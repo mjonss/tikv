@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tikv_util::sys::SysQuota;
 
-use crate::table::{columnar::TableMeta, Result};
+use crate::table::{Result, columnar::TableMeta};
 
 const TABLE_META_CACHE_SHARDS_PER_CORE: usize = 16;
 const ESTIMATED_TABLE_META_SIZE: u64 = 1024; // 1KB

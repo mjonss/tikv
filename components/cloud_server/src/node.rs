@@ -5,24 +5,24 @@ use std::{sync::Arc, thread, time::Duration};
 use api_version::KvFormat;
 use concurrency_manager::ConcurrencyManager;
 use kvproto::{metapb, raft_serverpb::RegionLocalState, replication_modepb::ReplicationStatus};
-use pd_client::{Error as PdError, FeatureGate, PdClient, INVALID_ID};
+use pd_client::{Error as PdError, FeatureGate, INVALID_ID, PdClient};
 use protobuf::Message;
 use raftstore::{
-    coprocessor::dispatcher::CoprocessorHost, store::FlowStatsReporter, RegionInfoAccessor,
+    RegionInfoAccessor, coprocessor::dispatcher::CoprocessorHost, store::FlowStatsReporter,
 };
 use resource_control::ResourceController;
 use resource_metering::ResourceTagFactory;
 use rfstore::store::{
-    self, initial_region, store_fsm::StoreMeta, Config as StoreConfig, Engines, PdTask,
-    RaftBatchSystem, Transport,
+    self, Config as StoreConfig, Engines, PdTask, RaftBatchSystem, Transport, initial_region,
+    store_fsm::StoreMeta,
 };
 use tikv::{
     import::SstImporter,
     read_pool::ReadPoolHandle,
-    server::{lock_manager::LockManager, Config as ServerConfig},
+    server::{Config as ServerConfig, lock_manager::LockManager},
     storage::{
-        config::Config as StorageConfig, txn::flow_controller::FlowController,
-        DynamicConfigs as StorageDynamicConfigs, Storage,
+        DynamicConfigs as StorageDynamicConfigs, Storage, config::Config as StorageConfig,
+        txn::flow_controller::FlowController,
     },
 };
 use tikv_util::{
@@ -31,7 +31,7 @@ use tikv_util::{
     worker::{LazyWorker, Worker},
 };
 
-use super::{server::Result, RaftKv};
+use super::{RaftKv, server::Result};
 
 const MAX_CHECK_CLUSTER_BOOTSTRAPPED_RETRY_COUNT: u64 = 60;
 const CHECK_CLUSTER_BOOTSTRAPPED_RETRY_SECONDS: u64 = 3;

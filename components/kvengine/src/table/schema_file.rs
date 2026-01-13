@@ -1,7 +1,7 @@
 // Copyright 2024 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::{
-    collections::{btree_map::Range, BTreeMap},
+    collections::{BTreeMap, btree_map::Range},
     ops::Deref,
     sync::Arc,
 };
@@ -9,21 +9,20 @@ use std::{
 use api_version::api_v2::KEYSPACE_PREFIX_LEN;
 use bytes::{Buf, BufMut};
 use collections::HashSet;
-use kvenginepb::{fts::FullTextIndexDef, SchemaMeta};
+use kvenginepb::{SchemaMeta, fts::FullTextIndexDef};
 use protobuf::Message;
 use schema::schema::StorageClassSpec;
 use tidb_query_datatype::codec::table::{
-    decode_table_id, INDEX_PREFIX_SEP, RECORD_PREFIX_SEP, TABLE_PREFIX, TABLE_PREFIX_KEY_LEN,
+    INDEX_PREFIX_SEP, RECORD_PREFIX_SEP, TABLE_PREFIX, TABLE_PREFIX_KEY_LEN, decode_table_id,
 };
 use tikv_util::Either;
 use tipb::ColumnInfo;
 
 use crate::{
     table::{
-        self,
-        columnar::{get_fixed_size, new_version_column_info, VectorIndexDef},
+        self, ChecksumType, DataBound, InnerKey, NO_COMPRESSION, OwnedInnerKey,
+        columnar::{VectorIndexDef, get_fixed_size, new_version_column_info},
         file::File,
-        ChecksumType, DataBound, InnerKey, OwnedInnerKey, NO_COMPRESSION,
     },
     table_id::{encode_table_prefix_key, get_table_id_from_data_bound},
 };
@@ -203,7 +202,7 @@ impl SchemaFile {
 
     pub fn contains_columnar_table(&self, table_id: i64) -> bool {
         self.get_table(table_id)
-            .map_or(false, |schema| schema.with_columnar())
+            .is_some_and(|schema| schema.with_columnar())
     }
 
     pub fn iter_tables(&self) -> impl Iterator<Item = (/* table_id */ &i64, &Schema)> {
@@ -823,11 +822,11 @@ pub struct SchemaBufInner {
 mod tests {
     use std::iter::FromIterator;
 
-    use api_version::{api_v2::TIDB_META_KEY_PREFIX, ApiV2};
+    use api_version::{ApiV2, api_v2::TIDB_META_KEY_PREFIX};
     use bytes::Bytes;
     use schema::schema::{StorageClass, StorageClassSpec};
     use tidb_query_datatype::{
-        codec::table::RECORD_PREFIX_SEP, Collation::Utf8Mb4GeneralCi, FieldTypeTp,
+        Collation::Utf8Mb4GeneralCi, FieldTypeTp, codec::table::RECORD_PREFIX_SEP,
     };
     use tikv_util::codec::number::NumberEncoder;
 

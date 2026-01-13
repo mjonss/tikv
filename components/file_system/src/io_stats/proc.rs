@@ -26,7 +26,7 @@ lazy_static! {
 
 thread_local! {
     /// A private copy of I/O type. Optimized for local access.
-    static IO_TYPE: Cell<IoType> = Cell::new(IoType::Other);
+    static IO_TYPE: Cell<IoType> = const { Cell::new(IoType::Other) }
 }
 
 #[derive(Debug)]
@@ -177,7 +177,7 @@ mod tests {
     };
 
     use libc::O_DIRECT;
-    use maligned::{AsBytes, AsBytesMut, A512};
+    use maligned::{A512, AsBytes, AsBytesMut};
     use tempfile::{tempdir, tempdir_in};
 
     use super::*;

@@ -19,10 +19,10 @@ use native_br::{
 use rand::prelude::*;
 use security::SecurityConfig;
 use test_cloud_server::{
-    alloc_node_id_vec, client,
+    ServerCluster, ServerClusterBuilder, alloc_node_id_vec, client,
     client::RequestOptions,
-    oss::{prepare_dfs, ObjectStorageService},
-    try_wait_result, ServerCluster, ServerClusterBuilder,
+    oss::{ObjectStorageService, prepare_dfs},
+    try_wait_result,
 };
 use test_pd_client::PdWrapper;
 use tikv::config::TikvConfig;
@@ -34,7 +34,7 @@ use tokio::runtime::Runtime;
 
 use crate::{
     alloc_node_id,
-    native_backup::{random_value, DummyStepReporter},
+    native_backup::{DummyStepReporter, random_value},
 };
 
 const CLUSTER_ID: u64 = 10000;

@@ -7,8 +7,8 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU32, AtomicU64, Ordering},
     },
     thread::JoinHandle,
 };
@@ -19,20 +19,21 @@ use kvengine::dfs::Dfs;
 use rfenginepb::StoreBackupMeta;
 use slog_global::{error, info};
 use tikv_util::{
+    DFS_WORKER_THREAD_NAME,
     mpsc::{Receiver, SendError, Sender},
     sys::thread::StdThreadBuildWrapper,
     time::Instant,
-    warn, DFS_WORKER_THREAD_NAME,
+    warn,
 };
 
 use crate::{
-    compact_worker::{backup_callback, wal_file_name, CompactTask, CompactWorker, WorkerHandle},
+    BackupTask, Error, Result, RfEngineConfig,
+    compact_worker::{CompactTask, CompactWorker, WorkerHandle, backup_callback, wal_file_name},
     dfs_worker::{Healthy, LightweightBackupConfig, ObjectStorageTask, ObjectStorageWorker},
     log_batch::RaftLogBlock,
     manifest::Manifest,
     write_batch::PeerBatch,
     writer::WalWriter,
-    BackupTask, Error, Result, RfEngineConfig,
 };
 
 pub(crate) struct ObjectStorageWorkerHandle {

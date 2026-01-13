@@ -7,7 +7,7 @@ use std::{
 };
 
 use collections::HashMap;
-use file_system::{set_io_type, IoType};
+use file_system::{IoType, set_io_type};
 use kvproto::pdpb::QueryKind;
 use pd_client::{Feature, FeatureGate};
 use prometheus::local::*;
@@ -18,7 +18,7 @@ use tikv_util::{
 };
 
 use crate::storage::{
-    kv::{destroy_tls_engine, set_tls_engine, Engine, FlowStatsReporter, Statistics},
+    kv::{Engine, FlowStatsReporter, Statistics, destroy_tls_engine, set_tls_engine},
     metrics::*,
     test_util::latest_feature_gate,
 };

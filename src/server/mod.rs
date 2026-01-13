@@ -14,10 +14,10 @@ pub mod service;
 pub mod status_server;
 
 pub use self::{
-    config::{Config, ServerConfigManager, DEFAULT_CLUSTER_ID, DEFAULT_LISTENING_ADDR},
+    config::{Config, DEFAULT_CLUSTER_ID, DEFAULT_LISTENING_ADDR, ServerConfigManager},
     errors::{Error, Result},
     metrics::{CONFIG_ROCKSDB_GAUGE, CPU_CORES_QUOTA_GAUGE, MEM_TRACE_SUM_GAUGE},
-    proxy::{build_forward_option, get_target_address, Proxy},
+    proxy::{Proxy, build_forward_option, get_target_address},
     raftkv::RaftKv,
-    resolve::{PdStoreAddrResolver, StoreAddrResolver},
+    resolve::StoreAddrResolver,
 };

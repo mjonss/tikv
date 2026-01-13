@@ -10,15 +10,15 @@ use std::{
 
 use api_version::api_v2::TIDB_RANGES_COMPLEMENT;
 use encryption::{DataKeyManager, EncrypterWriter};
-use engine_rocks::{get_env, RocksEngine, RocksSstReader};
-use engine_traits::{iter_option, EncryptionKeyManager, SstMetaInfo};
-use file_system::{get_io_rate_limiter, sync_dir, File, OpenOptions};
+use engine_rocks::{RocksEngine, RocksSstReader, get_env};
+use engine_traits::{EncryptionKeyManager, SstMetaInfo, iter_option};
+use file_system::{File, OpenOptions, get_io_rate_limiter, sync_dir};
 use keys::{data_end_key, data_key};
 use kvproto::{import_sstpb::*, kvrpcpb::ApiVersion};
 use tikv_util::time::Instant;
 use uuid::{Builder as UuidBuilder, Uuid};
 
-use crate::{metrics::*, Error, Result};
+use crate::{Error, Result, metrics::*};
 
 // `SyncableWrite` extends io::Write with sync
 trait SyncableWrite: io::Write + Send {

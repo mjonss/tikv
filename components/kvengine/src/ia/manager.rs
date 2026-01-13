@@ -6,8 +6,8 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicI64, Ordering},
         Arc,
+        atomic::{AtomicI64, Ordering},
     },
     time::Duration,
 };
@@ -28,16 +28,16 @@ use crate::{
     ia::{
         queue::S3FifoHandle,
         types::{
-            FileSegmentData, FileSegmentIdent, FileSegmentPosition, GuardMap, LocalSegmentMap,
-            SegmentHandle, TableMetaInfo, FILE_SEGMENT_DATA_IN_MEMORY,
+            FILE_SEGMENT_DATA_IN_MEMORY, FileSegmentData, FileSegmentIdent, FileSegmentPosition,
+            GuardMap, LocalSegmentMap, SegmentHandle, TableMetaInfo,
         },
-        util::{new_local_store, LocalStore},
+        util::{LocalStore, new_local_store},
     },
     metrics::{
         ENGINE_IA_MAIN_QUEUE_CAPACITY, ENGINE_IA_READ_SEGMENT_CACHE_MISS,
         ENGINE_IA_READ_SEGMENT_DURATION_HISTOGRAM, ENGINE_IA_SMALL_QUEUE_CAPACITY,
     },
-    table::{file::FdCache, Error, Result},
+    table::{Error, Result, file::FdCache},
     try_some,
 };
 

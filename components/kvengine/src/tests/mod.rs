@@ -13,13 +13,13 @@ use std::{
     ops::Deref,
     path::Path,
     rc::Rc,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{Arc, atomic::AtomicU64},
     thread,
     time::Duration,
-    u64, vec,
+    vec,
 };
 
-use api_version::{api_v2::KEYSPACE_PREFIX_LEN, ApiV2};
+use api_version::{ApiV2, api_v2::KEYSPACE_PREFIX_LEN};
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use cloud_encryption::{EncryptionKey, MasterKey};
@@ -37,9 +37,9 @@ use crate::{
     ia::manager::{IaManager, IaManagerOptions},
     limiter::StoreLimiter,
     table::{
+        BIT_DELETE, BoundedDataSet, ChecksumType, DataBound, InnerKey, OP_PUT,
         file::{File, InMemFile},
         sstable::{BlockCache, L0Builder, L0Table, SsTable},
-        BoundedDataSet, ChecksumType, DataBound, InnerKey, BIT_DELETE, OP_PUT,
     },
     tests::test_txn_file::{build_txn_chunk, make_lock_prefix, make_txn_file_refs},
     *,
@@ -217,7 +217,7 @@ fn test_destroy_range() {
     for prefix in [10, 20] {
         let mut wb = WriteBatch::new(1);
         let key = i_to_key(prefix, engine.opts.blob_table_build_options.min_blob_size);
-        wb.set_property(DEL_PREFIXES_KEY, key[..key.len() - 1].as_bytes());
+        wb.set_property(DEL_PREFIXES_KEY, &key.as_bytes()[..key.len() - 1]);
         write_data(wb, &applier_tx);
     }
     assert!(!engine.get_shard(1).unwrap().get_del_prefixes().is_empty());
@@ -296,7 +296,7 @@ fn test_destroy_range() {
     // Unsafe destroy keys [100, 150).
     let mut wb = WriteBatch::new(1);
     let key = i_to_key(100, engine.opts.blob_table_build_options.min_blob_size);
-    wb.set_property(DEL_PREFIXES_KEY, key[..key.len() - 2].as_bytes());
+    wb.set_property(DEL_PREFIXES_KEY, &key.as_bytes()[..key.len() - 2]);
     write_data(wb, &applier_tx);
     wait_for_destroying_range();
     check_get(
@@ -1170,14 +1170,14 @@ fn prepare_table_region(
     // Split keyspace
     let keyspace_1_prefix = keyspace_prefix(keyspace_id);
     let mut table_1_prefix = keyspace_1_prefix.clone();
-    table_1_prefix.extend_from_slice(&[b't']);
+    table_1_prefix.extend_from_slice(b"t");
     table_1_prefix.extend_from_slice(
         encode_i64_to_comparable_u64(table_id)
             .to_be_bytes()
             .as_slice(),
     );
     let mut table_2_prefix = keyspace_1_prefix;
-    table_2_prefix.extend_from_slice(&[b't']);
+    table_2_prefix.extend_from_slice(b"t");
     table_2_prefix.extend_from_slice(
         encode_i64_to_comparable_u64(table_id + 1)
             .to_be_bytes()

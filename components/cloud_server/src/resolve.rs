@@ -7,9 +7,9 @@ use std::{
 };
 
 use collections::HashMap;
-use pd_client::{take_peer_address, PdClient};
+use pd_client::{PdClient, take_peer_address};
 use rfstore::router::RaftStoreRouter;
-use tikv::server::{metrics::*, resolve::Callback, Result};
+use tikv::server::{Result, metrics::*, resolve::Callback};
 use tikv_util::worker::{Runnable, Scheduler, Worker};
 
 const STORE_ADDRESS_REFRESH_SECONDS: u64 = 60;
@@ -134,13 +134,13 @@ impl PdStoreAddrResolver {
 }
 
 /// Creates a new `PdStoreAddrResolver`.
-pub fn new_resolver<RR: 'static>(
+pub fn new_resolver<RR>(
     pd_client: Arc<dyn PdClient>,
     worker: &Worker,
     router: RR,
 ) -> PdStoreAddrResolver
 where
-    RR: RaftStoreRouter,
+    RR: RaftStoreRouter + 'static,
 {
     let runner = Runner {
         pd_client,

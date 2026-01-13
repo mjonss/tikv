@@ -7,7 +7,7 @@ use cloud::{
     error::{Error, KmsError, Result},
     kms::{Config, DataKeyPair, EncryptedKey, KeyId, KmsProvider, PlainKey},
 };
-use rusoto_core::{request::DispatchSignedRequest, RusotoError};
+use rusoto_core::{RusotoError, request::DispatchSignedRequest};
 use rusoto_credential::ProvideAwsCredentials;
 use rusoto_kms::{
     DecryptError, DecryptRequest, GenerateDataKeyError, GenerateDataKeyRequest, Kms, KmsClient,

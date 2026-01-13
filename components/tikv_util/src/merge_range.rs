@@ -26,9 +26,9 @@ impl MergeRanges {
     /// Search range by `range.start`.
     /// Return:
     /// - OK(idx) when `ranges[idx].start == key`.
-    /// - Err(idx) when not found, and `idx` is the index to insert.
-    /// Simple iteration is used as length of ranges is expected to be small,
-    /// and binary search is not efficient.
+    /// - Err(idx) when not found, and `idx` is the index to insert. Simple
+    ///   iteration is used as length of ranges is expected to be small, and
+    ///   binary search is not efficient.
     fn search_by_start(&self, key: &Vec<u8>) -> std::result::Result<usize, usize> {
         for i in 0..self.ranges.len() {
             match self.ranges[i].start.cmp(key) {

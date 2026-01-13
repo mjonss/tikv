@@ -8,23 +8,23 @@ use std::{
     ops::Bound,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use dashmap::DashMap;
-use encryption::{to_engine_encryption_method, DataKeyManager};
-use engine_rocks::{get_env, RocksEngine, RocksSstReader, RocksSstWriterBuilder};
+use encryption::{DataKeyManager, to_engine_encryption_method};
+use engine_rocks::{RocksEngine, RocksSstReader, RocksSstWriterBuilder, get_env};
 use engine_traits::{
-    name_to_cf, util::check_key_in_range, CfName, EncryptionKeyManager, FileEncryptionInfo,
-    IterOptions, SstCompressionType, SstMetaInfo, CF_DEFAULT, CF_WRITE,
+    CF_DEFAULT, CF_WRITE, CfName, EncryptionKeyManager, FileEncryptionInfo, IterOptions,
+    SstCompressionType, SstMetaInfo, name_to_cf, util::check_key_in_range,
 };
 use external_storage_export::{
-    compression_reader_dispatcher, encrypt_wrap_reader, ExternalStorage, RestoreConfig,
+    ExternalStorage, RestoreConfig, compression_reader_dispatcher, encrypt_wrap_reader,
 };
-use file_system::{get_io_rate_limiter, OpenOptions};
+use file_system::{OpenOptions, get_io_rate_limiter};
 use kvproto::{
     brpb::{CipherInfo, StorageBackend},
     import_sstpb::*,
@@ -44,12 +44,13 @@ use tokio::runtime::{Handle, Runtime};
 use txn_types::{Key, TimeStamp, WriteRef};
 
 use crate::{
+    Config, Error, Result,
     caching::cache_map::CacheMap,
     import_file::{ImportDir, ImportFile},
     import_mode::ImportModeSwitcher,
     metrics::*,
     sst_writer::TxnSstWriter,
-    util, Config, Error, Result,
+    util,
 };
 
 #[derive(Default, Debug, Clone)]
@@ -1204,11 +1205,10 @@ mod tests {
     use std::{
         io::{self, BufWriter, Write},
         ops::Sub,
-        usize,
     };
 
-    use engine_rocks::{collect_db, collect_sst, RocksSstWriter};
-    use engine_traits::{EncryptionMethod, Error as TraitError, CF_DEFAULT, DATA_CFS};
+    use engine_rocks::{RocksSstWriter, collect_db, collect_sst};
+    use engine_traits::{CF_DEFAULT, DATA_CFS, EncryptionMethod, Error as TraitError};
     use external_storage_export::read_external_storage_info_buff;
     use file_system::File;
     use keys::rewrite::rewrite_prefix;
@@ -1645,7 +1645,7 @@ mod tests {
 
     #[test]
     fn test_read_external_storage_into_file_timed_out() {
-        use futures_util::stream::{pending, TryStreamExt};
+        use futures_util::stream::{TryStreamExt, pending};
 
         let mut input = pending::<io::Result<&[u8]>>().into_async_read();
         let mut output = Vec::new();
@@ -1722,7 +1722,7 @@ mod tests {
 
     #[test]
     fn test_read_external_storage_info_buff_timed_out() {
-        use futures_util::stream::{pending, TryStreamExt};
+        use futures_util::stream::{TryStreamExt, pending};
 
         let mut input = pending::<io::Result<&[u8]>>().into_async_read();
         let err = block_on_external_io(read_external_storage_info_buff(

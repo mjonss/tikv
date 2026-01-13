@@ -9,8 +9,8 @@ use rand::prelude::*;
 use rstest::rstest;
 
 use super::{
-    arb_simple_iterators, get_all, get_all_async, i_to_key, verify_iter, verify_iter_async,
-    ArbSimpleIterators, SimpleIterator,
+    ArbSimpleIterators, SimpleIterator, arb_simple_iterators, get_all, get_all_async, i_to_key,
+    verify_iter, verify_iter_async,
 };
 use crate::{next, next_async, next_version, next_version_async, table::*};
 

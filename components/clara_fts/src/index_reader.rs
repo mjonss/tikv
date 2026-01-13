@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use tantivy::query::{Bm25StatisticsProvider, ConstScorer};
 
 /// IndexReader reads index file for full text searching.
@@ -244,7 +244,7 @@ mod tests {
     use paste::paste;
 
     use super::*;
-    use crate::query::test_util::{make_scored_query, make_unscored_query, PlainFtsQueryInfo};
+    use crate::query::test_util::{PlainFtsQueryInfo, make_scored_query, make_unscored_query};
 
     fn assert_doc_ids_eq(results: &[ScoredResult], expected_doc_ids: &[u32]) {
         let doc_ids: Vec<u32> = results.iter().map(|r| r.doc_id).collect();

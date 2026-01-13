@@ -2,10 +2,8 @@
 
 #![cfg_attr(test, feature(test))]
 #![feature(cell_update)]
-#![feature(div_duration)]
 #![feature(min_specialization)]
 #![feature(box_patterns)]
-#![feature(hash_extract_if)]
 #![feature(let_chains)]
 #![feature(impl_trait_in_assoc_type)]
 #![recursion_limit = "256"]

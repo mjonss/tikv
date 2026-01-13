@@ -20,11 +20,11 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, RwLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
-    thread::{sleep, JoinHandle},
+    thread::{JoinHandle, sleep},
     time::Duration,
 };
 
@@ -39,7 +39,7 @@ use kvengine::{
     dfs::{self, Dfs, FileType, S3Fs},
     table::{
         file::InMemFile,
-        schema_file::{build_schema_file, SchemaFile},
+        schema_file::{SchemaFile, build_schema_file},
     },
 };
 use kvproto::metapb::Store;
@@ -49,8 +49,8 @@ use raftstore::coprocessor::RegionInfoProvider;
 use rand::prelude::*;
 use rfengine::set_dfs_worker_failpoint_target_store_id;
 use security::{GetSecurityManager, SecurityConfig, SecurityManager};
-pub use test_cloud_server::{alloc_node_id, alloc_node_id_vec};
 use test_cloud_server::{
+    ServerCluster,
     client::ClusterTxnClient,
     keyspace::{ClusterKeyspaceClient, CreateKeyspaceOptions, KeyspaceManager},
     must_wait_result,
@@ -59,8 +59,8 @@ use test_cloud_server::{
     tidb::TidbCluster,
     try_wait_result,
     util::broadcast_schema_file_request_and_check,
-    ServerCluster,
 };
+pub use test_cloud_server::{alloc_node_id, alloc_node_id_vec};
 use test_pd_client::TestPdClient;
 use tidb_query_datatype::{
     codec::row::v2::encoder_for_test::{Column, RowEncoder},
@@ -644,7 +644,7 @@ async fn must_split_region_for_keyspace(
     keyspace_id: u32,
     enable_encryption: bool,
 ) {
-    let keys = vec![
+    let keys = [
         ApiV2::get_txn_keyspace_prefix(keyspace_id),
         ApiV2::get_txn_keyspace_prefix(keyspace_id + 1),
     ];
@@ -932,9 +932,9 @@ fn get_log_level_from_rust_log() -> slog::Level {
     if let Ok(log_env) = std::env::var("RUST_LOG") {
         // E.g., "info,raft=debug"
         for part in log_env.split(',') {
-            let level = part.split('=').last().unwrap_or(part);
+            let level = part.split('=').next_back().unwrap_or(part);
             if let Ok(level) = level.parse::<slog::Level>() {
-                if max_level.map_or(true, |x| x < level) {
+                if max_level.is_none_or(|x| x < level) {
                     max_level = Some(level);
                 }
             }

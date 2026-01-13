@@ -7,7 +7,7 @@ use collections::HashSet;
 use prometheus::local::LocalHistogram;
 use raft::eraftpb::MessageType;
 use tikv_util::time::{Duration, Instant};
-use tracker::{Tracker, TrackerToken, GLOBAL_TRACKERS};
+use tracker::{GLOBAL_TRACKERS, Tracker, TrackerToken};
 
 use super::metrics::*;
 

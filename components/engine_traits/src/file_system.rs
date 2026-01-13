@@ -3,7 +3,7 @@
 use std::{result::Result as StdResult, sync::Arc};
 
 use bytes::Bytes;
-use file_system::{get_io_rate_limiter, get_io_type, IoOp, IoRateLimiter};
+use file_system::{IoOp, IoRateLimiter, get_io_rate_limiter, get_io_type};
 use serde::{Deserialize, Serialize};
 
 use crate::Result;

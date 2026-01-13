@@ -3,9 +3,9 @@
 use std::{intrinsics::unlikely, io::Read};
 
 use crate::{
+    ErrorInner, Result,
     buffer::BufferReader,
     number::{self, NumberCodec, NumberDecoder, NumberEncoder},
-    ErrorInner, Result,
 };
 
 const MEMCMP_GROUP_SIZE: usize = 8;
@@ -1374,9 +1374,7 @@ mod benches {
             }
 
             if desc {
-                for k in &mut key {
-                    *k = !*k;
-                }
+                key.iter_mut().for_each(|k| *k = !*k);
             }
             // data will point to following unencoded bytes, maybe timestamp
             *data = &data[offset..];

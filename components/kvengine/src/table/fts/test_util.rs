@@ -6,6 +6,7 @@ use bytes::Bytes;
 use clara_fts::index_for_test;
 use kvenginepb::fts::FullTextIndexDef;
 use tidb_query_datatype::{
+    FieldTypeAccessor, FieldTypeFlag, FieldTypeTp,
     codec::{
         data_type::ScalarValue,
         datum,
@@ -14,30 +15,29 @@ use tidb_query_datatype::{
         table::{encode_common_handle_row_key, encode_row_key},
     },
     expr::EvalContext,
-    FieldTypeAccessor, FieldTypeFlag, FieldTypeTp,
 };
 use tipb::ColumnInfo;
 
 use crate::{
+    Iterator, WRITE_CF,
     table::{
+        ChecksumType, InnerKey, SnapVersion, Value,
         columnar::{
             Block, ColumnarFile, ColumnarFileBuilder, ColumnarMetaCache, ColumnarTableBuildOptions,
             ColumnarTableBuilder,
         },
         file::{File, InMemFile},
         fts::{
+            FtsCache,
             dedicated_file::{DedicatedFileBuilder, DedicatedFileBuilderOptions, EDedicatedFile},
             iter::{CommonPk, IntPk, PkType},
             packed_file::{PackedFile, PackedFileBuilder, PackedFileBuilderOptions},
             reader::VIRTUAL_SCORE_COLUMN_ID,
-            FtsCache,
         },
         memtable::{CfTable, WriteBatch},
-        schema_file::{build_schema_file, Schema, SchemaBuf, SchemaFile},
+        schema_file::{Schema, SchemaBuf, SchemaFile, build_schema_file},
         sstable::{BlockCache, L0Builder, L0Table},
-        ChecksumType, InnerKey, SnapVersion, Value,
     },
-    Iterator, WRITE_CF,
 };
 
 /// Helper utility to build a table [`Schema`] for tests.
@@ -508,7 +508,7 @@ impl TestRowDatum for String {
     }
 }
 
-impl<'a> TestRowDatum for &'a str {
+impl TestRowDatum for &str {
     fn materialize(&self, field_type: FieldTypeTp, _is_unsigned: bool) -> TestRowValue {
         match field_type {
             FieldTypeTp::VarChar
@@ -1346,7 +1346,7 @@ impl TestColumnarDatum for String {
     }
 }
 
-impl<'a> TestColumnarDatum for &'a str {
+impl TestColumnarDatum for &str {
     fn materialize(&self, field_type: FieldTypeTp, _is_unsigned: bool) -> Option<Vec<u8>> {
         let bytes = match field_type {
             FieldTypeTp::VarChar
@@ -1362,7 +1362,7 @@ impl<'a> TestColumnarDatum for &'a str {
     }
 }
 
-impl<'a> TestColumnarDatum for &'a [u8] {
+impl TestColumnarDatum for &[u8] {
     fn materialize(&self, field_type: FieldTypeTp, _is_unsigned: bool) -> Option<Vec<u8>> {
         let bytes = match field_type {
             FieldTypeTp::VarChar

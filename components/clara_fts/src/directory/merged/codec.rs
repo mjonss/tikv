@@ -19,13 +19,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use memmap2::Mmap;
 use prost::Message;
 use tantivy::directory::OwnedBytes;
 
 fn align_to_8_bytes(n: u64) -> u64 {
-    (n + 7) / 8 * 8
+    n.div_ceil(8) * 8
 }
 
 /// Wraps Mmap to implement StableDeref

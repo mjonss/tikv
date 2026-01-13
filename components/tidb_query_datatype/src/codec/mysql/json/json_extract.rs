@@ -4,12 +4,12 @@ use collections::HashSet;
 
 use super::{
     super::Result,
-    path_expr::{PathExpression, PathLeg},
     Json, JsonRef, JsonType,
+    path_expr::{PathExpression, PathLeg},
 };
 use crate::codec::mysql::json::path_expr::{ArrayIndex, ArraySelection, KeySelection};
 
-impl<'a> JsonRef<'a> {
+impl JsonRef<'_> {
     /// `extract` receives several path expressions as arguments, matches them
     /// in j, and returns the target JSON matched any path expressions, which
     /// may be autowrapped as an array. If there is no any expression matched,
@@ -42,13 +42,13 @@ impl<'a> JsonRef<'a> {
 #[derive(Eq)]
 struct RefEqualJsonWrapper<'a>(JsonRef<'a>);
 
-impl<'a> PartialEq for RefEqualJsonWrapper<'a> {
+impl PartialEq for RefEqualJsonWrapper<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.0.ref_eq(&other.0)
     }
 }
 
-impl<'a> std::hash::Hash for RefEqualJsonWrapper<'a> {
+impl std::hash::Hash for RefEqualJsonWrapper<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.value.as_ptr().hash(state)
     }
@@ -200,12 +200,15 @@ mod tests {
 
     use super::{
         super::path_expr::{
-            PathExpressionFlag, PATH_EXPRESSION_CONTAINS_ASTERISK,
-            PATH_EXPRESSION_CONTAINS_DOUBLE_ASTERISK,
+            PATH_EXPRESSION_CONTAINS_ASTERISK, PATH_EXPRESSION_CONTAINS_DOUBLE_ASTERISK,
+            PathExpressionFlag,
         },
         *,
     };
-    use crate::codec::mysql::json::path_expr::{ArrayIndex, PATH_EXPRESSION_CONTAINS_RANGE};
+    use crate::codec::{
+        convert::ToStringValue,
+        mysql::json::path_expr::{ArrayIndex, PATH_EXPRESSION_CONTAINS_RANGE},
+    };
 
     fn select_from_left(index: usize) -> PathLeg {
         PathLeg::ArraySelection(ArraySelection::Index(ArrayIndex::Left(index as u32)))
@@ -617,7 +620,7 @@ mod tests {
                 Some(es) => {
                     let e = Json::from_str(es);
                     assert!(e.is_ok(), "#{} expect parse json ok but got {:?}", i, e);
-                    Some(e.unwrap().to_string())
+                    Some(e.unwrap().to_string_value())
                 }
                 None => None,
             };
@@ -625,7 +628,7 @@ mod tests {
                 .as_ref()
                 .extract(&exprs[..])
                 .unwrap()
-                .map(|got| got.to_string());
+                .map(|got| got.to_string_value());
             assert_eq!(
                 got, expected,
                 "#{} expect {:?}, but got {:?}",

@@ -2,7 +2,7 @@
 
 use std::ops::RangeBounds;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use byteorder::{ByteOrder, LittleEndian};
 use bytes::Bytes;
 
@@ -91,14 +91,12 @@ impl BytesExt for bytes::Bytes {
     }
 
     fn check_aligned<T>(&self) -> Result<()> {
-        if !self
-            .as_ref()
-            .as_ptr()
-            .is_aligned_to(std::mem::size_of::<T>())
-        {
+        let ptr = self.as_ref().as_ptr() as usize;
+        let align = std::mem::align_of::<T>();
+        if ptr % align != 0 {
             bail!(
                 "Bytes are not aligned to {}, ptr={:p}, len={}",
-                std::mem::size_of::<T>(),
+                align,
                 self.as_ref().as_ptr(),
                 self.len()
             );

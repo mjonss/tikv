@@ -5,15 +5,15 @@ use std::{
     iter::Iterator as StdIterator,
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
 use super::{Arena, SkipList};
 use crate::{
-    table::{memtable::skl_ext::SkipListExt, AtomicSnapVersion, DataBound, SnapVersion, TxnFile},
     EXTRA_CF, NUM_CFS, WRITE_CF,
+    table::{AtomicSnapVersion, DataBound, SnapVersion, TxnFile, memtable::skl_ext::SkipListExt},
 };
 
 #[derive(Clone)]

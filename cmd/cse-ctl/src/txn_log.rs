@@ -6,11 +6,11 @@ use clap::Args;
 use kvengine::dfs::{DFSConfig, S3Fs};
 use native_br::{
     common::create_pd_client,
-    restore::{get_cluster_backup_meta, RestoreConfig},
+    restore::{RestoreConfig, get_cluster_backup_meta},
     restore_keyspace::BackupCluster,
 };
 use raft_proto::eraftpb::{Entry, EntryType};
-use rfstore::store::{rlog, PeerTag, RegionIdVer};
+use rfstore::store::{PeerTag, RegionIdVer, rlog};
 use security::SecurityConfig;
 use txn_types::Lock;
 

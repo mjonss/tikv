@@ -4,7 +4,7 @@ use std::{thread, time::Duration};
 
 use bytes::Bytes;
 use kvproto::kvrpcpb;
-use test_cloud_server::{client::TxnMutations, util::Mutation, ServerCluster};
+use test_cloud_server::{ServerCluster, client::TxnMutations, util::Mutation};
 use tikv_util::time::Instant;
 
 use crate::{alloc_node_id_vec, i_to_key, i_to_val};

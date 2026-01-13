@@ -4,17 +4,17 @@ use std::{
     collections::VecDeque,
     ptr,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
-use bcc::{table::Table, Kprobe, BPF};
+use bcc::{BPF, Kprobe, table::Table};
 use crossbeam_utils::CachePadded;
 use strum::{EnumCount, IntoEnumIterator};
 use tikv_util::sys::thread;
 
-use crate::{metrics::*, IoBytes, IoType};
+use crate::{IoBytes, IoType, metrics::*};
 
 /// Biosnoop leverages BCC to make use of eBPF to get disk IO of TiKV requests.
 /// The BCC code is in `biosnoop.c` which is compiled and attached kernel on
@@ -277,16 +277,16 @@ mod tests {
     };
 
     use libc::O_DIRECT;
-    use maligned::{AsBytes, AsBytesMut, A512};
+    use maligned::{A512, AsBytes, AsBytesMut};
     use rand::Rng;
     use tempfile::TempDir;
     use test::Bencher;
 
     use super::{
-        fetch_io_bytes, flush_io_latency_metrics, get_io_type, init, set_io_type, BPF_CONTEXT,
-        MAX_THREAD_IDX,
+        BPF_CONTEXT, MAX_THREAD_IDX, fetch_io_bytes, flush_io_latency_metrics, get_io_type, init,
+        set_io_type,
     };
-    use crate::{metrics::*, IoType, OpenOptions};
+    use crate::{IoType, OpenOptions, metrics::*};
 
     #[test]
     fn test_biosnoop() {

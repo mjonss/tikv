@@ -3,7 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use api_version::ApiV2;
-use kvengine::{dfs::S3Fs, ShardStats, WRITE_CF};
+use kvengine::{ShardStats, WRITE_CF, dfs::S3Fs};
 use native_br::{
     backup,
     limiter::{RateLimitConfig, ThroughputLimiter},
@@ -12,7 +12,7 @@ use native_br::{
     restore_keyspace,
 };
 use rand::Rng;
-use test_cloud_server::{client::RequestOptions, oss::prepare_dfs, ServerCluster};
+use test_cloud_server::{ServerCluster, client::RequestOptions, oss::prepare_dfs};
 use tikv::config::TikvConfig;
 use tikv_util::config::{ReadableDuration, ReadableSize};
 use tokio::runtime::Runtime;

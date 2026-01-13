@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use slab::Slab;
 
-use crate::{metrics::*, Tracker};
+use crate::{Tracker, metrics::*};
 
 const SLAB_SHARD_BITS: u32 = 6;
 const SLAB_SHARD_COUNT: usize = 1 << SLAB_SHARD_BITS; // 64
@@ -20,7 +20,7 @@ lazy_static! {
 
 fn next_shard_id() -> usize {
     thread_local! {
-        static CURRENT_SHARD_ID: Cell<usize> = Cell::new(0);
+        static CURRENT_SHARD_ID: Cell<usize> = const { Cell::new(0) };
     }
     CURRENT_SHARD_ID.with(|c| {
         let shard_id = c.get();
