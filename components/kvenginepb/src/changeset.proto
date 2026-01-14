@@ -311,6 +311,8 @@ message FtsUpdate {
   uint64 set_snap_version = 1;
   // Addition - add new indexes to existing configuration
   repeated TableIndexId add_tracked_indexes = 2;
+  // Removal - remove tracked indexes
+  repeated TableIndexId remove_tracked_indexes = 11;
   // Addition - add new FTS L0 files
   repeated FtsPackedFileInfo l0_add_files = 3;
   // Removal - remove old FTS L0 files

@@ -10,7 +10,7 @@ use protobuf::Message;
 use tikv_util::box_err;
 
 use crate::{
-    DEL_PREFIXES_KEY, DeletePrefixes, ShardMeta, ShardTag, UserMeta,
+    DEL_PREFIXES_KEY, DeletePrefixes, FtsPendingWork, ShardMeta, ShardTag, UserMeta,
     table::{SnapVersion, TxnFile},
 };
 
@@ -82,6 +82,7 @@ pub fn new_columnar_create_pb(
     smallest: Vec<u8>,
     biggest: Vec<u8>,
     meta_offset: u32,
+    snap_version: Option<SnapVersion>,
 ) -> kvenginepb::ColumnarCreate {
     let mut col_create = kvenginepb::ColumnarCreate::new();
     col_create.set_id(id);
@@ -89,6 +90,7 @@ pub fn new_columnar_create_pb(
     col_create.set_smallest(smallest);
     col_create.set_biggest(biggest);
     col_create.set_meta_offset(meta_offset);
+    col_create.set_snap_version(snap_version.map(|v| v.into_inner()).unwrap_or(0));
     col_create
 }
 
@@ -119,6 +121,72 @@ pub fn is_matched_vector_index(
     b: &kvenginepb::UpdateVectorIndex,
 ) -> bool {
     a.table_id == b.table_id && a.index_id == b.index_id && a.col_id == b.col_id
+}
+
+pub fn append_fts_update(cs: &mut kvenginepb::ChangeSet, update: kvenginepb::FtsUpdate) {
+    if is_fts_update_empty(&update) {
+        return;
+    }
+    let target = cs.mut_fts_update();
+    merge_fts_update(target, update);
+}
+
+fn merge_fts_update(target: &mut kvenginepb::FtsUpdate, mut source: kvenginepb::FtsUpdate) {
+    if source.get_set_snap_version() > target.get_set_snap_version() {
+        target.set_set_snap_version(source.get_set_snap_version());
+    }
+    for idx in source.take_remove_tracked_indexes().into_iter() {
+        target.mut_remove_tracked_indexes().push(idx);
+    }
+    for idx in source.take_add_tracked_indexes().into_iter() {
+        target.mut_add_tracked_indexes().push(idx);
+    }
+    for file in source.take_l0_add_files().into_iter() {
+        target.mut_l0_add_files().push(file);
+    }
+    target
+        .mut_l0_remove_files()
+        .extend(source.take_l0_remove_files());
+    for file in source.take_l1_add_files().into_iter() {
+        target.mut_l1_add_files().push(file);
+    }
+    target
+        .mut_l1_remove_files()
+        .extend(source.take_l1_remove_files());
+    for file in source.take_l2_add_files().into_iter() {
+        target.mut_l2_add_files().push(file);
+    }
+    target
+        .mut_l2_remove_files()
+        .extend(source.take_l2_remove_files());
+}
+
+fn is_fts_update_empty(update: &kvenginepb::FtsUpdate) -> bool {
+    update.get_set_snap_version() == 0
+        && update.get_add_tracked_indexes().is_empty()
+        && update.get_remove_tracked_indexes().is_empty()
+        && update.get_l0_add_files().is_empty()
+        && update.get_l0_remove_files().is_empty()
+        && update.get_l1_add_files().is_empty()
+        && update.get_l1_remove_files().is_empty()
+        && update.get_l2_add_files().is_empty()
+        && update.get_l2_remove_files().is_empty()
+}
+
+pub fn patch_remove_to_fts_update(cs: &mut kvenginepb::ChangeSet, pending: &FtsPendingWork) {
+    if !pending.has_removes() {
+        return;
+    }
+    let update = cs.mut_fts_update();
+    update
+        .mut_l0_remove_files()
+        .extend(pending.remove_l0.iter().copied());
+    update
+        .mut_l1_remove_files()
+        .extend(pending.remove_l1.iter().copied());
+    update
+        .mut_l2_remove_files()
+        .extend(pending.remove_l2.iter().copied());
 }
 
 /// Helper for merging or splitting properties.

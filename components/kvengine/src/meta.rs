@@ -13,7 +13,9 @@ use api_version::{
 };
 use bytes::{Buf, Bytes};
 use kvenginepb as pb;
-use kvenginepb::{SchemaMeta, TxnFileRef, VectorIndex, get_any_snap_from_changeset};
+use kvenginepb::{
+    SchemaMeta, TxnFileRef, VectorIndex, fts::TableIndexId, get_any_snap_from_changeset,
+};
 use protobuf::Message;
 use schema::schema::StorageClassSpec;
 use slog_global::*;
@@ -61,6 +63,20 @@ pub struct ShardMeta {
     pub unconverted_l0s: Vec<u64>,
     pub vector_indexes: Vec<kvenginepb::VectorIndex>,
     pub columnar_l2_snap_version: SnapVersion,
+
+    // The followings are FTS related fields ============
+    pub fts_l0_snap_version: SnapVersion,
+    /// Currently tracked FTS indexes. We use this list to determine whether
+    /// it is incremental update or index add.
+    pub fts_indexes: HashSet<(i64 /* table_id */, i64 /* index_id */)>,
+    /// FTS Level 0 files (order is not guaranteed).
+    pub fts_l0_files: Vec<kvenginepb::FtsPackedFileInfo>,
+    /// FTS Level 1 packed partitions (order is not guaranteed).
+    pub fts_l1_files: Vec<kvenginepb::FtsPackedFileInfo>,
+    /// FTS Level 2 dedicated partitions grouped by logical partition.
+    pub fts_l2_files: Vec<kvenginepb::FtsDedFileInfo>,
+    /// Columnar L0 ids that still need incremental FTS processing after merge.
+    pub fts_pending_l0_ids: Vec<u64>,
 
     /// The following are memory-based field(s).
     ///
@@ -160,6 +176,21 @@ impl ShardMeta {
                 );
             }
         }
+        for tbl_idx_id in snap.get_fts_indexes() {
+            meta.fts_indexes
+                .insert((tbl_idx_id.table_id, tbl_idx_id.index_id));
+        }
+        for fts_l0_file in snap.get_fts_l0_files() {
+            meta.fts_l0_files.push(fts_l0_file.clone());
+        }
+        for fts_l1_file in snap.get_fts_l1_files() {
+            meta.fts_l1_files.push(fts_l1_file.clone());
+        }
+        for fts_l2_file in snap.get_fts_l2_files() {
+            meta.fts_l2_files.push(fts_l2_file.clone());
+        }
+        meta.fts_pending_l0_ids = snap.get_fts_pending_l0_ids().to_vec();
+        meta.fts_l0_snap_version = SnapVersion::from(snap.get_fts_l0_snap_version());
         meta
     }
 
@@ -378,6 +409,10 @@ impl ShardMeta {
         }
         if cs.has_update_vector_index() {
             self.apply_update_vector_index(cs.get_update_vector_index());
+            return;
+        }
+        if cs.has_fts_update() {
+            self.apply_fts_update(cs.get_fts_update());
             return;
         }
         if cs.get_clear_columnar() || cs.has_clear_columnar_with_restore_version() {
@@ -603,9 +638,45 @@ impl ShardMeta {
                 return true;
             }
         }
+        if cs.has_fts_update() {
+            let update = cs.get_fts_update();
+            if self.is_duplicated_fts_update(update) {
+                info!(
+                    "{} skip duplicated fts update {:?}, fts_l0_snap_version: {:?}",
+                    self.tag(),
+                    update,
+                    self.fts_l0_snap_version
+                );
+                return true;
+            }
+        }
         if cs.get_property_key() == STORAGE_CLASS_KEY {
             let sc_spec = StorageClassSpec::unmarshal(Some(&cs.property_value));
             return self.get_storage_class_spec() == sc_spec;
+        }
+        false
+    }
+
+    fn is_duplicated_fts_update(&self, update: &pb::FtsUpdate) -> bool {
+        if update.get_set_snap_version() > 0
+            && update.get_set_snap_version() < self.fts_l0_snap_version.into_inner()
+        {
+            return true;
+        }
+        if update
+            .get_l0_remove_files()
+            .iter()
+            .any(|id| !self.fts_l0_files.iter().any(|file| file.get_id() == *id))
+            || update
+                .get_l1_remove_files()
+                .iter()
+                .any(|id| !self.fts_l1_files.iter().any(|file| file.get_id() == *id))
+            || update
+                .get_l2_remove_files()
+                .iter()
+                .any(|id| !self.fts_l2_files.iter().any(|file| file.get_id() == *id))
+        {
+            return true;
         }
         false
     }
@@ -826,6 +897,9 @@ impl ShardMeta {
         assert!(cs.has_destroy_range());
         self.apply_table_change(cs.get_destroy_range());
         self.apply_table_change_to_unconverted_l0s(cs.get_destroy_range());
+        if cs.has_fts_update() {
+            self.apply_fts_update(cs.get_fts_update());
+        }
         // ChangeSet of DestroyRange contains the corresponding delete-prefixes which
         // should be cleaned up.
         assert_eq!(cs.get_property_key(), DEL_PREFIXES_KEY);
@@ -848,6 +922,9 @@ impl ShardMeta {
         // During keyspace restoration, truncate_ts will be triggered. We also need
         // manipulate the unconverted_l0s.
         self.apply_table_change_to_unconverted_l0s(cs.get_truncate_ts());
+        if cs.has_fts_update() {
+            self.apply_fts_update(cs.get_fts_update());
+        }
     }
 
     fn apply_trim_over_bound(&mut self, cs: &pb::ChangeSet) {
@@ -855,6 +932,9 @@ impl ShardMeta {
         assert!(cs.has_trim_over_bound());
         self.apply_table_change(cs.get_trim_over_bound());
         self.apply_table_change_to_unconverted_l0s(cs.get_trim_over_bound());
+        if cs.has_fts_update() {
+            self.apply_fts_update(cs.get_fts_update());
+        }
         self.set_property(TRIM_OVER_BOUND, TRIM_OVER_BOUND_DISABLE);
     }
 
@@ -1058,6 +1138,7 @@ impl ShardMeta {
             self.columnar_table_ids.clear();
             self.unconverted_l0s.clear();
             self.vector_indexes.clear();
+            self.clear_fts();
             self.schema.clear(self.schema.restore_ver());
         } else {
             self.columnar_table_ids
@@ -1066,7 +1147,7 @@ impl ShardMeta {
             self.columnar_table_ids.dedup();
             self.columnar_table_ids
                 .retain(|id| !comp.get_columnar_table_ids_to_clear().contains(id));
-            let columnar_table_ids = self.columnar_table_ids.as_slice();
+            let columnar_table_ids = self.columnar_table_ids.clone();
             self.vector_indexes
                 .retain(|vec_idx| columnar_table_ids.contains(&vec_idx.table_id));
             // If columnar_table_ids is empty, this must be a major compaction to clear the
@@ -1074,6 +1155,8 @@ impl ShardMeta {
             if columnar_table_ids.is_empty() {
                 self.unconverted_l0s.clear();
             }
+
+            self.retain_fts(&columnar_table_ids);
         }
         if comp.get_is_manual_major_compaction() {
             self.del_property(MANUAL_MAJOR_COMPACTION);
@@ -1102,6 +1185,63 @@ impl ShardMeta {
             vec_idx.mut_files().push(file.clone());
         }
         self.vector_indexes.push(vec_idx)
+    }
+
+    /// Applies a combined FTS update to the current ShardMeta.
+    pub fn apply_fts_update(&mut self, update: &pb::FtsUpdate) {
+        if update.get_clear_all() {
+            self.fts_indexes.clear();
+            self.fts_l0_files.clear();
+            self.fts_l1_files.clear();
+            self.fts_l2_files.clear();
+            self.fts_l0_snap_version = SnapVersion::zero();
+            self.fts_pending_l0_ids.clear();
+            return;
+        }
+        for tbl_idx_id in update.get_remove_tracked_indexes() {
+            self.fts_indexes
+                .remove(&(tbl_idx_id.table_id, tbl_idx_id.index_id));
+        }
+        for tbl_idx_id in update.get_add_tracked_indexes() {
+            self.fts_indexes
+                .insert((tbl_idx_id.table_id, tbl_idx_id.index_id));
+        }
+        if self.fts_indexes.is_empty() {
+            self.fts_pending_l0_ids.clear();
+        }
+        for fts_l0_file in update.get_l0_add_files() {
+            self.fts_l0_files.push(fts_l0_file.clone());
+        }
+        for file in update.get_l1_add_files() {
+            self.fts_l1_files.push(file.clone());
+        }
+        for file in update.get_l2_add_files() {
+            self.fts_l2_files.push(file.clone());
+        }
+        if !update.get_l0_remove_files().is_empty() {
+            let remove: HashSet<u64> = update.get_l0_remove_files().iter().copied().collect();
+            self.fts_l0_files
+                .retain(|file| !remove.contains(&file.get_id()));
+        }
+        if !update.get_l1_remove_files().is_empty() {
+            let remove: HashSet<u64> = update.get_l1_remove_files().iter().copied().collect();
+            self.fts_l1_files
+                .retain(|file| !remove.contains(&file.get_id()));
+        }
+        if !update.get_l2_remove_files().is_empty() {
+            let remove: HashSet<u64> = update.get_l2_remove_files().iter().copied().collect();
+            self.fts_l2_files
+                .retain(|file| !remove.contains(&file.get_id()));
+        }
+        if update.get_set_snap_version() > 0 {
+            self.fts_l0_snap_version = SnapVersion::from(update.get_set_snap_version());
+        }
+        if !update.get_pending_columnar_l0_remove_files().is_empty()
+            && !self.fts_pending_l0_ids.is_empty()
+        {
+            self.fts_pending_l0_ids
+                .retain(|id| !update.get_pending_columnar_l0_remove_files().contains(id));
+        }
     }
 
     pub fn apply_snapshot_diff(&mut self, cs: &pb::ChangeSet) {
@@ -1139,10 +1279,13 @@ impl ShardMeta {
         self.columnar_l2_snap_version = SnapVersion::zero();
         self.unconverted_l0s.clear();
         self.vector_indexes.clear();
+        self.clear_fts();
         self.files.retain(|_, fm| {
             fm.file_type != FileType::Columnar
                 && fm.file_type != FileType::Schema
                 && fm.file_type != FileType::VectorIndex
+                && fm.file_type != FileType::FtsPackedFile
+                && fm.file_type != FileType::FtsDedicatedFile
         });
     }
 
@@ -1181,7 +1324,46 @@ impl ShardMeta {
         self.schema.to_snapshot(&mut snap);
         snap.set_unconverted_l0s(self.unconverted_l0s.clone());
         snap.set_vector_indexes(self.vector_indexes.clone().into());
+        snap.set_fts_indexes(
+            self.fts_indexes
+                .iter()
+                .map(|&(t, i)| {
+                    let mut tbl_idx_id = TableIndexId::new();
+                    tbl_idx_id.set_table_id(t);
+                    tbl_idx_id.set_index_id(i);
+                    tbl_idx_id
+                })
+                .collect(),
+        );
+        snap.set_fts_l0_snap_version(self.fts_l0_snap_version.into_inner());
+        snap.set_fts_l0_files(self.fts_l0_files.clone().into());
+        snap.set_fts_l1_files(self.fts_l1_files.clone().into());
+        snap.set_fts_l2_files(self.fts_l2_files.clone().into());
+        if !self.fts_indexes.is_empty() {
+            snap.set_fts_pending_l0_ids(self.collect_fts_pending_l0_ids(&[]));
+        }
         snap
+    }
+
+    fn collect_fts_pending_l0_ids(&self, source_pending_l0_ids: &[u64]) -> Vec<u64> {
+        let mut fts_pending_l0_ids: HashSet<u64> = self
+            .fts_pending_l0_ids
+            .iter()
+            .filter(|id| self.files.contains_key(id))
+            .copied()
+            .collect();
+        fts_pending_l0_ids.extend(
+            self.files
+                .iter()
+                .filter(|(_, fm)| {
+                    fm.file_type == FileType::Columnar
+                        && fm.get_level() == 0
+                        && fm.get_snap_version() > self.fts_l0_snap_version
+                })
+                .map(|(id, _)| *id),
+        );
+        fts_pending_l0_ids.extend(source_pending_l0_ids.iter().copied());
+        fts_pending_l0_ids.into_iter().collect()
     }
 
     pub fn to_change_set(&self) -> pb::ChangeSet {
@@ -1205,6 +1387,8 @@ impl ShardMeta {
                     snap.mut_blob_creates().push(v.to_blob_create(k));
                 }
                 FileType::VectorIndex => {} // already handled in vector_indexes.
+                FileType::FtsPackedFile => {} // handled separately.
+                FileType::FtsDedicatedFile => {} // handled separately.
             }
         }
         cs.set_snapshot(snap);
@@ -1440,6 +1624,62 @@ impl ShardMeta {
         }
     }
 
+    fn clear_fts(&mut self) {
+        self.fts_indexes.clear();
+        self.fts_l0_files.clear();
+        self.fts_l1_files.clear();
+        self.fts_l2_files.clear();
+        self.fts_l0_snap_version = SnapVersion::zero();
+        self.fts_pending_l0_ids.clear();
+    }
+
+    fn retain_fts(&mut self, columnar_table_ids: &[i64]) {
+        self.fts_indexes
+            .retain(|(table_id, _)| columnar_table_ids.contains(table_id));
+        self.fts_l0_files.retain(|fts_l0_file| {
+            let data_bound = DataBound::new(
+                InnerKey::from_inner_buf(&fts_l0_file.smallest),
+                InnerKey::from_inner_buf(&fts_l0_file.biggest),
+                true,
+            );
+            let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+            columnar_table_ids
+                .iter()
+                .any(|&id| id >= min_table_id && id <= max_table_id)
+        });
+        self.fts_l1_files.retain(|fts_l1_file| {
+            let data_bound = DataBound::new(
+                InnerKey::from_inner_buf(&fts_l1_file.smallest),
+                InnerKey::from_inner_buf(&fts_l1_file.biggest),
+                true,
+            );
+            let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+            columnar_table_ids
+                .iter()
+                .any(|&id| id >= min_table_id && id <= max_table_id)
+        });
+        self.fts_l2_files.retain(|fts_l2_file| {
+            let data_bound = DataBound::new(
+                InnerKey::from_inner_buf(&fts_l2_file.smallest),
+                InnerKey::from_inner_buf(&fts_l2_file.biggest),
+                true,
+            );
+            let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+            columnar_table_ids
+                .iter()
+                .any(|&id| id >= min_table_id && id <= max_table_id)
+        });
+        let files = &self.files;
+        self.fts_pending_l0_ids.retain(|pending_id| {
+            files.get(pending_id).is_some_and(|fm| {
+                let (min_table_id, max_table_id) = get_table_id_from_data_bound(fm.data_bound());
+                columnar_table_ids
+                    .iter()
+                    .any(|&id| id >= min_table_id && id <= max_table_id)
+            })
+        });
+    }
+
     pub fn merge_txn_file_ref(&mut self, wb_ref: &TxnFileRef, log_index: u64) {
         let tag = self.tag();
         let current_seq = self.txn_file_locks.seq();
@@ -1556,6 +1796,9 @@ pub struct FileMeta {
 
     // Available ONLY for SST (level 1+) & Columnar & VectorIndex & Blob.
     pub table_meta_off: u32,
+
+    // Available ONLY for Columnar.
+    pub snap_version: Option<SnapVersion>,
 }
 
 impl FileMeta {
@@ -1567,6 +1810,7 @@ impl FileMeta {
         biggest: &[u8],
         l0_size: u32,
         table_meta_off: u32,
+        snap_version: Option<SnapVersion>,
     ) -> Self {
         Self {
             cf: cf as i8,
@@ -1576,6 +1820,7 @@ impl FileMeta {
             biggest: Bytes::copy_from_slice(biggest),
             l0_size,
             table_meta_off,
+            snap_version,
         }
     }
 
@@ -1607,14 +1852,24 @@ impl FileMeta {
         self.file_type == FileType::VectorIndex
     }
 
+    pub fn is_fts_file(&self) -> bool {
+        self.file_type == FileType::FtsPackedFile || self.file_type == FileType::FtsDedicatedFile
+    }
+
     pub fn can_use_ia(&self) -> bool {
         match self.file_type {
             FileType::Sst if (self.cf as usize == WRITE_CF && self.level > 0) => true,
             FileType::Columnar => true,
             FileType::VectorIndex => true,
+            FileType::FtsPackedFile => true,
+            FileType::FtsDedicatedFile => true,
             FileType::Blob => true,
             _ => false,
         }
+    }
+
+    pub fn get_snap_version(&self) -> SnapVersion {
+        self.snap_version.unwrap_or(SnapVersion::zero())
     }
 
     pub fn is_l0_sst_with_size(&self) -> bool {
@@ -1630,6 +1885,7 @@ impl FileMeta {
             table.get_biggest(),
             table.size,
             0,
+            None,
         )
     }
 
@@ -1642,6 +1898,7 @@ impl FileMeta {
             table.get_biggest(),
             0,
             table.meta_offset,
+            None,
         )
     }
 
@@ -1654,6 +1911,7 @@ impl FileMeta {
             table.get_biggest(),
             0,
             table.meta_offset,
+            Some(SnapVersion::from(table.snap_version)),
         )
     }
 
@@ -1666,6 +1924,7 @@ impl FileMeta {
             table.get_biggest(),
             0,
             table.get_meta_offset(),
+            None,
         )
     }
 
@@ -1678,11 +1937,51 @@ impl FileMeta {
             vec_idx_file.get_biggest(),
             0,
             vec_idx_file.get_meta_offset(),
+            None,
+        )
+    }
+
+    pub fn from_fts_l0_file(fts_file: &kvenginepb::FtsPackedFileInfo) -> Self {
+        Self::new(
+            0,
+            0,
+            FileType::FtsPackedFile,
+            fts_file.get_smallest(),
+            fts_file.get_biggest(),
+            0,
+            fts_file.get_meta_offset(),
+            None,
+        )
+    }
+
+    pub fn from_fts_l1_file(fts_file: &kvenginepb::FtsPackedFileInfo) -> Self {
+        Self::new(
+            0,
+            1,
+            FileType::FtsPackedFile,
+            fts_file.get_smallest(),
+            fts_file.get_biggest(),
+            0,
+            fts_file.get_meta_offset(),
+            None,
+        )
+    }
+
+    pub fn from_fts_l2_file(fts_file: &kvenginepb::FtsDedFileInfo) -> Self {
+        Self::new(
+            0,
+            2,
+            FileType::FtsDedicatedFile,
+            fts_file.get_smallest(),
+            fts_file.get_biggest(),
+            0,
+            fts_file.get_meta_offset(),
+            None,
         )
     }
 
     pub fn from_schema_meta() -> Self {
-        Self::new(0, 0, FileType::Schema, &[], &[], 0, 0)
+        Self::new(0, 0, FileType::Schema, &[], &[], 0, 0, None)
     }
 
     pub fn to_l0_create(&self, id: u64) -> kvenginepb::L0Create {
@@ -1712,6 +2011,7 @@ impl FileMeta {
         columnar_create.set_smallest(self.smallest.to_vec());
         columnar_create.set_biggest(self.biggest.to_vec());
         columnar_create.set_meta_offset(self.table_meta_off);
+        columnar_create.set_snap_version(self.snap_version.map(|v| v.into_inner()).unwrap_or(0));
         columnar_create
     }
 
@@ -1736,7 +2036,7 @@ impl BoundedDataSet for FileMeta {
 
 impl Default for FileMeta {
     fn default() -> Self {
-        Self::new(0, 0, FileType::Sst, b"", b"", 0, 0)
+        Self::new(0, 0, FileType::Sst, b"", b"", 0, 0, None)
     }
 }
 
@@ -1856,6 +2156,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_fts_update_remove_tracked_indexes() {
+        let mut meta = ShardMeta::default();
+        meta.fts_indexes.insert((10, 1));
+        meta.fts_indexes.insert((10, 2));
+        meta.fts_pending_l0_ids = vec![100, 200];
+
+        let mut update = pb::FtsUpdate::new();
+        let mut tbl_idx_id = TableIndexId::new();
+        tbl_idx_id.set_table_id(10);
+        tbl_idx_id.set_index_id(1);
+        update.mut_remove_tracked_indexes().push(tbl_idx_id);
+
+        meta.apply_fts_update(&update);
+
+        assert!(!meta.fts_indexes.contains(&(10, 1)));
+        assert!(meta.fts_indexes.contains(&(10, 2)));
+        assert_eq!(
+            meta.fts_pending_l0_ids,
+            vec![100, 200],
+            "pending ids should be kept if there are remaining tracked indexes"
+        );
+
+        let mut update = pb::FtsUpdate::new();
+        let mut tbl_idx_id = TableIndexId::new();
+        tbl_idx_id.set_table_id(10);
+        tbl_idx_id.set_index_id(2);
+        update.mut_remove_tracked_indexes().push(tbl_idx_id);
+
+        meta.apply_fts_update(&update);
+        assert!(meta.fts_indexes.is_empty());
+        assert!(
+            meta.fts_pending_l0_ids.is_empty(),
+            "pending ids should be cleared when no indexes are tracked"
+        );
+    }
+
+    #[test]
     fn test_ingest_level() {
         for level in 0..=3 {
             let mut cs = new_change_set(1, 1);
@@ -1903,13 +2240,25 @@ mod tests {
     fn test_delete_file_with_level() {
         let files = vec![
             // L0:
-            (1, FileMeta::new(0, 0, FileType::Sst, b"", b"", 0, 0)),
+            (1, FileMeta::new(0, 0, FileType::Sst, b"", b"", 0, 0, None)),
             // L1:
-            (101, FileMeta::new(0, 1, FileType::Sst, b"", b"", 0, 0)),
-            (102, FileMeta::new(0, 1, FileType::Sst, b"", b"", 0, 0)),
+            (
+                101,
+                FileMeta::new(0, 1, FileType::Sst, b"", b"", 0, 0, None),
+            ),
+            (
+                102,
+                FileMeta::new(0, 1, FileType::Sst, b"", b"", 0, 0, None),
+            ),
             // L2:
-            (201, FileMeta::new(0, 2, FileType::Sst, b"", b"", 0, 0)),
-            (202, FileMeta::new(0, 2, FileType::Sst, b"", b"", 0, 0)),
+            (
+                201,
+                FileMeta::new(0, 2, FileType::Sst, b"", b"", 0, 0, None),
+            ),
+            (
+                202,
+                FileMeta::new(0, 2, FileType::Sst, b"", b"", 0, 0, None),
+            ),
         ];
 
         // comp_level, top_deletes, bottom_deletes, is_duplicated, result_files
@@ -2188,7 +2537,16 @@ mod tests {
                 let (smallest, biggest) = make_smallest_biggest(t);
                 meta.files.insert(
                     id as u64,
-                    FileMeta::new(WRITE_CF as i32, 3, FileType::Sst, &smallest, &biggest, 0, 0),
+                    FileMeta::new(
+                        WRITE_CF as i32,
+                        3,
+                        FileType::Sst,
+                        &smallest,
+                        &biggest,
+                        0,
+                        0,
+                        None,
+                    ),
                 );
             }
             meta

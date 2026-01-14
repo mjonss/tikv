@@ -6,7 +6,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     iter::Iterator as StdIterator,
     mem::size_of,
-    ops::Deref,
+    ops::{Add, Deref},
     path::PathBuf,
     ptr, result, slice,
     sync::{atomic, atomic::AtomicU64},
@@ -1060,6 +1060,22 @@ impl SnapVersion {
 
     pub fn is_not_zero(self) -> bool {
         self.0 != 0
+    }
+}
+
+impl Add<u64> for SnapVersion {
+    type Output = SnapVersion;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        SnapVersion(self.0 + rhs)
+    }
+}
+
+impl Add<SnapVersion> for SnapVersion {
+    type Output = SnapVersion;
+
+    fn add(self, rhs: SnapVersion) -> Self::Output {
+        SnapVersion(self.0 + rhs.0)
     }
 }
 

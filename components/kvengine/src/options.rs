@@ -23,7 +23,9 @@ use crate::{
     },
     ia::util::IaConfig,
     table::{
-        blobtable, columnar, sstable,
+        blobtable, columnar,
+        fts::FtsBuildOptions,
+        sstable,
         tiny_meta::{MetaPackReader, MetaPackScheduler},
         vector_index::VectorIndexBuildOptions,
     },
@@ -54,6 +56,8 @@ pub struct Options {
     pub columnar_build_options: columnar::ColumnarTableBuildOptions,
 
     pub vector_index_build_options: VectorIndexBuildOptions,
+
+    pub fts_build_options: FtsBuildOptions,
 
     pub remote_compactor_addr: String,
 
@@ -101,6 +105,8 @@ pub struct Options {
     pub ignore_columnar_table_load: bool,
     /// Enable building columnar table.
     build_columnar: AtomicBool,
+    /// Enable building fts index.
+    build_fts_index: AtomicBool,
     /// Enable columnar table read.
     pub read_columnar: bool,
     /// Enable gc lock & extra cf.
@@ -122,6 +128,7 @@ impl Default for Options {
             blob_table_build_options: Default::default(),
             columnar_build_options: Default::default(),
             vector_index_build_options: Default::default(),
+            fts_build_options: Default::default(),
             remote_compactor_addr: Default::default(),
             recovery_concurrency: Default::default(),
             preparation_concurrency: Default::default(),
@@ -142,6 +149,7 @@ impl Default for Options {
             ia: Default::default(),
             ignore_columnar_table_load: false,
             build_columnar: AtomicBool::new(false),
+            build_fts_index: AtomicBool::new(false),
             read_columnar: false,
             gc_lock_extra_cf: true,
             low_space_threshold: 0,
@@ -156,6 +164,14 @@ impl Options {
 
     pub fn set_build_columnar(&self, switch: bool) -> bool /* previous */ {
         self.build_columnar.swap(switch, Ordering::Relaxed)
+    }
+
+    pub fn build_fts_index(&self) -> bool {
+        self.build_fts_index.load(Ordering::Relaxed)
+    }
+
+    pub fn set_build_fts_index(&self, switch: bool) -> bool /* previous */ {
+        self.build_fts_index.swap(switch, Ordering::Relaxed)
     }
 }
 

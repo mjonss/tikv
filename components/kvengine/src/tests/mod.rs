@@ -1,6 +1,7 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
 mod test_columnar;
+mod test_fts;
 mod test_gc_lock_extra_cf;
 mod test_ia_auto_file;
 mod test_ia_file;
@@ -110,8 +111,26 @@ pub(crate) fn new_test_engine_opt(
     block_size: usize,
     key_prefix: &str,
 ) -> (TestEngine, mpsc::Sender<ApplyTask>) {
-    let (listener_tx, listener_rx) = mpsc::unbounded();
     let tester = EngineTester::new(enable_inner_key_off, block_size);
+    build_test_engine_from_tester(tester, enable_inner_key_off, key_prefix)
+}
+
+fn new_test_engine_opt_with_custom_options(
+    enable_inner_key_off: bool,
+    block_size: usize,
+    key_prefix: &str,
+    customize: impl FnOnce(&mut Options),
+) -> (TestEngine, mpsc::Sender<ApplyTask>) {
+    let tester = EngineTester::new_with_custom_options(enable_inner_key_off, block_size, customize);
+    build_test_engine_from_tester(tester, enable_inner_key_off, key_prefix)
+}
+
+fn build_test_engine_from_tester(
+    tester: EngineTester,
+    enable_inner_key_off: bool,
+    key_prefix: &str,
+) -> (TestEngine, mpsc::Sender<ApplyTask>) {
+    let (listener_tx, listener_rx) = mpsc::unbounded();
     let meta_change_listener = Box::new(TestMetaChangeListener {
         sender: listener_tx,
     });
@@ -1225,12 +1244,21 @@ impl Deref for EngineTester {
 
 impl EngineTester {
     fn new(enable_inner_key_off: bool, block_size: usize) -> Self {
+        Self::new_with_custom_options(enable_inner_key_off, block_size, |_| {})
+    }
+
+    fn new_with_custom_options(
+        enable_inner_key_off: bool,
+        block_size: usize,
+        customize: impl FnOnce(&mut Options),
+    ) -> Self {
         let initial_cs = new_initial_cs(enable_inner_key_off);
         let initial_meta = ShardMeta::new(1, &initial_cs);
         let metas = dashmap::DashMap::new();
         metas.insert(1, Arc::new(initial_meta));
         let tmp_dir = TempDir::new().unwrap();
-        let opts = new_test_options(tmp_dir.path(), enable_inner_key_off, block_size);
+        let mut opts = new_test_options(tmp_dir.path(), enable_inner_key_off, block_size);
+        customize(&mut opts);
         let config = KvEngineConfig::default();
 
         Self {

@@ -34,14 +34,18 @@ lazy_static::lazy_static! {
 }
 
 pub fn alloc_node_id() -> u16 {
-    let node_id = if *IN_NEXTEST {
-        random_alloc_node_id()
-    } else {
-        NODE_ALLOCATOR.fetch_add(1, Ordering::Relaxed)
-    };
-
-    tikv_util::info!("allocated node_id {}", node_id);
-    node_id
+    loop {
+        let node_id = if *IN_NEXTEST {
+            random_alloc_node_id()
+        } else {
+            NODE_ALLOCATOR.fetch_add(1, Ordering::Relaxed)
+        };
+        if are_ports_available_for_node_id(node_id) {
+            tikv_util::info!("allocated node_id {}", node_id);
+            return node_id;
+        }
+        tikv_util::info!("skip allocated node_id {}, port already in use", node_id);
+    }
 }
 
 pub fn alloc_node_id_vec(count: usize) -> Vec<u16> {
@@ -72,6 +76,9 @@ fn random_alloc_node_id() -> u16 {
         // See cluster.rs, `node_addr`, `node_status_addr`, `tikv_worker_addr`.
         // TODO: get free port from OS.
         let node_id = rand::thread_rng().gen_range(0..4000);
+        if !are_ports_available_for_node_id(node_id) {
+            continue;
+        }
 
         if !ALLOCATED_NODE_IDS.lock().unwrap().insert(node_id) {
             continue;
@@ -93,4 +100,13 @@ fn random_alloc_node_id() -> u16 {
 
         return node_id;
     }
+}
+
+fn are_ports_available_for_node_id(node_id: u16) -> bool {
+    fn try_bind(port: u16) -> bool {
+        std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+    }
+    // tikv-server port base: 21000, status port base: 25000.
+    // See cluster.rs, `node_addr`, `node_status_addr`.
+    try_bind(node_id + 21000) && try_bind(node_id + 25000)
 }

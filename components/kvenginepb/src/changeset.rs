@@ -11408,6 +11408,7 @@ pub struct FtsUpdate {
     // message fields
     pub set_snap_version: u64,
     pub add_tracked_indexes: ::protobuf::RepeatedField<super::fts::TableIndexId>,
+    pub remove_tracked_indexes: ::protobuf::RepeatedField<super::fts::TableIndexId>,
     pub l0_add_files: ::protobuf::RepeatedField<FtsPackedFileInfo>,
     pub l0_remove_files: ::std::vec::Vec<u64>,
     pub l1_add_files: ::protobuf::RepeatedField<FtsPackedFileInfo>,
@@ -11470,6 +11471,31 @@ impl FtsUpdate {
     // Take field
     pub fn take_add_tracked_indexes(&mut self) -> ::protobuf::RepeatedField<super::fts::TableIndexId> {
         ::std::mem::replace(&mut self.add_tracked_indexes, ::protobuf::RepeatedField::new())
+    }
+
+    // repeated .enginepb.TableIndexId remove_tracked_indexes = 11;
+
+
+    pub fn get_remove_tracked_indexes(&self) -> &[super::fts::TableIndexId] {
+        &self.remove_tracked_indexes
+    }
+    pub fn clear_remove_tracked_indexes(&mut self) {
+        self.remove_tracked_indexes.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_remove_tracked_indexes(&mut self, v: ::protobuf::RepeatedField<super::fts::TableIndexId>) {
+        self.remove_tracked_indexes = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_remove_tracked_indexes(&mut self) -> &mut ::protobuf::RepeatedField<super::fts::TableIndexId> {
+        &mut self.remove_tracked_indexes
+    }
+
+    // Take field
+    pub fn take_remove_tracked_indexes(&mut self) -> ::protobuf::RepeatedField<super::fts::TableIndexId> {
+        ::std::mem::replace(&mut self.remove_tracked_indexes, ::protobuf::RepeatedField::new())
     }
 
     // repeated .enginepb.FtsPackedFileInfo l0_add_files = 3;
@@ -11670,6 +11696,11 @@ impl ::protobuf::Message for FtsUpdate {
                 return false;
             }
         };
+        for v in &self.remove_tracked_indexes {
+            if !v.is_initialized() {
+                return false;
+            }
+        };
         for v in &self.l0_add_files {
             if !v.is_initialized() {
                 return false;
@@ -11701,6 +11732,9 @@ impl ::protobuf::Message for FtsUpdate {
                 },
                 2 => {
                     ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.add_tracked_indexes)?;
+                },
+                11 => {
+                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.remove_tracked_indexes)?;
                 },
                 3 => {
                     ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.l0_add_files)?;
@@ -11749,6 +11783,10 @@ impl ::protobuf::Message for FtsUpdate {
             let len = value.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         };
+        for value in &self.remove_tracked_indexes {
+            let len = value.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
+        };
         for value in &self.l0_add_files {
             let len = value.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
@@ -11787,6 +11825,11 @@ impl ::protobuf::Message for FtsUpdate {
         }
         for v in &self.add_tracked_indexes {
             os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+            os.write_raw_varint32(v.get_cached_size())?;
+            v.write_to_with_cached_sizes(os)?;
+        };
+        for v in &self.remove_tracked_indexes {
+            os.write_tag(11, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         };
@@ -11872,6 +11915,11 @@ impl ::protobuf::Message for FtsUpdate {
                     |m: &FtsUpdate| { &m.add_tracked_indexes },
                     |m: &mut FtsUpdate| { &mut m.add_tracked_indexes },
                 ));
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<super::fts::TableIndexId>>(
+                    "remove_tracked_indexes",
+                    |m: &FtsUpdate| { &m.remove_tracked_indexes },
+                    |m: &mut FtsUpdate| { &mut m.remove_tracked_indexes },
+                ));
                 fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<FtsPackedFileInfo>>(
                     "l0_add_files",
                     |m: &FtsUpdate| { &m.l0_add_files },
@@ -11936,6 +11984,7 @@ impl ::protobuf::Clear for FtsUpdate {
     fn clear(&mut self) {
         self.set_snap_version = 0;
         self.add_tracked_indexes.clear();
+        self.remove_tracked_indexes.clear();
         self.l0_add_files.clear();
         self.l0_remove_files.clear();
         self.l1_add_files.clear();
@@ -11955,6 +12004,7 @@ impl ::protobuf::PbPrint for FtsUpdate {
         let old_len = buf.len();
         ::protobuf::PbPrint::fmt(&self.set_snap_version, "set_snap_version", buf);
         ::protobuf::PbPrint::fmt(&self.add_tracked_indexes, "add_tracked_indexes", buf);
+        ::protobuf::PbPrint::fmt(&self.remove_tracked_indexes, "remove_tracked_indexes", buf);
         ::protobuf::PbPrint::fmt(&self.l0_add_files, "l0_add_files", buf);
         ::protobuf::PbPrint::fmt(&self.l0_remove_files, "l0_remove_files", buf);
         ::protobuf::PbPrint::fmt(&self.l1_add_files, "l1_add_files", buf);
@@ -11975,6 +12025,7 @@ impl ::std::fmt::Debug for FtsUpdate {
         let mut s = String::new();
         ::protobuf::PbPrint::fmt(&self.set_snap_version, "set_snap_version", &mut s);
         ::protobuf::PbPrint::fmt(&self.add_tracked_indexes, "add_tracked_indexes", &mut s);
+        ::protobuf::PbPrint::fmt(&self.remove_tracked_indexes, "remove_tracked_indexes", &mut s);
         ::protobuf::PbPrint::fmt(&self.l0_add_files, "l0_add_files", &mut s);
         ::protobuf::PbPrint::fmt(&self.l0_remove_files, "l0_remove_files", &mut s);
         ::protobuf::PbPrint::fmt(&self.l1_add_files, "l1_add_files", &mut s);
@@ -12487,18 +12538,20 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     nap_version\x18\x05\x20\x01(\x04B\0:\0\"^\n\x0eFtsDedFileInfo\x12\x0c\n\
     \x02id\x18\x01\x20\x01(\x04B\0\x12\x15\n\x0bmeta_offset\x18\x02\x20\x01(\
     \rB\0\x12\x12\n\x08smallest\x18\x03\x20\x01(\x0cB\0\x12\x11\n\x07biggest\
-    \x18\x04\x20\x01(\x0cB\0:\0\"\x8e\x03\n\tFtsUpdate\x12\x1a\n\x10set_snap\
+    \x18\x04\x20\x01(\x0cB\0:\0\"\xc8\x03\n\tFtsUpdate\x12\x1a\n\x10set_snap\
     _version\x18\x01\x20\x01(\x04B\0\x125\n\x13add_tracked_indexes\x18\x02\
-    \x20\x03(\x0b2\x16.enginepb.TableIndexIdB\0\x123\n\x0cl0_add_files\x18\
-    \x03\x20\x03(\x0b2\x1b.enginepb.FtsPackedFileInfoB\0\x12\x19\n\x0fl0_rem\
-    ove_files\x18\x04\x20\x03(\x04B\0\x123\n\x0cl1_add_files\x18\x05\x20\x03\
-    (\x0b2\x1b.enginepb.FtsPackedFileInfoB\0\x12\x19\n\x0fl1_remove_files\
-    \x18\x06\x20\x03(\x04B\0\x120\n\x0cl2_add_files\x18\x07\x20\x03(\x0b2\
-    \x18.enginepb.FtsDedFileInfoB\0\x12\x19\n\x0fl2_remove_files\x18\x08\x20\
-    \x03(\x04B\0\x12\x13\n\tclear_all\x18\t\x20\x01(\x08B\0\x12*\n\x20pendin\
-    g_columnar_l0_remove_files\x18\n\x20\x03(\x04B\0:\0\",\n\rClearColumnar\
-    \x12\x19\n\x0frestore_version\x18\x01\x20\x01(\x04B\0:\0\"%\n\x0eMetaPac\
-    kHeader\x12\x11\n\x07version\x18\x01\x20\x01(\rB\0:\0B\0b\x06proto3\
+    \x20\x03(\x0b2\x16.enginepb.TableIndexIdB\0\x128\n\x16remove_tracked_ind\
+    exes\x18\x0b\x20\x03(\x0b2\x16.enginepb.TableIndexIdB\0\x123\n\x0cl0_add\
+    _files\x18\x03\x20\x03(\x0b2\x1b.enginepb.FtsPackedFileInfoB\0\x12\x19\n\
+    \x0fl0_remove_files\x18\x04\x20\x03(\x04B\0\x123\n\x0cl1_add_files\x18\
+    \x05\x20\x03(\x0b2\x1b.enginepb.FtsPackedFileInfoB\0\x12\x19\n\x0fl1_rem\
+    ove_files\x18\x06\x20\x03(\x04B\0\x120\n\x0cl2_add_files\x18\x07\x20\x03\
+    (\x0b2\x18.enginepb.FtsDedFileInfoB\0\x12\x19\n\x0fl2_remove_files\x18\
+    \x08\x20\x03(\x04B\0\x12\x13\n\tclear_all\x18\t\x20\x01(\x08B\0\x12*\n\
+    \x20pending_columnar_l0_remove_files\x18\n\x20\x03(\x04B\0:\0\",\n\rClea\
+    rColumnar\x12\x19\n\x0frestore_version\x18\x01\x20\x01(\x04B\0:\0\"%\n\
+    \x0eMetaPackHeader\x12\x11\n\x07version\x18\x01\x20\x01(\rB\0:\0B\0b\x06\
+    proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {

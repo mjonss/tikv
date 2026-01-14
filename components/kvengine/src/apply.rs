@@ -22,6 +22,7 @@ use crate::{
         blobtable::blobtable::BlobTable,
         columnar::{ColumnarFile, ColumnarFileCache, ColumnarLevels, ColumnarMetaCache},
         file::File,
+        fts::{EDedicatedFile, FtsCache, FtsLevels, PackedFile},
         schema_file::SchemaFile,
         sstable::{BlockCache, L0Table, NewSsTableCtx, SsTable},
         tiny_meta::{MetaPackScheduler, SstTinyMeta, TypedTinyMeta},
@@ -42,6 +43,9 @@ pub struct ChangeSet {
     pub schema_file: Option<SchemaFile>,
     pub col_files: HashMap<u64, ColumnarFile>,
     pub vec_index_files: HashMap<u64, VectorIndexFile>,
+    pub fts_l0_files: HashMap<u64, PackedFile>,
+    pub fts_l1_files: HashMap<u64, PackedFile>,
+    pub fts_l2_files: HashMap<u64, EDedicatedFile>,
 }
 
 impl Deref for ChangeSet {
@@ -83,6 +87,15 @@ impl Debug for ChangeSet {
         if !self.vec_index_files.is_empty() {
             de.field("vec_index_files", &self.vec_index_files.keys());
         }
+        if !self.fts_l0_files.is_empty() {
+            de.field("fts_l0_files", &self.fts_l0_files.keys());
+        }
+        if !self.fts_l1_files.is_empty() {
+            de.field("fts_l1_files", &self.fts_l1_files.keys());
+        }
+        if !self.fts_l2_files.is_empty() {
+            de.field("fts_l2_files", &self.fts_l2_files.keys());
+        }
         de.finish()
     }
 }
@@ -99,6 +112,9 @@ impl ChangeSet {
             schema_file: None,
             col_files: HashMap::new(),
             vec_index_files: HashMap::new(),
+            fts_l0_files: HashMap::new(),
+            fts_l1_files: HashMap::new(),
+            fts_l2_files: HashMap::new(),
         }
     }
 
@@ -110,6 +126,7 @@ impl ChangeSet {
         cache: BlockCache,
         vector_index_cache: Option<VectorIndexCache>, // For vector index file.
         columnar_file_cache: Option<ColumnarFileCache>,
+        fts_cache: FtsCache,
         encryption_key: Option<EncryptionKey>,
         columnar_meta_cache: ColumnarMetaCache,
         tiny_meta: TypedTinyMeta,
@@ -147,6 +164,27 @@ impl ChangeSet {
             FileType::VectorIndex => {
                 let file = VectorIndexFile::new(file, meta.table_meta_off, vector_index_cache)?;
                 self.vec_index_files.insert(id, file);
+            }
+            FileType::FtsPackedFile => {
+                let file = PackedFile::new(file, fts_cache).map_err(|e| {
+                    Error::ErrOpen(format!("Failed to open FTS file {}: {}", id, e))
+                })?;
+                match meta.level {
+                    0 => self.fts_l0_files.insert(id, file),
+                    1 => self.fts_l1_files.insert(id, file),
+                    level => {
+                        return Err(Error::ErrOpen(format!(
+                            "Invalid FTS packed file level {} for file {}",
+                            level, id
+                        )));
+                    }
+                };
+            }
+            FileType::FtsDedicatedFile => {
+                let file = EDedicatedFile::new(file, fts_cache).map_err(|e| {
+                    Error::ErrOpen(format!("Failed to open FTS L2 file {}: {}", id, e))
+                })?;
+                self.fts_l2_files.insert(id, file);
             }
             file_type => unreachable!("unexpected file type {:?}", file_type),
         }
@@ -280,6 +318,8 @@ pub(crate) fn create_snapshot_tables(
     }
     let mut col_levels = ColumnarLevels::new();
     let mut vector_indexes = VectorIndexes::default();
+    let mut fts_levels = FtsLevels::default();
+
     if prepare_columnar {
         for col_create in snap.get_columnar_creates() {
             if let Some(col_file) = tables.col_files.get(&col_create.id) {
@@ -322,6 +362,53 @@ pub(crate) fn create_snapshot_tables(
             );
         }
         vector_indexes.sort();
+
+        // Restore FTS levels
+        fts_levels.mut_l0(|l0_files| {
+            for l0_meta in snap.get_fts_l0_files() {
+                if let Some(l0_segment) = tables.fts_l0_files.get(&l0_meta.get_id()).cloned() {
+                    l0_files.push(l0_segment);
+                } else {
+                    assert!(
+                        not_all_tables_loaded,
+                        "fts_l0_files: {:?}, tables: {:?}",
+                        l0_meta, tables,
+                    );
+                }
+            }
+        });
+        fts_levels.mut_l1(|l1_files| {
+            for l1_meta in snap.get_fts_l1_files() {
+                if let Some(partition) = tables.fts_l1_files.get(&l1_meta.get_id()).cloned() {
+                    l1_files.push(partition);
+                } else {
+                    assert!(
+                        not_all_tables_loaded,
+                        "fts_l1_files: {:?}, tables: {:?}",
+                        l1_meta, tables,
+                    );
+                }
+            }
+        });
+        fts_levels.insert_l2_files(snap.get_fts_l2_files().iter().filter_map(|l2_meta| {
+            if let Some(file) = tables.fts_l2_files.get(&l2_meta.get_id()).cloned() {
+                Some(file)
+            } else {
+                assert!(
+                    not_all_tables_loaded,
+                    "fts_l2_files: {:?}, tables: {:?}",
+                    l2_meta, tables,
+                );
+                None
+            }
+        }));
+        for tbl_idx_id in snap.get_fts_indexes() {
+            fts_levels.track_index(tbl_idx_id.table_id, tbl_idx_id.index_id);
+        }
+        fts_levels.l0_snap_version = SnapVersion::from(snap.get_fts_l0_snap_version());
+        fts_levels.mut_pending_columnar_l0_ids(|ids| {
+            ids.extend_from_slice(snap.get_fts_pending_l0_ids());
+        });
         builder.set_columnar_table_ids(snap.get_columnar_table_ids().to_vec());
     }
     builder.set_l0_tbls(l0_tbls);
@@ -330,6 +417,7 @@ pub(crate) fn create_snapshot_tables(
     builder.set_lock_txn_files(tables.lock_txn_files.clone());
     builder.set_columnar_levels(col_levels);
     builder.set_vector_indexes(vector_indexes);
+    builder.set_fts_levels(fts_levels);
     builder.set_persisted_version(SnapVersion::new(snap.base_version, snap.data_sequence));
 }
 
@@ -369,6 +457,21 @@ pub(crate) fn estimate_tables_size_from_snapshot(
             .iter()
             .flat_map(|vec_idx| vec_idx.get_files().iter().map(|f| f.meta_offset as usize))
             .sum::<usize>();
+        tables_size += snap
+            .get_fts_l0_files()
+            .iter()
+            .map(|info| info.meta_offset as usize)
+            .sum::<usize>();
+        tables_size += snap
+            .get_fts_l1_files()
+            .iter()
+            .map(|info| info.meta_offset as usize)
+            .sum::<usize>();
+        tables_size += snap
+            .get_fts_l2_files()
+            .iter()
+            .map(|info| info.meta_offset as usize)
+            .sum::<usize>();
     }
     tables_size
 }
@@ -381,9 +484,10 @@ impl EngineCore {
         }
         let shard = shard.unwrap();
         info!(
-            "{} kvengine apply change set sequence: {}",
+            "{} kvengine apply change set sequence: {}, cs: {:?}",
             shard.tag(),
-            cs.sequence
+            cs.sequence,
+            cs
         );
         if shard.ver != cs.shard_ver {
             warn!(
@@ -414,6 +518,7 @@ impl EngineCore {
             || cs.has_major_compaction()
             || cs.has_columnar_compaction()
             || cs.has_update_vector_index()
+            || cs.has_fts_update()
         {
             if cs.has_compaction() {
                 self.apply_compaction(&shard, cs);
@@ -429,6 +534,8 @@ impl EngineCore {
                 self.apply_columnar_compaction(&shard, cs);
             } else if cs.has_update_vector_index() {
                 self.apply_update_vector_index(&shard, cs);
+            } else if cs.has_fts_update() {
+                self.apply_fts_update(&shard, cs);
             }
             store_bool(&shard.compacting, false);
             self.send_compact_msg(CompactMsg::Applied(IdVer::new(shard.id, shard.ver)));
@@ -849,6 +956,9 @@ impl EngineCore {
         assert_eq!(cs.get_property_key(), DEL_PREFIXES_KEY);
         let done = DeletePrefixes::unmarshal(cs.get_property_value(), shard.keyspace_id);
         shard.set_data(builder.build());
+        if cs.has_fts_update() {
+            self.apply_fts_update(shard, cs);
+        }
         let del_prefixes = shard.get_del_prefixes();
         let new_del_prefixes = del_prefixes.split(&done);
         shard.set_property(DEL_PREFIXES_KEY, &new_del_prefixes.marshal());
@@ -864,6 +974,9 @@ impl EngineCore {
         let mut builder = ShardDataBuilder::new(data.clone());
         self.get_tables_from_table_change(&mut builder, &data, cs, tc, &mut del_files);
         shard.set_data(builder.build());
+        if cs.has_fts_update() {
+            self.apply_fts_update(shard, cs);
+        }
         self.remove_dfs_files(shard, del_files);
     }
 
@@ -876,6 +989,9 @@ impl EngineCore {
         let mut builder = ShardDataBuilder::new(data.clone());
         self.get_tables_from_table_change(&mut builder, &data, cs, tc, &mut del_files);
         shard.set_data(builder.build());
+        if cs.has_fts_update() {
+            self.apply_fts_update(shard, cs);
+        }
         shard.set_property(TRIM_OVER_BOUND, TRIM_OVER_BOUND_DISABLE);
         self.remove_dfs_files(shard, del_files);
     }
@@ -1172,6 +1288,7 @@ impl EngineCore {
         builder.clear_schema(restore_version);
         builder.set_columnar_levels(ColumnarLevels::new());
         builder.set_vector_indexes(VectorIndexes::default());
+        builder.set_fts_levels(FtsLevels::default());
         builder.set_columnar_table_ids(vec![]);
         shard.set_data(builder.build());
     }
@@ -1239,6 +1356,15 @@ impl EngineCore {
         }
         let mut vector_indexes = old_data.vector_indexes.clone();
         vector_indexes.retain(|vec_idx| columnar_table_ids.contains(&vec_idx.table_id));
+
+        let mut fts_levels = (*old_data.fts_levels).clone();
+        let columnar_l0_ids: Vec<u64> = new_col_levels.levels[0]
+            .files
+            .iter()
+            .map(|file| file.id())
+            .collect();
+        fts_levels.retain_for_tables(&columnar_table_ids, &columnar_l0_ids);
+
         let old_restore_version = old_data.restore_version;
         let mut builder = ShardDataBuilder::new(old_data);
         if clear_schema {
@@ -1247,6 +1373,7 @@ impl EngineCore {
         builder.set_columnar_levels(new_col_levels);
         builder.set_columnar_table_ids(columnar_table_ids);
         builder.set_vector_indexes(vector_indexes);
+        builder.set_fts_levels(fts_levels);
         shard.set_data(builder.build());
         if is_manual_major_compaction {
             shard.set_property(MANUAL_MAJOR_COMPACTION, MANUAL_MAJOR_COMPACTION_DISABLE);
@@ -1278,6 +1405,116 @@ impl EngineCore {
         let mut builder = ShardDataBuilder::new(shard.get_data());
         builder.set_vector_indexes(vector_indexes);
         shard.set_data(builder.build());
+    }
+
+    fn apply_fts_update(&self, shard: &Shard, cs: &ChangeSet) {
+        let data = shard.get_data();
+        let update = cs.get_fts_update();
+        if update.get_clear_all() {
+            info!("{} shard apply clear_fts_index", shard.tag());
+            let mut builder = ShardDataBuilder::new(data);
+            builder.set_fts_levels(FtsLevels::default());
+            shard.set_data(builder.build());
+            return;
+        }
+
+        let mut new_levels = (*data.fts_levels).clone();
+
+        for table_index_id in update.get_remove_tracked_indexes() {
+            new_levels.untrack_index(table_index_id.table_id, table_index_id.index_id);
+        }
+
+        for table_index_id in update.get_add_tracked_indexes() {
+            new_levels.track_index(table_index_id.table_id, table_index_id.index_id);
+        }
+
+        // Apply remove files first to avoid overlapping with add files.
+        if !update.get_l0_remove_files().is_empty() {
+            let remove: HashSet<u64> = update.get_l0_remove_files().iter().copied().collect();
+            new_levels.mut_l0(|l0| l0.retain(|file| !remove.contains(&file.id())));
+        }
+        if !update.get_l1_remove_files().is_empty() {
+            let remove: HashSet<u64> = update.get_l1_remove_files().iter().copied().collect();
+            new_levels.mut_l1(|l1| l1.retain(|file| !remove.contains(&file.id())));
+        }
+        if !update.get_l2_remove_files().is_empty() {
+            new_levels.remove_l2_files(update.get_l2_remove_files().iter().copied());
+        }
+
+        let mut l0_add_rows = 0;
+        new_levels.mut_l0(|l0_files| {
+            for fts_l0_file_ref in update.get_l0_add_files() {
+                let fts_l0_file = cs
+                    .fts_l0_files
+                    .get(&fts_l0_file_ref.get_id())
+                    .unwrap()
+                    .clone();
+                l0_add_rows += fts_l0_file.props().get_pk_total();
+                l0_files.push(fts_l0_file);
+            }
+        });
+        let mut l1_add_rows = 0;
+        new_levels.mut_l1(|l1| {
+            for file_ref in update.get_l1_add_files() {
+                let file = cs
+                    .fts_l1_files
+                    .get(&file_ref.get_id())
+                    .cloned()
+                    .expect("missing FTS L1 file in changeset");
+                l1_add_rows += file.props().get_pk_total();
+                l1.push(file);
+            }
+        });
+        let mut l2_add_rows = 0;
+        new_levels.insert_l2_files(update.get_l2_add_files().iter().map(|file_ref| {
+            let file = cs
+                .fts_l2_files
+                .get(&file_ref.get_id())
+                .cloned()
+                .expect("missing FTS L2 file in changeset");
+            l2_add_rows += file.props().get_pk_total();
+            file
+        }));
+
+        if update.get_set_snap_version() > 0 {
+            new_levels.l0_snap_version = SnapVersion::from(update.get_set_snap_version());
+        }
+
+        if !update.get_pending_columnar_l0_remove_files().is_empty()
+            && !new_levels.pending_columnar_l0_ids().is_empty()
+        {
+            new_levels.mut_pending_columnar_l0_ids(|ids| {
+                let remove: HashSet<u64> = update
+                    .get_pending_columnar_l0_remove_files()
+                    .iter()
+                    .copied()
+                    .collect();
+                ids.retain(|id| !remove.contains(id));
+            });
+        }
+
+        let new_l0_snap_version = new_levels.l0_snap_version;
+
+        let mut builder = ShardDataBuilder::new(data);
+        builder.set_fts_levels(new_levels);
+        shard.set_data(builder.build());
+
+        info!(
+            "{} applied FTS update: add {} / drop {} indexes, L0 +{} / -{} files (+{} rows), L1 +{} / -{} files (+{} rows), L2 +{} / -{} files (+{} rows), new_l0_snap_version: {}",
+            shard.tag(),
+            update.get_add_tracked_indexes().len(),
+            update.get_remove_tracked_indexes().len(),
+            update.get_l0_add_files().len(),
+            update.get_l0_remove_files().len(),
+            l0_add_rows,
+            update.get_l1_add_files().len(),
+            update.get_l1_remove_files().len(),
+            l1_add_rows,
+            update.get_l2_add_files().len(),
+            update.get_l2_remove_files().len(),
+            l2_add_rows,
+            new_l0_snap_version,
+        );
     }
 }
 

@@ -2324,6 +2324,30 @@ impl StatusServer {
         }
     }
 
+    /// Enable/disable to build fts index
+    ///
+    /// POST /build_fts_index?switch=true|false
+    async fn handle_build_fts_index(
+        req: Request<Body>,
+        engine: &kvengine::Engine,
+    ) -> hyper::Result<Response<Body>> {
+        let query = req.uri().query().unwrap_or("");
+        let query_pairs: HashMap<_, _> = url::form_urlencoded::parse(query.as_bytes()).collect();
+        if let Some(switch) = get_bool_param(&query_pairs, "switch") {
+            let previous = engine.opts.set_build_fts_index(switch);
+            info!("build fts index switch: {} -> {}", previous, switch);
+            Ok(make_response(
+                StatusCode::OK,
+                format!("build fts index: {} -> {}", previous, switch),
+            ))
+        } else {
+            Ok(make_response(
+                StatusCode::BAD_REQUEST,
+                "param switch not found",
+            ))
+        }
+    }
+
     pub fn stop(self) {
         let _ = self.close_tx.send(());
         let _ = self.close_handle.unwrap().join();
@@ -2748,6 +2772,9 @@ impl StatusServer {
                             }
                             (Method::POST, path) if path.starts_with("/build_columnar") => {
                                 Self::handle_build_columnar(req, &ctx.kvengine).await
+                            }
+                            (Method::POST, path) if path.starts_with("/build_fts_index") => {
+                                Self::handle_build_fts_index(req, &ctx.kvengine).await
                             }
                             (Method::GET, path) if path.starts_with("/dfs/") => {
                                 Self::handle_dfs_file_read(req, &ctx).await

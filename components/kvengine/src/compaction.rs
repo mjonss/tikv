@@ -21,7 +21,7 @@ use futures::future::try_join_all;
 use http::StatusCode;
 use hyper::Client;
 use itertools::{Either, Itertools};
-use kvenginepb::{self as pb, ColumnarCreate};
+use kvenginepb::{self as pb, ColumnarCreate, fts::TableIndexId};
 use pb::{BlobCreate, TableCreate, VectorIndexFile};
 use protobuf::Message;
 use security::SecurityManager;
@@ -53,8 +53,9 @@ use crate::{
     Iterator, LOCK_CF, WRITE_CF, dfs,
     dfs::FileType,
     metrics::{ENGINE_COMPACTION_RESULT_COUNTER, ENGINE_COMPACTION_TRIGGER_COUNTER},
+    shard::DeletePrefixes,
     table::{
-        BoundedDataSet, ChecksumType, DataBound, InnerKey, SnapVersion,
+        BoundedDataSet, ChecksumType, DataBound, InnerKey, OwnedInnerKey, SnapVersion,
         blobtable::{
             blobtable::BlobTable,
             builder::{BlobTableBuildOptions, BlobTableBuilder},
@@ -66,6 +67,13 @@ use crate::{
             ColumnarTruncateTsReader, GLOBAL_COMMON_HANDLE_END,
         },
         file::{File, InMemFile, LocalFile},
+        fts::{
+            ColumnarToFtsL0Opts, DedicatedFile, DedicatedFileBuilderOptions, EDedicatedFile,
+            FtsBuildOptions, FtsCache, FtsLevels, InplaceResult, InplaceSpec,
+            KeyRange as FtsKeyRange, PackedFile, PackedFileBuilderOptions, PackedFileMergeOpt,
+            columnar_to_fts_l0, merge_fts_l0_l1, merge_fts_l2_files, rewrite_dedicated_file,
+            rewrite_packed_file,
+        },
         get_local_dir,
         schema_file::SchemaFile,
         sstable::{self, BlockCache, L0Builder, SsTable, builder::TableBuilderOptions},
@@ -73,7 +81,8 @@ use crate::{
     },
     table_id::{get_table_id_from_data_bound, is_bound_overlap_with_table_ids},
     util::{
-        new_blob_create_pb, new_columnar_create_pb, new_table_create_pb, new_vector_index_file_pb,
+        append_fts_update, new_blob_create_pb, new_columnar_create_pb, new_table_create_pb,
+        new_vector_index_file_pb, patch_remove_to_fts_update,
     },
     *,
 };
@@ -486,7 +495,204 @@ pub struct InPlaceCompactionCtx {
     columnar_build_opts: ColumnarTableBuildOptions,
     schema_file_id: Option<u64>,
     columnar_table_ids: Vec<i64>,
+    fts_tasks: Vec<FtsInplaceTask>,
+    fts_packed_build_opts: PackedFileBuilderOptions,
+    fts_dedicated_build_opts: DedicatedFileBuilderOptions,
     spec: InPlaceCompaction,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub enum FtsFileKind {
+    L0,
+    L1,
+    L2,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FtsInplaceTask {
+    pub id: u64,
+    pub kind: FtsFileKind,
+}
+
+impl FtsInplaceTask {
+    pub fn l0(id: u64) -> Self {
+        Self {
+            id,
+            kind: FtsFileKind::L0,
+        }
+    }
+
+    pub fn l1(id: u64) -> Self {
+        Self {
+            id,
+            kind: FtsFileKind::L1,
+        }
+    }
+
+    pub fn l2(id: u64) -> Self {
+        Self {
+            id,
+            kind: FtsFileKind::L2,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct FtsPendingWork {
+    pub tasks: Vec<FtsInplaceTask>,
+    pub remove_l0: Vec<u64>,
+    pub remove_l1: Vec<u64>,
+    pub remove_l2: Vec<u64>,
+    input_bytes: u64,
+}
+
+impl FtsPendingWork {
+    pub fn has_tasks(&self) -> bool {
+        !self.tasks.is_empty()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.has_tasks()
+            && self.remove_l0.is_empty()
+            && self.remove_l1.is_empty()
+            && self.remove_l2.is_empty()
+    }
+
+    pub fn has_removes(&self) -> bool {
+        !self.remove_l0.is_empty() || !self.remove_l1.is_empty() || !self.remove_l2.is_empty()
+    }
+
+    pub fn push_task(&mut self, task: FtsInplaceTask, bytes: u64) {
+        self.tasks.push(task);
+        self.input_bytes = self.input_bytes.saturating_add(bytes);
+    }
+
+    pub fn total_removal(&self) -> usize {
+        self.remove_l0.len() + self.remove_l1.len() + self.remove_l2.len()
+    }
+}
+
+fn collect_fts_trim_overbound_tasks(
+    levels: &FtsLevels,
+    shard_bound: DataBound<'_>,
+) -> FtsPendingWork {
+    let mut pending = FtsPendingWork::default();
+    for file in levels.l0() {
+        let (lower, upper) = (
+            InnerKey::from_inner_buf(file.props().get_smallest_key()),
+            InnerKey::from_inner_buf(file.props().get_biggest_key()),
+        );
+        let file_bound = DataBound::new(lower, upper, true);
+        if !shard_bound.overlap_bound(file_bound) {
+            pending.remove_l0.push(file.id());
+        } else if !shard_bound.contains_bound(file_bound) {
+            pending.push_task(FtsInplaceTask::l0(file.id()), file.file().size());
+        }
+    }
+    for file in levels.l1() {
+        let (lower, upper) = (
+            InnerKey::from_inner_buf(file.props().get_smallest_key()),
+            InnerKey::from_inner_buf(file.props().get_biggest_key()),
+        );
+        let file_bound = DataBound::new(lower, upper, true);
+        if !shard_bound.overlap_bound(file_bound) {
+            pending.remove_l1.push(file.id());
+        } else if !shard_bound.contains_bound(file_bound) {
+            pending.push_task(FtsInplaceTask::l1(file.id()), file.file().size());
+        }
+    }
+    for files in levels.l2().values() {
+        for file in files {
+            let props = file.props();
+            let (lower, upper) = (
+                InnerKey::from_inner_buf(props.get_smallest_key()),
+                InnerKey::from_inner_buf(props.get_biggest_key()),
+            );
+            let file_bound = DataBound::new(lower, upper, true);
+            debug!(
+                "id: {}, collect_fts_trim_overbound_tasks, file_bound: {:?}, shard_bound: {:?}, overlap: {:?}",
+                file.id(),
+                file_bound,
+                shard_bound,
+                shard_bound.overlap_bound(file_bound)
+            );
+            if !shard_bound.overlap_bound(file_bound) {
+                pending.remove_l2.push(file.id());
+            } else if !shard_bound.contains_bound(file_bound) {
+                pending.push_task(FtsInplaceTask::l2(file.id()), file.file().size());
+            }
+        }
+    }
+    pending
+}
+
+fn collect_fts_destroy_tasks(levels: &FtsLevels, del_prefixes: &DeletePrefixes) -> FtsPendingWork {
+    let mut pending = FtsPendingWork::default();
+    for file in levels.l0() {
+        let (lower, upper) = (
+            InnerKey::from_inner_buf(file.props().get_smallest_key()),
+            InnerKey::from_inner_buf(file.props().get_biggest_key()),
+        );
+        let bound = DataBound::new(lower, upper, true);
+        if del_prefixes.cover_range(lower, upper) {
+            pending.remove_l0.push(file.id());
+        } else if del_prefixes
+            .inner_delete_bounds()
+            .any(|range| range.overlap_bound(bound))
+        {
+            pending.push_task(FtsInplaceTask::l0(file.id()), file.file().size());
+        }
+    }
+    for file in levels.l1() {
+        let (lower, upper) = (
+            InnerKey::from_inner_buf(file.props().get_smallest_key()),
+            InnerKey::from_inner_buf(file.props().get_biggest_key()),
+        );
+        let bound = DataBound::new(lower, upper, true);
+        if del_prefixes.cover_range(lower, upper) {
+            pending.remove_l1.push(file.id());
+        } else if del_prefixes
+            .inner_delete_bounds()
+            .any(|range| range.overlap_bound(bound))
+        {
+            pending.push_task(FtsInplaceTask::l1(file.id()), file.file().size());
+        }
+    }
+    for files in levels.l2().values() {
+        for file in files {
+            let props = file.props();
+            let (lower, upper) = (
+                InnerKey::from_inner_buf(props.get_smallest_key()),
+                InnerKey::from_inner_buf(props.get_biggest_key()),
+            );
+            let bound = DataBound::new(lower, upper, true);
+            if del_prefixes.cover_range(lower, upper) {
+                pending.remove_l2.push(file.id());
+            } else if del_prefixes
+                .inner_delete_bounds()
+                .any(|range| range.overlap_bound(bound))
+            {
+                pending.push_task(FtsInplaceTask::l2(file.id()), file.file().size());
+            }
+        }
+    }
+    pending
+}
+
+fn collect_fts_truncate_tasks(levels: &FtsLevels) -> FtsPendingWork {
+    let mut pending = FtsPendingWork::default();
+    for file in levels.l0() {
+        pending.push_task(FtsInplaceTask::l0(file.id()), file.file().size());
+    }
+    for file in levels.l1() {
+        pending.push_task(FtsInplaceTask::l1(file.id()), file.file().size());
+    }
+    for files in levels.l2().values() {
+        for file in files {
+            pending.push_task(FtsInplaceTask::l2(file.id()), file.file().size());
+        }
+    }
+    pending
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -515,6 +721,69 @@ impl VectorIndexUpdate {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
+pub struct FtsCreateL0Update {
+    /// The effective indexes we should care about
+    fts_indexes: Vec<(i64 /* table_id */, i64 /* index_id */)>,
+    /// The schema file
+    schema_file_id: u64,
+    /// The source columnar L0 files to create FTS L0
+    col_l0_file_ids: Vec<u64>,
+    /// The target snap_version of the FTS L0 file, it should be the max
+    /// snap_version of the source columnar files, means all data <= this
+    /// snap_version is included in the FTS L0 file.
+    snap_version: SnapVersion,
+    /// Build options snapshot (includes L0 file split knobs).
+    build_options: FtsBuildOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct FtsAddIndexUpdate {
+    /// New FTS indexes to build from historical data
+    fts_indexes_to_add: Vec<(i64 /* table_id */, i64 /* index_id */)>,
+    /// The schema file
+    schema_file_id: u64,
+    /// Columnar files to process: { L0 <= current_snap_version, L1, L2 }
+    col_file_ids: Vec<(u64, u32)>, // (file_id, level)
+    /// Current FTS snap_version (not updated by this operation)
+    current_snap_version: SnapVersion,
+    /// Build options snapshot (includes L0 file split knobs).
+    build_options: FtsBuildOptions,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct FtsCompactL0Update {
+    build_options: FtsBuildOptions,
+    /// Active tracked indexes; LPs outside this set are dropped during merge.
+    tracked_indexes: Vec<(i64, i64)>,
+
+    /// L0 file ids to compact
+    l0_file_ids: Vec<u64>,
+    /// L1 file ids to compact (who are overlapped with L0 files)
+    l1_file_ids: Vec<u64>,
+    /// Existing L2 logical partition keys (so we keep them in L2).
+    l2_lp_keys: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+/// Request payload for intra-L2 compaction of a single logical partition.
+pub struct FtsCompactL2Update {
+    /// Logical partition key being compacted; all files belong to this LP.
+    lp_key: Vec<u8>,
+    /// Dedicated-file IDs to merge for this LP.
+    l2_file_ids: Vec<u64>,
+    /// Build options snapshot (includes L2 merge knobs).
+    build_options: FtsBuildOptions,
+}
+
+/// Request payload for removing obsolete L1/L2 files that no longer correspond
+/// to any tracked FTS index.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct FtsCleanupUpdate {
+    l1_file_ids: Vec<u64>,
+    l2_file_ids: Vec<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub enum CompactionType {
     #[default]
     Unknown,
@@ -525,6 +794,11 @@ pub enum CompactionType {
     Columnar(ColumnarCompaction),
     ColumnarMajor(ColumnarMajorCompaction),
     VectorIndex(VectorIndexUpdate),
+    FtsCreateL0(FtsCreateL0Update),
+    FtsAddIndex(FtsAddIndexUpdate),
+    FtsCompactL0(FtsCompactL0Update),
+    FtsCompactL2(FtsCompactL2Update),
+    FtsCleanup(FtsCleanupUpdate),
 }
 
 const MAX_COMPACTION_EXPAND_SIZE: u64 = 256 * 1024 * 1024;
@@ -717,6 +991,36 @@ impl Engine {
                 self.trigger_vector_index_update(&shard, table_id, index_id, col_id, rebuild)
                     .await
             }
+            Some(CompactionPriority::FtsCreateL0 {
+                col_file_ids,
+                active_tracked_indexes,
+                snap_version,
+            }) => {
+                self.trigger_fts_create_l0(
+                    &shard,
+                    col_file_ids,
+                    active_tracked_indexes,
+                    snap_version,
+                )
+                .await
+            }
+            Some(CompactionPriority::FtsCompactL0) => self.trigger_fts_l0_compact(&shard).await,
+            Some(CompactionPriority::FtsCompactL2 { lp_key, file_ids }) => {
+                self.trigger_fts_l2_compact(&shard, lp_key, file_ids).await
+            }
+            Some(CompactionPriority::FtsAddIndex { new_indexes }) => {
+                self.trigger_fts_add_index(&shard, new_indexes).await
+            }
+            Some(CompactionPriority::FtsDropIndex { dropped_indexes }) => {
+                self.trigger_fts_drop_index(&shard, dropped_indexes)
+            }
+            Some(CompactionPriority::FtsCleanup {
+                l1_file_ids,
+                l2_file_ids,
+            }) => {
+                self.trigger_fts_cleanup(&shard, l1_file_ids, l2_file_ids)
+                    .await
+            }
             None => {
                 info!("Shard {} is not urgent for compaction", tag);
                 store_bool(&shard.compacting, false);
@@ -880,16 +1184,22 @@ impl Engine {
             false
         });
 
+        let fts_pending = collect_fts_destroy_tasks(&data.fts_levels, &del_prefixes);
+        total_size += fts_pending.input_bytes;
+
         info!(
             "{} start destroying range: {:?}", shard.tag(), del_prefixes;
             "destroyed" => deletes.len(),
             "columnar_destroyed" => columnar_deletes.len(),
             "overlaps" => overlaps.len(),
             "columnar_overlaps" => col_overlaps.len(),
+            "fts_overlaps" => fts_pending.tasks.len(),
+            "fts_destroyed" => fts_pending.total_removal(),
             "input_size" => total_size,
         );
 
-        let mut cs = if overlaps.is_empty() && col_overlaps.is_empty() {
+        let need_fts = fts_pending.has_tasks();
+        let mut cs = if overlaps.is_empty() && col_overlaps.is_empty() && !need_fts {
             let mut cs = pb::ChangeSet::default();
             cs.mut_destroy_range().set_table_deletes(deletes.into());
             cs.mut_destroy_range()
@@ -899,7 +1209,7 @@ impl Engine {
             let mut req = self.new_compact_request_with_shard(shard);
             req.file_ids = self
                 .id_allocator
-                .alloc_id_async(overlaps.len() + col_overlaps.len())
+                .alloc_id_async(overlaps.len() + col_overlaps.len() + fts_pending.tasks.len())
                 .await
                 .unwrap();
             let in_place_compaction_type = InPlaceCompaction::DestroyRange(del_prefixes.marshal());
@@ -910,6 +1220,9 @@ impl Engine {
                 columnar_build_opts: self.opts.columnar_build_options,
                 schema_file_id: data.schema_file.as_ref().map(|f| f.get_file_id()),
                 columnar_table_ids: data.get_columnar_table_ids_in_schema(),
+                fts_tasks: fts_pending.tasks.clone(),
+                fts_packed_build_opts: PackedFileBuilderOptions::default(),
+                fts_dedicated_build_opts: DedicatedFileBuilderOptions::default(),
                 spec: in_place_compaction_type,
             };
             req.input_size = total_size;
@@ -922,6 +1235,8 @@ impl Engine {
             dr.set_columnar_deletes(columnar_deletes.into());
             cs
         };
+        patch_remove_to_fts_update(&mut cs, &fts_pending);
+
         cs.set_shard_id(shard.id);
         cs.set_shard_ver(shard.ver);
         cs.set_property_key(DEL_PREFIXES_KEY.to_string());
@@ -972,15 +1287,20 @@ impl Engine {
             false
         });
 
+        let fts_pending = collect_fts_truncate_tasks(&data.fts_levels);
+        total_size += fts_pending.input_bytes;
+
         info!(
             "{} start truncate ts", shard.tag();
             "truncate_ts" => truncate_ts,
             "overlaps" => overlaps.len(),
             "col_overlaps" => col_overlaps.len(),
+            "fts_overlaps" => fts_pending.tasks.len(),
             "input_size" => total_size,
         );
 
-        let mut cs = if overlaps.is_empty() && col_overlaps.is_empty() {
+        let need_fts = fts_pending.has_tasks();
+        let mut cs = if overlaps.is_empty() && col_overlaps.is_empty() && !need_fts {
             let mut cs = pb::ChangeSet::default();
             // Must `set_truncate_ts` for checking the type of ChangeSet properly.
             cs.set_truncate_ts(pb::TableChange::default());
@@ -989,7 +1309,7 @@ impl Engine {
             let mut req = self.new_compact_request_with_shard(shard);
             req.file_ids = self
                 .id_allocator
-                .alloc_id_async(overlaps.len() + col_overlaps.len())
+                .alloc_id_async(overlaps.len() + col_overlaps.len() + fts_pending.tasks.len())
                 .await
                 .unwrap();
             let in_place_compaction = InPlaceCompaction::TruncateTs(truncate_ts);
@@ -1000,12 +1320,17 @@ impl Engine {
                 columnar_build_opts: self.opts.columnar_build_options,
                 schema_file_id: data.schema_file.as_ref().map(|f| f.get_file_id()),
                 columnar_table_ids: data.get_columnar_table_ids_in_schema(),
+                fts_tasks: fts_pending.tasks.clone(),
+                fts_packed_build_opts: PackedFileBuilderOptions::default(),
+                fts_dedicated_build_opts: DedicatedFileBuilderOptions::default(),
                 spec: in_place_compaction,
             };
             req.input_size = total_size;
             req.compaction_tp = CompactionType::InPlaceWithColumnar(in_place_compaction_ctx);
             self.comp_client.compact(req).await?
         };
+        patch_remove_to_fts_update(&mut cs, &fts_pending);
+
         cs.set_shard_id(shard.id);
         cs.set_shard_ver(shard.ver);
         Ok(Some(cs))
@@ -1078,16 +1403,22 @@ impl Engine {
             false
         });
 
+        let fts_pending = collect_fts_trim_overbound_tasks(&data.fts_levels, shard_bound);
+        total_size += fts_pending.input_bytes;
+
         info!(
             "{} start trim_over_bound", shard.tag();
             "destroyed" => deletes.len(),
             "col_destroyed" => columnar_deletes.len(),
             "overlaps" => overlaps.len(),
             "col_overlaps" => col_overlaps.len(),
+            "fts_overlaps" => fts_pending.tasks.len(),
+            "fts_destroyed" => fts_pending.total_removal(),
             "input_size" => total_size,
         );
 
-        let mut cs = if overlaps.is_empty() && col_overlaps.is_empty() {
+        let need_fts = fts_pending.has_tasks();
+        let mut cs = if overlaps.is_empty() && col_overlaps.is_empty() && !need_fts {
             let mut cs = pb::ChangeSet::default();
             cs.mut_trim_over_bound().set_table_deletes(deletes.into());
             cs.mut_trim_over_bound()
@@ -1097,7 +1428,7 @@ impl Engine {
             let mut req = self.new_compact_request_with_shard(shard);
             req.file_ids = self
                 .id_allocator
-                .alloc_id_async(overlaps.len() + col_overlaps.len())
+                .alloc_id_async(overlaps.len() + col_overlaps.len() + fts_pending.tasks.len())
                 .await
                 .unwrap();
             let inplace_compaction = InPlaceCompactionCtx {
@@ -1107,6 +1438,9 @@ impl Engine {
                 columnar_build_opts: self.opts.columnar_build_options,
                 schema_file_id: data.schema_file.as_ref().map(|f| f.get_file_id()),
                 columnar_table_ids: data.get_columnar_table_ids_in_schema(),
+                fts_tasks: fts_pending.tasks.clone(),
+                fts_packed_build_opts: PackedFileBuilderOptions::default(),
+                fts_dedicated_build_opts: DedicatedFileBuilderOptions::default(),
                 spec: InPlaceCompaction::TrimOverBound,
             };
             req.input_size = total_size;
@@ -1119,11 +1453,13 @@ impl Engine {
             tc.set_columnar_deletes(columnar_deletes.into());
             cs
         };
+        patch_remove_to_fts_update(&mut cs, &fts_pending);
 
         cs.set_shard_id(shard.id);
         cs.set_shard_ver(shard.ver);
         cs.set_property_key(TRIM_OVER_BOUND.to_string());
         cs.set_property_value(TRIM_OVER_BOUND_DISABLE.to_vec());
+
         Ok(Some(cs))
     }
 
@@ -1201,6 +1537,9 @@ impl Engine {
                 columnar_build_opts: self.opts.columnar_build_options,
                 schema_file_id: Some(meta.schema.file_id()),
                 columnar_table_ids,
+                fts_tasks: Vec::new(),
+                fts_packed_build_opts: PackedFileBuilderOptions::default(),
+                fts_dedicated_build_opts: DedicatedFileBuilderOptions::default(),
                 spec: InPlaceCompaction::TrimOverBound,
             };
             req.input_size = total_size;
@@ -1840,6 +2179,12 @@ impl Engine {
             snap_version = snap_version.max(l0.snap_version());
             total_size += l0.size();
         }
+
+        // After merge, the target shard persisted snap version may be greater than the
+        // snap_version of the unconverted l0s. We should use the greater one to
+        // guarantee the columnar l0 file version monotonically increasing.
+        snap_version = snap_version.max(data.fts_levels.l0_snap_version + 1);
+
         let num_l0s = source_row_tables.len();
         // columnar_table_ids is sorted.
         let columnar_table_ids = data.get_columnar_table_ids_in_schema();
@@ -1861,6 +2206,419 @@ impl Engine {
             "{} start covert L0 to columnar, num_l0s {}, total size {}",
             tag, num_l0s, total_size
         );
+        Some(self.comp_client.compact(req).await)
+    }
+
+    pub(crate) async fn trigger_fts_create_l0(
+        &self,
+        shard: &Shard,
+        col_file_ids: Vec<u64>,
+        active_tracked_indexes: Vec<(i64, i64)>,
+        snap_version: SnapVersion,
+    ) -> Option<Result<pb::ChangeSet>> {
+        let tag = shard.tag();
+        let data = shard.get_data();
+
+        let schema_file = match shard.get_schema_file() {
+            Some(sf) => sf,
+            None => {
+                info!("{} no schema file for FTSCreateL0", tag);
+                return None;
+            }
+        };
+
+        if col_file_ids.is_empty() {
+            // This should not happen
+            info!("{} no columnar files to process for FTSCreateL0", tag);
+            return None;
+        }
+
+        // Collect columnar L0 files newer than the FTS watermark for incremental
+        // processing
+        let l0_watermark = data.fts_levels.l0_snap_version;
+        let n_col_files = col_file_ids.len();
+        let n_fts_indexes = active_tracked_indexes.len();
+        let id_set: HashSet<u64> = col_file_ids.iter().copied().collect();
+        let total_size: u64 = data.col_levels.levels[0]
+            .files
+            .iter()
+            .filter(|file| id_set.contains(&file.id()))
+            .map(|file| file.size())
+            .sum();
+        drop(data);
+
+        // Create compaction request
+        let mut req = self.new_compact_request_with_shard(shard);
+        req.input_size = total_size;
+        req.compaction_tp = CompactionType::FtsCreateL0(FtsCreateL0Update {
+            fts_indexes: active_tracked_indexes,
+            schema_file_id: schema_file.get_file_id(),
+            col_l0_file_ids: col_file_ids,
+            snap_version,
+            build_options: self.opts.fts_build_options,
+        });
+
+        info!(
+            "{} trigger incremental FTS L0 indexing: {} indexes, {} L0 files, snap_version watermark: {} -> {}",
+            tag,
+            n_fts_indexes,
+            n_col_files,
+            l0_watermark,
+            snap_version;
+            "total_size" => total_size
+        );
+
+        Some(self.comp_client.compact(req).await)
+    }
+
+    pub(crate) async fn trigger_fts_add_index(
+        &self,
+        shard: &Shard,
+        new_indexes: Vec<(i64, i64)>,
+    ) -> Option<Result<pb::ChangeSet>> {
+        let tag = shard.tag();
+        let data = shard.get_data();
+        let current_fts_snap_version = data.fts_levels.l0_snap_version;
+
+        let schema_file = match shard.get_schema_file() {
+            Some(sf) => sf,
+            None => {
+                info!("{} no schema file for FTSAddIndex", tag);
+                return None;
+            }
+        };
+
+        if new_indexes.is_empty() {
+            // This should not happen
+            info!("{} no new FTS indexes to add", tag);
+            return None;
+        }
+
+        // Collect historical columnar files: { L0 <= current_snap_version, L1, L2 }
+        let mut col_file_ids = Vec::new();
+        let mut total_size = 0;
+
+        for col_level in &data.col_levels.levels {
+            for col_file in &col_level.files {
+                let should_process = match col_level.level {
+                    0 => {
+                        // L0: Only files <= current FTS snap_version and not pending
+                        let l0_version = col_file.get_snap_version().unwrap_or_default();
+                        l0_version <= current_fts_snap_version
+                            && !data
+                                .fts_levels
+                                .pending_columnar_l0_ids()
+                                .contains(&col_file.id())
+                    }
+                    1 | 2 => {
+                        // L1, L2: Process all files (historical data)
+                        true
+                    }
+                    _ => false,
+                };
+
+                if should_process {
+                    // Check if file contains any table that has new FTS indexes
+                    let has_relevant_table = new_indexes
+                        .iter()
+                        .any(|(table_id, _)| col_file.has_table(*table_id));
+
+                    if has_relevant_table {
+                        col_file_ids.push((col_file.get_file().id(), col_level.level as u32));
+                        total_size += col_file.get_file().size();
+                    }
+                }
+            }
+        }
+
+        if col_file_ids.is_empty() {
+            info!("{} no historical data to process for FTS add index", tag);
+
+            // Even though there's no historical data, we should still mark these indexes as
+            // tracked, otherwise trigger_fts_add_index will be called repeatedly due to
+            // the presence of new indexes.
+
+            let mut fts_update = pb::FtsUpdate::new();
+
+            // Mark all new indexes as tracked without creating actual FTS files
+            for (table_id, index_id) in new_indexes {
+                let mut index_id_msg = TableIndexId::new();
+                index_id_msg.set_table_id(table_id);
+                index_id_msg.set_index_id(index_id);
+                fts_update.mut_add_tracked_indexes().push(index_id_msg);
+            }
+
+            let num_indexes = fts_update.get_add_tracked_indexes().len();
+
+            // Updating tracked index is a small metadata update, so no need to go through
+            // the full remote compaction path.
+            let mut ret = pb::ChangeSet::new();
+            ret.set_shard_id(shard.id);
+            ret.set_shard_ver(shard.ver);
+            ret.set_fts_update(fts_update);
+
+            info!(
+                "{} tracking {} new FTS indexes (no historical data)",
+                tag, num_indexes
+            );
+
+            return Some(Ok(ret));
+        }
+
+        // Store count before moving col_file_ids
+        let n_col_files = col_file_ids.len();
+        let n_fts_indexes = new_indexes.len();
+
+        // Create compaction request
+        let mut req = self.new_compact_request_with_shard(shard);
+        req.input_size = total_size;
+        req.compaction_tp = CompactionType::FtsAddIndex(FtsAddIndexUpdate {
+            fts_indexes_to_add: new_indexes,
+            schema_file_id: schema_file.get_file_id(),
+            col_file_ids,
+            current_snap_version: current_fts_snap_version,
+            build_options: self.opts.fts_build_options,
+        });
+
+        info!(
+            "{} trigger FTS add index: {} new indexes, {} columnar files, current_fts_snap_version: {}, total_size: {}",
+            tag, n_fts_indexes, n_col_files, current_fts_snap_version, total_size,
+        );
+
+        Some(self.comp_client.compact(req).await)
+    }
+
+    pub(crate) fn trigger_fts_drop_index(
+        &self,
+        shard: &Shard,
+        dropped_indexes: Vec<(i64, i64)>,
+    ) -> Option<Result<pb::ChangeSet>> {
+        let tag = shard.tag();
+        let data = shard.get_data();
+        if data.schema_file.is_none() {
+            info!("{} no schema file for FtsDropIndex", tag);
+            return None;
+        };
+
+        if dropped_indexes.is_empty() {
+            // This should not happen
+            info!("{} no FTS indexes to drop", tag);
+            return None;
+        }
+
+        let mut update = pb::FtsUpdate::new();
+        for (table_id, index_id) in dropped_indexes.iter().copied() {
+            let mut tbl_idx_id = TableIndexId::new();
+            tbl_idx_id.set_table_id(table_id);
+            tbl_idx_id.set_index_id(index_id);
+            update.mut_remove_tracked_indexes().push(tbl_idx_id);
+        }
+
+        let mut cs = pb::ChangeSet::default();
+        cs.set_shard_id(shard.id);
+        cs.set_shard_ver(shard.ver);
+        cs.set_fts_update(update);
+
+        info!(
+            "{} drop {} tracked FTS indexes due to schema change",
+            tag,
+            dropped_indexes.len();
+            "dropped_indexes" => ?dropped_indexes,
+        );
+
+        Some(Ok(cs))
+    }
+
+    pub(crate) async fn trigger_fts_l0_compact(
+        &self,
+        shard: &Shard,
+    ) -> Option<Result<pb::ChangeSet>> {
+        fn ranges_overlap(a_start: &[u8], a_end: &[u8], b_start: &[u8], b_end: &[u8]) -> bool {
+            !(a_end < b_start || b_end < a_start)
+        }
+        let tag = shard.tag();
+
+        let data = shard.get_data();
+        let levels = &data.fts_levels;
+        let has_overlapping_l1_files = levels
+            .l1()
+            .windows(2)
+            .any(|w| w[0].props().get_largest_lp_key() >= w[1].props().get_smallest_lp_key());
+        if levels.l0().is_empty() && !has_overlapping_l1_files {
+            info!(
+                "{} no FTS L0 files to compact and no overlapping L1 files, skip",
+                tag
+            );
+            return None;
+        }
+
+        // We first collect the min/max lp keys from all L0 files,
+        // Then, all L1 files overlapped with [min_lp, max_lp] will be compacted
+        // together with L0 files to form new L1 files.
+
+        // There maybe no L0 files to compact if the L1 files have overlapping lp keys.
+        let mut min_lp = vec![];
+        let mut max_lp = vec![];
+        if !levels.l0().is_empty() {
+            min_lp = levels.l0()[0].props().get_smallest_lp_key().to_vec();
+            max_lp = levels.l0()[0].props().get_largest_lp_key().to_vec();
+            for l0_file in levels.l0() {
+                let l0_begin = l0_file.props().get_smallest_lp_key();
+                let l0_end = l0_file.props().get_largest_lp_key();
+                if l0_begin < min_lp.as_slice() {
+                    min_lp.clear();
+                    min_lp.extend_from_slice(l0_begin);
+                }
+                if l0_end > max_lp.as_slice() {
+                    max_lp.clear();
+                    max_lp.extend_from_slice(l0_end);
+                }
+            }
+
+            assert!(!min_lp.is_empty());
+            assert!(!max_lp.is_empty());
+            assert!(min_lp <= max_lp);
+        }
+
+        let mut l1_file_ids: HashSet<u64> = HashSet::new();
+        for l1_file in levels.l1() {
+            if l1_file_ids.contains(&l1_file.id()) {
+                continue;
+            }
+            let l1_begin = l1_file.props().get_smallest_lp_key();
+            let l1_end = l1_file.props().get_largest_lp_key();
+            if has_overlapping_l1_files || ranges_overlap(&min_lp, &max_lp, l1_begin, l1_end) {
+                l1_file_ids.insert(l1_file.id());
+            }
+        }
+
+        let tracked_indexes: Vec<(i64, i64)> = levels
+            .iter_tracked_indexes()
+            .flat_map(|(table_id, indexes)| {
+                indexes.iter().map(move |index_id| (*table_id, *index_id))
+            })
+            .collect();
+
+        let plan = FtsCompactL0Update {
+            build_options: self.opts.fts_build_options,
+            tracked_indexes,
+            l0_file_ids: levels.l0().iter().map(|file| file.id()).collect(),
+            l1_file_ids: l1_file_ids.into_iter().collect(),
+            l2_lp_keys: levels.l2().keys().cloned().collect(),
+        };
+
+        let mut total_size: u64 = levels.l0().iter().map(|file| file.file().size()).sum();
+        if !plan.l1_file_ids.is_empty() {
+            let l1_set: HashSet<u64> = plan.l1_file_ids.iter().copied().collect();
+            total_size += levels
+                .l1()
+                .iter()
+                .filter(|file| l1_set.contains(&file.id()))
+                .map(|file| file.file().size())
+                .sum::<u64>();
+        }
+
+        let mut req = self.new_compact_request_with_shard(shard);
+        req.input_size = total_size;
+
+        info!(
+            "{} trigger FTS L0 compact", tag;
+            "lp_min" => ?hexhex::hex(min_lp),
+            "lp_max" => ?hexhex::hex(max_lp),
+            "l0_inputs" => ?plan.l0_file_ids,
+            "l1_inputs" => ?plan.l1_file_ids,
+            "tracked_indexes" => plan.tracked_indexes.len(),
+            "total_size" => total_size,
+        );
+
+        req.compaction_tp = CompactionType::FtsCompactL0(plan);
+
+        Some(self.comp_client.compact(req).await)
+    }
+
+    pub(crate) async fn trigger_fts_l2_compact(
+        &self,
+        shard: &Shard,
+        lp_key: Vec<u8>,
+        file_ids: Vec<u64>,
+    ) -> Option<Result<pb::ChangeSet>> {
+        if file_ids.len() < 2 {
+            return None;
+        }
+
+        let file_id_set: HashSet<u64> = file_ids.iter().copied().collect();
+        let shard_data = shard.get_data();
+        let total_size = shard_data
+            .fts_levels
+            .l2()
+            .get(&lp_key)
+            .map(|files| {
+                files
+                    .iter()
+                    .filter(|file| file_id_set.contains(&file.id()))
+                    .map(|file| file.file().size())
+                    .sum()
+            })
+            .unwrap_or(0);
+        drop(shard_data);
+
+        let plan = FtsCompactL2Update {
+            lp_key,
+            l2_file_ids: file_ids.clone(),
+            build_options: self.opts.fts_build_options,
+        };
+
+        let mut req = self.new_compact_request_with_shard(shard);
+        req.input_size = total_size;
+        req.compaction_tp = CompactionType::FtsCompactL2(plan.clone());
+
+        info!(
+            "{} trigger FTS L2 compact", shard.tag();
+            "lp_key" => ?hexhex::hex(&plan.lp_key),
+            "file_ids" => ?file_ids,
+            "total_size" => total_size,
+        );
+
+        Some(self.comp_client.compact(req).await)
+    }
+
+    pub(crate) async fn trigger_fts_cleanup(
+        &self,
+        shard: &Shard,
+        l1_file_ids: Vec<u64>,
+        l2_file_ids: Vec<u64>,
+    ) -> Option<Result<pb::ChangeSet>> {
+        if l1_file_ids.is_empty() && l2_file_ids.is_empty() {
+            return None;
+        }
+        let mut req = self.new_compact_request_with_shard(shard);
+        let data = shard.get_data();
+        let l1_set: HashSet<u64> = l1_file_ids.iter().copied().collect();
+        let l2_set: HashSet<u64> = l2_file_ids.iter().copied().collect();
+        let mut input_size: u64 = 0;
+        for file in data.fts_levels.l1() {
+            if l1_set.contains(&file.id()) {
+                input_size = input_size.saturating_add(file.file().size());
+            }
+        }
+        for files in data.fts_levels.l2().values() {
+            for file in files {
+                if l2_set.contains(&file.id()) {
+                    input_size = input_size.saturating_add(file.file().size());
+                }
+            }
+        }
+        req.input_size = input_size;
+        let plan = FtsCleanupUpdate {
+            l1_file_ids,
+            l2_file_ids,
+        };
+        info!(
+            "{} trigger FTS cleanup", shard.tag();
+            "l1_remove" => ?plan.l1_file_ids,
+            "l2_remove" => ?plan.l2_file_ids,
+        );
+        req.compaction_tp = CompactionType::FtsCleanup(plan);
         Some(self.comp_client.compact(req).await)
     }
 
@@ -2416,6 +3174,27 @@ pub(crate) enum CompactionPriority {
         col_id: i64,
         rebuild: bool,
     },
+    FtsCreateL0 {
+        col_file_ids: Vec<u64>,
+        active_tracked_indexes: Vec<(i64, i64)>, /* Only these indexes within tracked index will
+                                                  * be built */
+        snap_version: SnapVersion,
+    },
+    FtsAddIndex {
+        new_indexes: Vec<(i64, i64)>,
+    },
+    FtsDropIndex {
+        dropped_indexes: Vec<(i64, i64)>,
+    },
+    FtsCompactL0,
+    FtsCompactL2 {
+        lp_key: Vec<u8>,
+        file_ids: Vec<u64>,
+    },
+    FtsCleanup {
+        l1_file_ids: Vec<u64>,
+        l2_file_ids: Vec<u64>,
+    },
 }
 
 impl CompactionPriority {
@@ -2435,6 +3214,12 @@ impl CompactionPriority {
             CompactionPriority::ColumnarMajor { .. } => 1.5,
             CompactionPriority::ColumnarClear => f64::MAX,
             CompactionPriority::UpdateVectorIndex { score, .. } => *score,
+            CompactionPriority::FtsCreateL0 { .. } => 2.1,
+            CompactionPriority::FtsAddIndex { .. } => 2.2,
+            CompactionPriority::FtsDropIndex { .. } => 2.3,
+            CompactionPriority::FtsCompactL0 => 1.9,
+            CompactionPriority::FtsCompactL2 { .. } => 1.8,
+            CompactionPriority::FtsCleanup { .. } => 1.7,
         }
     }
 
@@ -2454,6 +3239,12 @@ impl CompactionPriority {
             CompactionPriority::ColumnarMajor { .. } => -1,
             CompactionPriority::ColumnarClear => -1,
             CompactionPriority::UpdateVectorIndex { .. } => -1,
+            CompactionPriority::FtsCreateL0 { .. } => 0,
+            CompactionPriority::FtsAddIndex { .. } => 0,
+            CompactionPriority::FtsDropIndex { .. } => 0,
+            CompactionPriority::FtsCompactL0 => 0,
+            CompactionPriority::FtsCompactL2 { .. } => 0,
+            CompactionPriority::FtsCleanup { .. } => 0,
         }
     }
 
@@ -2473,6 +3264,12 @@ impl CompactionPriority {
             CompactionPriority::ColumnarMajor { .. } => -1,
             CompactionPriority::ColumnarClear => -1,
             CompactionPriority::UpdateVectorIndex { .. } => -1,
+            CompactionPriority::FtsCreateL0 { .. } => -1,
+            CompactionPriority::FtsAddIndex { .. } => -1,
+            CompactionPriority::FtsDropIndex { .. } => -1,
+            CompactionPriority::FtsCompactL0 => -1,
+            CompactionPriority::FtsCompactL2 { .. } => -1,
+            CompactionPriority::FtsCleanup { .. } => -1,
         }
     }
 }
@@ -2573,6 +3370,8 @@ fn load_table_files_from_local(
             FileType::TxnChunk => unreachable!("txn chunk should not be loaded from local"),
             FileType::VectorIndex => new_vector_index_filename(id),
             FileType::Blob => new_blob_filename(id),
+            FileType::FtsPackedFile => new_fts_packed_filename(id),
+            FileType::FtsDedicatedFile => new_fts_dedicated_filename(id),
         };
         let local_dir = get_local_dir(local_dirs, id);
         let file_path = local_dir.join(file_name);
@@ -2769,6 +3568,9 @@ pub async fn local_compact(ctx: &CompactionCtx) -> Result<pb::ChangeSet> {
             columnar_build_opts,
             schema_file_id,
             columnar_table_ids,
+            fts_tasks,
+            fts_packed_build_opts,
+            fts_dedicated_build_opts,
             spec,
         }) => match spec {
             InPlaceCompaction::DestroyRange(del_prefix) => {
@@ -2793,6 +3595,16 @@ pub async fn local_compact(ctx: &CompactionCtx) -> Result<pb::ChangeSet> {
                     pb::TableChange::new()
                 };
                 cs.set_destroy_range(merge_table_change(row_tb, col_tb));
+                let update = compact_fts_inplace(
+                    ctx,
+                    spec,
+                    fts_tasks,
+                    fts_packed_build_opts,
+                    fts_dedicated_build_opts,
+                    &mut id_allocator,
+                )
+                .await?;
+                append_fts_update(&mut cs, update);
             }
             InPlaceCompaction::TrimOverBound => {
                 let row_tb = if !file_ids.is_empty() {
@@ -2814,6 +3626,16 @@ pub async fn local_compact(ctx: &CompactionCtx) -> Result<pb::ChangeSet> {
                     pb::TableChange::new()
                 };
                 cs.set_trim_over_bound(merge_table_change(row_tb, col_tb));
+                let update = compact_fts_inplace(
+                    ctx,
+                    spec,
+                    fts_tasks,
+                    fts_packed_build_opts,
+                    fts_dedicated_build_opts,
+                    &mut id_allocator,
+                )
+                .await?;
+                append_fts_update(&mut cs, update);
             }
             InPlaceCompaction::TruncateTs(truncate_ts) => {
                 let row_tb = if !file_ids.is_empty() {
@@ -2837,6 +3659,16 @@ pub async fn local_compact(ctx: &CompactionCtx) -> Result<pb::ChangeSet> {
                     pb::TableChange::new()
                 };
                 cs.set_truncate_ts(merge_table_change(row_tb, col_tb));
+                let update = compact_fts_inplace(
+                    ctx,
+                    spec,
+                    fts_tasks,
+                    fts_packed_build_opts,
+                    fts_dedicated_build_opts,
+                    &mut id_allocator,
+                )
+                .await?;
+                append_fts_update(&mut cs, update);
             }
             InPlaceCompaction::Unknown => unreachable!(),
         },
@@ -2864,9 +3696,212 @@ pub async fn local_compact(ctx: &CompactionCtx) -> Result<pb::ChangeSet> {
                 update_vector_index(ctx, update_vec_idx, &mut id_allocator).await?,
             );
         }
+        CompactionType::FtsCreateL0(fts_create_l0_req) => {
+            cs.set_fts_update(
+                fts_create_l0_update(ctx, fts_create_l0_req, &mut id_allocator).await?,
+            );
+        }
+        CompactionType::FtsAddIndex(fts_add_index_req) => {
+            cs.set_fts_update(
+                fts_add_index_update(ctx, fts_add_index_req, &mut id_allocator).await?,
+            );
+        }
+        CompactionType::FtsCompactL0(fts_l0_compact_req) => {
+            cs.set_fts_update(fts_l0_compact(ctx, fts_l0_compact_req, &mut id_allocator).await?);
+        }
+        CompactionType::FtsCompactL2(fts_l2_compact_req) => {
+            cs.set_fts_update(fts_l2_compact(ctx, fts_l2_compact_req, &mut id_allocator).await?);
+        }
+        CompactionType::FtsCleanup(fts_cleanup_req) => {
+            cs.set_fts_update(fts_cleanup(ctx, fts_cleanup_req).await?);
+        }
         CompactionType::Unknown => unreachable!(),
     }
     Ok(cs)
+}
+
+pub fn build_inplace_spec_from_ctx(
+    spec: &InPlaceCompaction,
+    req: &CompactionRequest,
+) -> Result<InplaceSpec> {
+    match spec {
+        InPlaceCompaction::TrimOverBound => {
+            let start = req.inner_start().deref().to_vec();
+            let end = req.inner_end().deref().to_vec();
+            Ok(InplaceSpec::TrimOverbound(FtsKeyRange {
+                start: Some(start),
+                end: Some(end),
+            }))
+        }
+        InPlaceCompaction::TruncateTs(ts) => Ok(InplaceSpec::TruncateTs { truncate_ts: *ts }),
+        InPlaceCompaction::DestroyRange(data) => {
+            let prefixes = DeletePrefixes::unmarshal(data, req.keyspace_id())
+                .prefixes
+                .into_iter()
+                .map(|p| OwnedInnerKey::new(Bytes::from(p)).to_vec())
+                .collect();
+            Ok(InplaceSpec::DestroyRange { prefixes })
+        }
+        InPlaceCompaction::Unknown => Err(box_err!("unknown inplace compaction spec")),
+    }
+}
+
+async fn compact_fts_inplace(
+    ctx: &CompactionCtx,
+    spec: &InPlaceCompaction,
+    tasks: &[FtsInplaceTask],
+    fts_packed_build_opts: &PackedFileBuilderOptions,
+    fts_dedicated_build_opts: &DedicatedFileBuilderOptions,
+    id_allocator: &mut LocalIdAllocator,
+) -> Result<pb::FtsUpdate> {
+    if tasks.is_empty() {
+        return Ok(pb::FtsUpdate::default());
+    }
+    let inplace_spec = build_inplace_spec_from_ctx(spec, &ctx.req)?;
+    let mut update = pb::FtsUpdate::default();
+
+    let mut packed_ids = Vec::new();
+    let mut dedicated_ids = Vec::new();
+    for task in tasks {
+        match task.kind {
+            FtsFileKind::L0 | FtsFileKind::L1 => packed_ids.push(task.id),
+            FtsFileKind::L2 => dedicated_ids.push(task.id),
+        }
+    }
+
+    let mut packed_files = HashMap::new();
+    if !packed_ids.is_empty() {
+        let opts = dfs::Options::default()
+            .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+            .with_type(FileType::FtsPackedFile);
+        let files = load_table_files(
+            &packed_ids,
+            ctx.dfs.clone(),
+            opts,
+            &ctx.local_dirs,
+            ctx.for_restore,
+        )
+        .await?;
+        for file in files {
+            let file_id = file.id();
+            let packed = PackedFile::new(file, FtsCache::disabled()).map_err(|e| -> Error {
+                box_err!("Failed to open FTS packed file {}: {}", file_id, e)
+            })?;
+            packed_files.insert(file_id, packed);
+        }
+    }
+
+    let mut dedicated_files = HashMap::new();
+    if !dedicated_ids.is_empty() {
+        let opts = dfs::Options::default()
+            .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+            .with_type(FileType::FtsDedicatedFile);
+        let files = load_table_files(
+            &dedicated_ids,
+            ctx.dfs.clone(),
+            opts,
+            &ctx.local_dirs,
+            ctx.for_restore,
+        )
+        .await?;
+        for file in files {
+            let file_id = file.id();
+            let dedicated =
+                EDedicatedFile::new(file, FtsCache::disabled()).map_err(|e| -> Error {
+                    box_err!("Failed to open FTS dedicated file {}: {}", file_id, e)
+                })?;
+            dedicated_files.insert(file_id, dedicated);
+        }
+    }
+
+    let packed_dfs_opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(FileType::FtsPackedFile);
+    let dedicated_dfs_opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(FileType::FtsDedicatedFile);
+
+    for task in tasks {
+        match task.kind {
+            FtsFileKind::L0 => {
+                let file = packed_files.get(&task.id).ok_or_else(|| -> Error {
+                    box_err!("missing packed file {} for FTS compaction", task.id)
+                })?;
+                match rewrite_packed_file(file, &inplace_spec, fts_packed_build_opts)
+                    .await
+                    .map_err(|e| -> Error {
+                        box_err!("Failed to rewrite FTS packed file {}: {}", task.id, e)
+                    })? {
+                    InplaceResult::NoChange => {}
+                    InplaceResult::Removed => {
+                        update.mut_l0_remove_files().push(task.id);
+                    }
+                    InplaceResult::Rewritten { data, summary } => {
+                        let new_id = id_allocator.alloc_id().await;
+                        ctx.dfs
+                            .create(new_id, data, packed_dfs_opts)
+                            .await
+                            .map_err(Error::DfsError)?;
+                        let info = PackedFile::info(new_id, summary.meta_offset, summary.props);
+                        update.mut_l0_add_files().push(info);
+                        update.mut_l0_remove_files().push(task.id);
+                    }
+                }
+            }
+            FtsFileKind::L1 => {
+                let file = packed_files.get(&task.id).ok_or_else(|| -> Error {
+                    box_err!("missing packed file {} for FTS compaction", task.id)
+                })?;
+                match rewrite_packed_file(file, &inplace_spec, fts_packed_build_opts)
+                    .await
+                    .map_err(|e| -> Error {
+                        box_err!("Failed to rewrite FTS packed file {}: {}", task.id, e)
+                    })? {
+                    InplaceResult::NoChange => {}
+                    InplaceResult::Removed => {
+                        update.mut_l1_remove_files().push(task.id);
+                    }
+                    InplaceResult::Rewritten { data, summary } => {
+                        let new_id = id_allocator.alloc_id().await;
+                        ctx.dfs
+                            .create(new_id, data, packed_dfs_opts)
+                            .await
+                            .map_err(Error::DfsError)?;
+                        let info = PackedFile::info(new_id, summary.meta_offset, summary.props);
+                        update.mut_l1_add_files().push(info);
+                        update.mut_l1_remove_files().push(task.id);
+                    }
+                }
+            }
+            FtsFileKind::L2 => {
+                let file = dedicated_files.get(&task.id).ok_or_else(|| -> Error {
+                    box_err!("missing dedicated file {} for FTS compaction", task.id)
+                })?;
+                match rewrite_dedicated_file(file, &inplace_spec, fts_dedicated_build_opts)
+                    .await
+                    .map_err(|e| -> Error {
+                        box_err!("Failed to rewrite FTS dedicated file {}: {}", task.id, e)
+                    })? {
+                    InplaceResult::NoChange => {}
+                    InplaceResult::Removed => {
+                        update.mut_l2_remove_files().push(task.id);
+                    }
+                    InplaceResult::Rewritten { data, summary } => {
+                        let new_id = id_allocator.alloc_id().await;
+                        ctx.dfs
+                            .create(new_id, data, dedicated_dfs_opts)
+                            .await
+                            .map_err(Error::DfsError)?;
+                        let info = DedicatedFile::info(new_id, summary.meta_offset, summary.props);
+                        update.mut_l2_add_files().push(info);
+                        update.mut_l2_remove_files().push(task.id);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(update)
 }
 
 /// Compact files in place to remove data covered by delete prefixes.
@@ -3783,6 +4818,7 @@ fn persist_columnar_file(
         builder.smallest.clone(),
         builder.biggest.clone(),
         meta_offset as u32,
+        builder.get_snap_version(),
     );
     let fs_clone = fs.clone();
     fs.get_runtime().spawn(async move {
@@ -5359,6 +6395,381 @@ async fn update_vector_index(
     }
     ret.set_added(vector_index_files.into());
     info!("update vector index result {:?}", ret);
+    Ok(ret)
+}
+
+/// The Compaction Workload: Create FTS L0 from columnar files (typically L0).
+async fn fts_create_l0_update(
+    ctx: &CompactionCtx,
+    req: &FtsCreateL0Update,
+    id_allocator: &mut LocalIdAllocator,
+) -> Result<pb::FtsUpdate> {
+    let fs = &ctx.dfs;
+
+    // Load schema file
+    let schema_file_data = load_table_files(
+        &[req.schema_file_id],
+        fs.clone(),
+        dfs::Options::default().with_type(FileType::Schema),
+        ctx.local_dirs.as_ref(),
+        false,
+    )
+    .await?
+    .pop()
+    .unwrap();
+    let schema_file = SchemaFile::open(schema_file_data)?;
+
+    // Load columnar files
+    let opts = dfs::Options::default()
+        .with_type(FileType::Columnar)
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver);
+    let files = load_table_files(
+        &req.col_l0_file_ids,
+        fs.clone(),
+        opts,
+        ctx.local_dirs.as_ref(),
+        false,
+    )
+    .await?;
+    let mut columnar_files = Vec::with_capacity(files.len());
+    for file in files {
+        let columnar_file = ColumnarFile::open(file, None, ctx.columnar_meta_cache.clone())?;
+        columnar_files.push(columnar_file);
+    }
+
+    // Convert columnar files to FTS L0
+    // Pass the specific (table_id, index_id) pairs to ensure only tracked indexes
+    // are processed for incremental updates.
+    let conversion_opts = ColumnarToFtsL0Opts {
+        columnar_files: &columnar_files,
+        schema_file,
+        index_pairs: &req.fts_indexes,
+        encryption_key: ctx.encryption_key.clone(),
+        snap_version: req.snap_version,
+        l0_file_max_size: req.build_options.l0_file_max_size.0,
+    };
+
+    let convert_outputs = columnar_to_fts_l0(conversion_opts)
+        .await
+        .map_err(|e| -> Error { box_err!("Failed to convert columnar L0 to FTS: {:?}", e) })?;
+
+    // Create result protobuf message
+    let mut ret = pb::FtsUpdate::default();
+    ret.mut_pending_columnar_l0_remove_files()
+        .extend_from_slice(&req.col_l0_file_ids);
+    ret.set_set_snap_version(req.snap_version.into_inner());
+
+    if convert_outputs.is_empty() {
+        info!("FTS L0 update result: no data generated");
+        return Ok(ret);
+    }
+
+    let dfs_opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(dfs::FileType::FtsPackedFile);
+
+    for f in convert_outputs {
+        // Allocate file ID for the new FTS L0 file
+        let file_id = id_allocator.alloc_id().await;
+
+        // Create FTS L0 file in DFS
+        fs.create(file_id, f.data, dfs_opts).await?;
+
+        // Create FtsPackedFileInfo for the new FTS file
+        let info = PackedFile::info(file_id, f.summary.meta_offset, f.summary.props);
+        ret.mut_l0_add_files().push(info);
+        info!("FTS L0 update result: created file {}", file_id);
+    }
+
+    Ok(ret)
+}
+
+/// The Compaction Workload: Create FTS L0 for new indexes from historical
+/// columnar files.
+async fn fts_add_index_update(
+    ctx: &CompactionCtx,
+    req: &FtsAddIndexUpdate,
+    id_allocator: &mut LocalIdAllocator,
+) -> Result<pb::FtsUpdate> {
+    let fs = &ctx.dfs;
+
+    // Load schema file
+    let schema_file_data = load_table_files(
+        &[req.schema_file_id],
+        fs.clone(),
+        dfs::Options::default().with_type(FileType::Schema),
+        ctx.local_dirs.as_ref(),
+        false,
+    )
+    .await?
+    .pop()
+    .unwrap();
+    let schema_file = SchemaFile::open(schema_file_data)?;
+
+    // Load columnar files
+    let opts = dfs::Options::default()
+        .with_type(FileType::Columnar)
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver);
+
+    let col_file_ids: Vec<u64> = req.col_file_ids.iter().map(|(id, _)| *id).collect();
+    let files = load_table_files(
+        &col_file_ids,
+        fs.clone(),
+        opts,
+        ctx.local_dirs.as_ref(),
+        false,
+    )
+    .await?;
+
+    let mut columnar_files = Vec::with_capacity(files.len());
+    for file in files {
+        let columnar_file = ColumnarFile::open(file, None, ctx.columnar_meta_cache.clone())?;
+        columnar_files.push(columnar_file);
+    }
+
+    // Convert historical columnar files to FTS L0 for new indexes
+    // Process each new index separately to ensure proper partitioning
+    let conversion_opts = ColumnarToFtsL0Opts {
+        columnar_files: &columnar_files,
+        schema_file,
+        index_pairs: &req.fts_indexes_to_add,
+        encryption_key: ctx.encryption_key.clone(),
+        snap_version: req.current_snap_version,
+        l0_file_max_size: req.build_options.l0_file_max_size.0,
+    };
+
+    let convert_outputs = columnar_to_fts_l0(conversion_opts)
+        .await
+        .map_err(|e| -> Error {
+            box_err!("Failed to convert historical columnar to FTS: {:?}", e)
+        })?;
+
+    // Create result protobuf message
+    // FtsAddIndex sets add_tracked_indexes with the new indexes being added
+    let mut ret = pb::FtsUpdate::default();
+    // NOTE: Do NOT touch `pending_columnar_l0_ids` here.
+    //
+    // `pending_columnar_l0_ids` is a shard-global marker for columnar L0 files that
+    // are <= the FTS watermark but are *not* guaranteed to be indexed for all
+    // currently tracked indexes (typically after shard merge when the watermark
+    // advances).
+    //
+    // FtsAddIndex only builds indexes for `req.fts_indexes_to_add` (new indexes).
+    // It does not guarantee those columnar L0s are indexed for existing tracked
+    // indexes, so emitting `pending_columnar_l0_remove_files` here can
+    // incorrectly clear pending work and permanently hide unindexed data from
+    // reads.
+    for info in &req.fts_indexes_to_add {
+        let mut index_id = TableIndexId::new();
+        index_id.set_table_id(info.0);
+        index_id.set_index_id(info.1);
+        ret.mut_add_tracked_indexes().push(index_id);
+    }
+
+    if convert_outputs.is_empty() {
+        info!("FTS add index result: no data generated");
+        return Ok(ret);
+    }
+
+    let dfs_opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(dfs::FileType::FtsPackedFile);
+
+    for f in convert_outputs {
+        // Allocate file ID for the new FTS L0 file
+        let file_id = id_allocator.alloc_id().await;
+
+        // Create FTS L0 file in DFS
+        fs.create(file_id, f.data, dfs_opts).await?;
+
+        // Create FtsPackedFileInfo for the new FTS file
+        let info = PackedFile::info(file_id, f.summary.meta_offset, f.summary.props);
+        ret.mut_l0_add_files().push(info);
+
+        info!(
+            "FTS add index result: created file {} for {} new indexes",
+            file_id,
+            req.fts_indexes_to_add.len()
+        );
+    }
+    Ok(ret)
+}
+
+async fn fts_l0_compact(
+    ctx: &CompactionCtx,
+    req: &FtsCompactL0Update,
+    id_allocator: &mut LocalIdAllocator,
+) -> Result<pb::FtsUpdate> {
+    let fs = &ctx.dfs;
+
+    let mut ret = pb::FtsUpdate::default();
+
+    if req.l0_file_ids.is_empty() && req.l1_file_ids.is_empty() {
+        return Ok(ret);
+    }
+
+    ret.mut_l0_remove_files()
+        .extend_from_slice(&req.l0_file_ids);
+    ret.mut_l1_remove_files()
+        .extend_from_slice(&req.l1_file_ids);
+
+    let mut source_ids = Vec::with_capacity(req.l0_file_ids.len() + req.l1_file_ids.len());
+    source_ids.extend(req.l0_file_ids.iter().copied());
+    source_ids.extend(req.l1_file_ids.iter().copied());
+
+    let opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(FileType::FtsPackedFile);
+
+    let files = load_table_files(
+        &source_ids,
+        fs.clone(),
+        opts,
+        ctx.local_dirs.as_ref(),
+        false,
+    )
+    .await?;
+
+    let mut packed_files = Vec::with_capacity(files.len());
+    for file in files {
+        let packed = PackedFile::new(file, FtsCache::disabled())
+            .map_err(|e| -> Error { box_err!("Failed to open FTS packed file: {}", e) })?;
+        packed_files.push(packed);
+    }
+
+    let existing_l2_lp_keys: HashSet<Vec<u8>> = req.l2_lp_keys.iter().cloned().collect();
+    let tracked_indexes: HashSet<(i64, i64)> = req.tracked_indexes.iter().copied().collect();
+    let build_opts = &req.build_options;
+    let merge_opt = PackedFileMergeOpt {
+        max_pack_file_size: build_opts.l1_file_max_size.0,
+        min_l2_lp_size: build_opts.min_l2_lp_size.0,
+        pack_opt: PackedFileBuilderOptions::default(),
+        ded_opt: DedicatedFileBuilderOptions::default(),
+    };
+    let merge_outputs = merge_fts_l0_l1(
+        packed_files.as_slice(),
+        merge_opt,
+        ctx.req.safe_ts,
+        &existing_l2_lp_keys,
+        &tracked_indexes,
+    )
+    .await
+    .map_err(|e| -> Error { box_err!("Failed to merge FTS packed files: {}", e) })?;
+
+    if merge_outputs.l1_files.is_empty() && merge_outputs.l2_files.is_empty() {
+        return Ok(ret);
+    }
+
+    let dfs_opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(FileType::FtsPackedFile);
+    let dfs_opts_ded = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(FileType::FtsDedicatedFile);
+
+    for f in merge_outputs.l1_files.into_iter() {
+        let file_id = id_allocator.alloc_id().await;
+
+        ctx.dfs.create(file_id, f.data.clone(), dfs_opts).await?;
+
+        let info = PackedFile::info(file_id, f.summary.meta_offset, f.summary.props);
+        ret.mut_l1_add_files().push(info);
+    }
+
+    for f in merge_outputs.l2_files.into_iter() {
+        let file_id = id_allocator.alloc_id().await;
+        ctx.dfs
+            .create(file_id, f.data.clone(), dfs_opts_ded)
+            .await?;
+
+        let info = DedicatedFile::info(file_id, f.summary.meta_offset, f.summary.props);
+        ret.mut_l2_add_files().push(info);
+    }
+
+    Ok(ret)
+}
+
+async fn fts_l2_compact(
+    ctx: &CompactionCtx,
+    req: &FtsCompactL2Update,
+    id_allocator: &mut LocalIdAllocator,
+) -> Result<pb::FtsUpdate> {
+    let mut ret = pb::FtsUpdate::default();
+    if req.l2_file_ids.is_empty() {
+        return Ok(ret);
+    }
+
+    ret.mut_l2_remove_files()
+        .extend_from_slice(&req.l2_file_ids);
+
+    let dfs_opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(FileType::FtsDedicatedFile);
+    let files = load_table_files(
+        &req.l2_file_ids,
+        ctx.dfs.clone(),
+        dfs_opts,
+        ctx.local_dirs.as_ref(),
+        ctx.for_restore,
+    )
+    .await?;
+
+    let mut dedicated_files = Vec::with_capacity(files.len());
+    for file in files {
+        let dedicated = EDedicatedFile::new(file, FtsCache::disabled())
+            .map_err(|e| -> Error { box_err!("Failed to open dedicated file: {}", e) })?;
+        dedicated_files.push(dedicated);
+    }
+
+    if dedicated_files.len() < 2 {
+        return Ok(ret);
+    }
+
+    let merged = merge_fts_l2_files(
+        dedicated_files.as_slice(),
+        ctx.req.safe_ts,
+        DedicatedFileBuilderOptions::default(),
+    )
+    .await
+    .map_err(|e| -> Error { box_err!("Failed to merge dedicated files: {}", e) })?;
+
+    let Some(output) = merged else {
+        return Ok(ret);
+    };
+
+    let dfs_opts = dfs::Options::default()
+        .with_shard(ctx.req.shard_id, ctx.req.shard_ver)
+        .with_type(FileType::FtsDedicatedFile);
+    let file_id = id_allocator.alloc_id().await;
+    ctx.dfs
+        .create(file_id, output.data.clone(), dfs_opts)
+        .await?;
+
+    let summary = output.summary;
+    if !req.lp_key.is_empty() && summary.props.get_lp_key() != req.lp_key.as_slice() {
+        return Err(box_err!(
+            "Merged L2 file lp_key mismatch, expect {}, got {}",
+            hexhex::hex(&req.lp_key),
+            hexhex::hex(summary.props.get_lp_key())
+        ));
+    }
+
+    let info = DedicatedFile::info(file_id, summary.meta_offset, summary.props);
+    ret.mut_l2_add_files().push(info);
+
+    Ok(ret)
+}
+
+async fn fts_cleanup(_ctx: &CompactionCtx, req: &FtsCleanupUpdate) -> Result<pb::FtsUpdate> {
+    let mut ret = pb::FtsUpdate::default();
+    if !req.l1_file_ids.is_empty() {
+        ret.mut_l1_remove_files()
+            .extend_from_slice(&req.l1_file_ids);
+    }
+    if !req.l2_file_ids.is_empty() {
+        ret.mut_l2_remove_files()
+            .extend_from_slice(&req.l2_file_ids);
+    }
     Ok(ret)
 }
 

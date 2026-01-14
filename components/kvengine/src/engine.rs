@@ -979,7 +979,9 @@ impl EngineCore {
                 || cs.has_truncate_ts()
                 || cs.has_trim_over_bound()
                 || cs.has_major_compaction()
-                || cs.has_columnar_compaction())
+                || cs.has_columnar_compaction()
+                || cs.has_update_vector_index()
+                || cs.has_fts_update())
         {
             // This compaction may be conflicted with initial flush, so we have to trigger
             // next compaction if needed.
@@ -1242,6 +1244,14 @@ pub fn new_columnar_filename(file_id: u64) -> PathBuf {
 
 pub fn new_vector_index_filename(file_id: u64) -> PathBuf {
     PathBuf::from(format!("{:016x}.vec", file_id))
+}
+
+pub fn new_fts_packed_filename(file_id: u64) -> PathBuf {
+    PathBuf::from(format!("{:016x}.ftspack", file_id))
+}
+
+pub fn new_fts_dedicated_filename(file_id: u64) -> PathBuf {
+    PathBuf::from(format!("{:016x}.ftsded", file_id))
 }
 
 const FREE_MEM_RECV_TIMEOUT: Duration = Duration::from_secs(5);

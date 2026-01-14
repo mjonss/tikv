@@ -216,6 +216,20 @@ impl FtsLevels {
             .insert(index_id);
     }
 
+    /// Remove an FTS index from tracking.
+    pub fn untrack_index(&mut self, table_id: i64, index_id: i64) {
+        let Some(indexes) = self.tracked_indexes.get_mut(&table_id) else {
+            return;
+        };
+        indexes.remove(&index_id);
+        if indexes.is_empty() {
+            self.tracked_indexes.remove(&table_id);
+        }
+        if self.tracked_indexes.is_empty() {
+            self.pending_columnar_l0_ids.clear();
+        }
+    }
+
     /// Iterator over tracked indexes.
     pub fn iter_tracked_indexes(&self) -> impl Iterator<Item = (&i64, &HashSet<i64>)> {
         self.tracked_indexes.iter()
@@ -318,7 +332,15 @@ impl FtsLevels {
             })
             .collect();
         if tracked.is_empty() {
-            return (Vec::new(), Vec::new());
+            // No indexes are tracked (e.g. all FTS indexes were dropped). In this case,
+            // all remaining FTS files are obsolete.
+            let l1_remove = self.l1.iter().map(|file| file.id()).collect();
+            let l2_remove = self
+                .l2
+                .values()
+                .flat_map(|files| files.iter().map(|file| file.id()))
+                .collect();
+            return (l1_remove, l2_remove);
         }
 
         let mut l1_remove = Vec::new();

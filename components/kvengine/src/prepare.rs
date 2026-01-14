@@ -39,6 +39,7 @@ use crate::{
     table::{
         BoundedDataSet,
         file::{FdCache, File, InMemFile, LocalFile},
+        fts::FtsCache,
         get_local_dir,
         schema_file::SchemaFile,
         sstable::{PROP_KEY_MAX_TS, SsTable, SsTableCore, SsTableProperty},
@@ -187,6 +188,15 @@ impl EngineCore {
                 );
             }
         }
+        for file in cs.get_fts_update().get_l0_add_files() {
+            ids.insert(file.get_id(), FileMeta::from_fts_l0_file(file));
+        }
+        for file in cs.get_fts_update().get_l1_add_files() {
+            ids.insert(file.get_id(), FileMeta::from_fts_l1_file(file));
+        }
+        for file in cs.get_fts_update().get_l2_add_files() {
+            ids.insert(file.get_id(), FileMeta::from_fts_l2_file(file));
+        }
         let mut encryption_key = encryption_key;
         let mut prepare_type = prepare_type;
         if let Some(snap) = snap {
@@ -228,7 +238,10 @@ impl EngineCore {
 
         if self.opts.ignore_columnar_table_load {
             ids.retain(|_, meta| {
-                meta.file_type != FileType::Columnar && meta.file_type != FileType::VectorIndex
+                meta.file_type != FileType::Columnar
+                    && meta.file_type != FileType::VectorIndex
+                    && meta.file_type != FileType::FtsPackedFile
+                    && meta.file_type != FileType::FtsDedicatedFile
             });
         }
 
@@ -287,6 +300,15 @@ impl EngineCore {
                     FileMeta::from_vector_index_file(vec_idx_file),
                 );
             }
+        }
+        for file in snap.get_fts_l0_files() {
+            ids.insert(file.id, FileMeta::from_fts_l0_file(file));
+        }
+        for file in snap.get_fts_l1_files() {
+            ids.insert(file.id, FileMeta::from_fts_l1_file(file));
+        }
+        for file in snap.get_fts_l2_files() {
+            ids.insert(file.id, FileMeta::from_fts_l2_file(file));
         }
     }
 
@@ -368,6 +390,7 @@ impl EngineCore {
                     self.cache.clone(),
                     None,
                     None,
+                    FtsCache::disabled(),
                     encryption_key.clone(),
                     self.columnar_meta_cache.clone(),
                     tiny_meta,
@@ -500,6 +523,7 @@ impl EngineCore {
             self.cache.clone(),
             None,
             None,
+            FtsCache::disabled(),
             encryption_key,
             self.columnar_meta_cache.clone(),
             TypedTinyMeta::None,
@@ -562,6 +586,10 @@ impl EngineCore {
         }
         // vector index
         let mut new_vec_indexes = data.vector_indexes.clone();
+        // fts
+        let mut new_fts_levels = data.fts_levels.deref().clone();
+        let mut new_fts_l0_files = vec![];
+        let mut new_fts_l1_files = vec![];
         for (id, tbl) in load_tables.into_iter() {
             match tbl.file_type {
                 FileType::Sst => {
@@ -587,7 +615,26 @@ impl EngineCore {
                     let vec_idx_file = cs.vec_index_files.get(&id).unwrap().clone();
                     new_vec_indexes.add_index_file(vec_idx_file);
                 }
+                FileType::FtsPackedFile => {
+                    if let Some(l0_file) = cs.fts_l0_files.get(&id) {
+                        new_fts_l0_files.push(l0_file.clone());
+                    } else if let Some(l1_file) = cs.fts_l1_files.get(&id) {
+                        new_fts_l1_files.push(l1_file.clone());
+                    } else {
+                        panic!("unexpected FTS file id {}", id);
+                    }
+                }
+                FileType::FtsDedicatedFile => {
+                    let l2_file = cs.fts_l2_files.get(&id).unwrap().clone();
+                    new_fts_levels.insert_l2_file(l2_file);
+                }
             }
+        }
+        if !new_fts_l0_files.is_empty() {
+            new_fts_levels.mut_l0(move |l0| l0.extend(new_fts_l0_files));
+        }
+        if !new_fts_l1_files.is_empty() {
+            new_fts_levels.mut_l1(move |l1| l1.extend(new_fts_l1_files));
         }
         new_l0s.sort_by(|a, b| b.snap_version().cmp(&a.snap_version()));
         let mut scfs = [ShardCf::new(0), ShardCf::new(1), ShardCf::new(2)];
@@ -604,6 +651,7 @@ impl EngineCore {
         builder.set_unloaded_tbls(HashMap::new());
         builder.set_columnar_levels(new_columnar_levels);
         builder.set_vector_indexes(new_vec_indexes);
+        builder.set_fts_levels(new_fts_levels);
         shard.set_data(builder.build());
         Ok(())
     }
@@ -1031,6 +1079,8 @@ impl EngineCore {
             FileType::Columnar => self.local_columnar_file_path(file_id),
             FileType::TxnChunk => panic!("TxnChunk files are managed by TxnChunkManager"),
             FileType::VectorIndex => self.local_vector_index_file_path(file_id),
+            FileType::FtsPackedFile => self.local_fts_packed_file_path(file_id),
+            FileType::FtsDedicatedFile => self.local_fts_dedicated_file_path(file_id),
         }
     }
 
@@ -1052,6 +1102,14 @@ impl EngineCore {
 
     pub(crate) fn local_vector_index_file_path(&self, file_id: u64) -> PathBuf {
         get_local_dir(&self.opts.local_dirs, file_id).join(new_vector_index_filename(file_id))
+    }
+
+    pub(crate) fn local_fts_packed_file_path(&self, file_id: u64) -> PathBuf {
+        get_local_dir(&self.opts.local_dirs, file_id).join(new_fts_packed_filename(file_id))
+    }
+
+    pub(crate) fn local_fts_dedicated_file_path(&self, file_id: u64) -> PathBuf {
+        get_local_dir(&self.opts.local_dirs, file_id).join(new_fts_dedicated_filename(file_id))
     }
 
     fn tmp_file_path(file_path: &Path) -> PathBuf {

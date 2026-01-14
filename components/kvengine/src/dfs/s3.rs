@@ -332,6 +332,10 @@ impl S3FsCore {
         }
     }
 
+    pub fn get_prefix(&self) -> String {
+        self.prefix.clone()
+    }
+
     fn is_on_aws(&self) -> bool {
         self.provider == CloudProvider::Aws
     }

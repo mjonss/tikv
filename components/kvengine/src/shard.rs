@@ -368,6 +368,15 @@ impl Shard {
                     ids.insert(f.id, FileMeta::from_vector_index_file(f));
                 }
             }
+            for l0_file in snap.get_fts_l0_files() {
+                ids.insert(l0_file.id, FileMeta::from_fts_l0_file(l0_file));
+            }
+            for l1_file in snap.get_fts_l1_files() {
+                ids.insert(l1_file.id, FileMeta::from_fts_l1_file(l1_file));
+            }
+            for l2_file in snap.get_fts_l2_files() {
+                ids.insert(l2_file.id, FileMeta::from_fts_l2_file(l2_file));
+            }
         }
         ids
     }
@@ -425,6 +434,7 @@ impl Shard {
                         ctx.block_cache.clone(),
                         ctx.vector_index_cache.clone(),
                         ctx.columnar_file_cache.clone(),
+                        ctx.fts_cache.clone(),
                         encryption_key.clone(),
                         ctx.columnar_meta_cache.clone(),
                         TypedTinyMeta::None,
@@ -479,6 +489,7 @@ impl Shard {
                         ctx.block_cache.clone(),
                         ctx.vector_index_cache.clone(),
                         ctx.columnar_file_cache.clone(),
+                        ctx.fts_cache.clone(),
                         encryption_key.clone(),
                         ctx.columnar_meta_cache.clone(),
                         TypedTinyMeta::None,
@@ -862,6 +873,7 @@ impl Shard {
         files.extend(data.get_txn_chunks());
         files.extend(data.get_all_col_files());
         files.extend(data.get_all_vec_idx_files());
+        files.extend(data.get_all_fts_files());
         files.extend(self.get_schema_file().map(|f| f.get_file_id()));
         files
     }
@@ -894,6 +906,16 @@ impl Shard {
     pub fn get_all_vec_idx_files(&self) -> Vec<u64> {
         let data = self.get_data();
         data.get_all_vec_idx_files()
+    }
+
+    pub fn get_all_fts_files(&self) -> Vec<u64> {
+        let data = self.get_data();
+        data.get_all_fts_files()
+    }
+
+    pub fn export_fts_level_file_ids(&self) -> [Vec<u64>; 3] {
+        let data = self.get_data();
+        data.fts_levels.get_all_file_ids()
     }
 
     #[inline]
@@ -1155,6 +1177,7 @@ impl Shard {
             // to avoid sst compaction being blocked by columnar major compaction.
             self.get_columnar_compaction_priority(&data)
                 .or_else(|| self.get_vector_index_priority(&data))
+                .or_else(|| self.get_fts_compaction_priority(&data))
         };
 
         // Trigger L0 compaction for test purpose.
@@ -1203,6 +1226,31 @@ impl Shard {
                         rebuild: true,
                     });
                 }
+            }
+        }
+
+        if !data.fts_levels.tracked_indexes_ref().is_empty() {
+            let active_fts_indexes: HashSet<(i64, i64)> = schema_file
+                .iter_tables()
+                .flat_map(|(&table_id, schema)| {
+                    schema
+                        .fulltext_indexes
+                        .iter()
+                        .map(move |idx| (table_id, idx.index_id))
+                })
+                .collect();
+            let mut dropped_indexes: Vec<(i64, i64)> = data
+                .fts_levels
+                .iter_tracked_indexes()
+                .flat_map(|(table_id, indexes)| {
+                    indexes.iter().map(move |index_id| (*table_id, *index_id))
+                })
+                .filter(|pair| !active_fts_indexes.contains(pair))
+                .collect();
+            dropped_indexes.sort_unstable();
+            dropped_indexes.dedup();
+            if !dropped_indexes.is_empty() {
+                return Some(CompactionPriority::FtsDropIndex { dropped_indexes });
             }
         }
 
@@ -1301,9 +1349,13 @@ impl Shard {
             && (data.get_col_table_counts(0) > MAX_COL_L0_FILE_COUNTS
                 || (col_l0_score >= col_l1_score && col_l0_score > 1.0))
         {
-            Some(CompactionPriority::ColumnarL0 {
-                score: col_l0_score,
-            })
+            if let Some(priority) = self.maybe_override_by_fts_index(data) {
+                Some(priority)
+            } else {
+                Some(CompactionPriority::ColumnarL0 {
+                    score: col_l0_score,
+                })
+            }
         } else if data.schema_file.is_some()
             && (data.get_col_table_counts(1) > MAX_COL_L1_FILE_COUNTS
                 || (col_l0_score < col_l1_score && col_l1_score > 1.0))
@@ -1348,6 +1400,10 @@ impl Shard {
             }
         }
         None
+    }
+
+    fn maybe_override_by_fts_index(&self, data: &ShardData) -> Option<CompactionPriority> {
+        self.get_fts_incremental_update_priority(data)
     }
 
     fn get_vector_index_priority(&self, data: &ShardData) -> Option<CompactionPriority> {
@@ -1445,6 +1501,258 @@ impl Shard {
         let total_size = total_row_count * vec_idx.dimension * 4;
         // We don't need to build vector index for small number of vectors.
         total_size >= self.opt.vector_index_build_options.delta_size
+    }
+
+    fn get_fts_compaction_priority(&self, data: &ShardData) -> Option<CompactionPriority> {
+        if !self.opt.build_fts_index() {
+            return None;
+        }
+        self.get_fts_add_index_priority(data)
+            .or_else(|| self.get_fts_incremental_update_priority(data))
+            .or_else(|| self.get_fts_l0_compact_priority(data))
+            .or_else(|| self.get_fts_l2_compact_priority(data))
+            .or_else(|| self.get_fts_cleanup_priority(data))
+    }
+
+    fn get_fts_add_index_priority(&self, data: &ShardData) -> Option<CompactionPriority> {
+        let schema_file = data.schema_file.as_ref()?;
+        let mut new_indexes = Vec::new();
+        for (&table_id, table_schema) in schema_file.iter_tables() {
+            if table_schema.fulltext_indexes.is_empty() {
+                continue;
+            }
+            for fts_index in &table_schema.fulltext_indexes {
+                let index_id = fts_index.index_id;
+                if !data.fts_levels.has_tracked_index(table_id, index_id) {
+                    new_indexes.push((table_id, index_id));
+                }
+            }
+        }
+
+        // Handle new index addition (highest priority)
+        // FtsAddIndex doesn't need columnar files - it just tracks new indexes
+
+        if new_indexes.is_empty() {
+            None
+        } else {
+            Some(CompactionPriority::FtsAddIndex { new_indexes })
+        }
+    }
+
+    fn get_fts_incremental_update_priority(&self, data: &ShardData) -> Option<CompactionPriority> {
+        let schema_file = data.schema_file.as_ref()?;
+
+        if data.columnar_table_ids.is_empty() {
+            return None;
+        }
+
+        // Handle incremental updates for existing tracked indexes
+        // Check if there are actual new columnar L0 files to process
+
+        let max_columnar_l0_version = data.col_levels.levels[0]
+            .files
+            .iter()
+            .fold(SnapVersion::zero(), |v, f| {
+                std::cmp::max(v, f.get_snap_version().unwrap_or_default())
+            });
+
+        if !data
+            .fts_levels
+            .needs_delta_indexing(max_columnar_l0_version)
+        {
+            return None;
+        }
+
+        // It could be possible that tracked indexes are dropped. In this case we will
+        // not consider them for incremental updates.
+        let new_active_indexes = {
+            let mut new_active_indexes = vec![];
+            for (table_id, index_ids) in data.fts_levels.iter_tracked_indexes() {
+                let Some(full_schema) = schema_file.get_table(*table_id) else {
+                    continue;
+                };
+                for fts_index in &full_schema.fulltext_indexes {
+                    if index_ids.contains(&fts_index.index_id) {
+                        new_active_indexes.push((*table_id, fts_index.index_id));
+                    }
+                }
+            }
+            new_active_indexes
+        };
+
+        if new_active_indexes.is_empty() {
+            return None;
+        }
+
+        // Collect columnar L0 files newer than the FTS watermark for incremental
+        // indexing
+        let l0_watermark = data.fts_levels.l0_snap_version;
+        let mut col_file_ids: HashSet<u64> = HashSet::new();
+
+        // Filter columnar L0 files >= current snap_version or explicitly pending.
+        // "Explicitly pending" files usually comes from shard merge. In that case,
+        // the merged shard's L0 watermark has already been advanced beyond some of the
+        // existing L0 files, but those files still need to be indexed.
+
+        // Columnar l0 files are sorted by version descendingly, so we can stop once
+        // we see a file <= l0_watermark and there is no remaining pending item.
+        for col_file in &data.col_levels.levels[0].files {
+            let l0_version = col_file.get_snap_version().unwrap_or_default();
+            if l0_version > l0_watermark {
+                col_file_ids.insert(col_file.id());
+            } else if l0_version <= l0_watermark {
+                break;
+            }
+        }
+        if !data.fts_levels.pending_columnar_l0_ids().is_empty() {
+            // Filter out stale pending IDs (e.g. removed by columnar compaction) to
+            // avoid repeatedly scheduling tasks for missing files.
+            let valid_l0_ids: HashSet<u64> = data.col_levels.levels[0]
+                .files
+                .iter()
+                .map(|f| f.id())
+                .collect();
+            for pending_id in data.fts_levels.pending_columnar_l0_ids() {
+                if valid_l0_ids.contains(pending_id) {
+                    col_file_ids.insert(*pending_id);
+                }
+            }
+        }
+
+        if col_file_ids.is_empty() {
+            // No new columnar L0 files beyond the L0 snap_version watermark
+            return None;
+        }
+
+        Some(CompactionPriority::FtsCreateL0 {
+            col_file_ids: col_file_ids.into_iter().collect(),
+            active_tracked_indexes: new_active_indexes,
+            snap_version: std::cmp::max(max_columnar_l0_version, l0_watermark),
+        })
+    }
+
+    fn get_fts_l0_compact_priority(&self, data: &ShardData) -> Option<CompactionPriority> {
+        let levels = &data.fts_levels;
+
+        // Check if there has any l1 files with same lp_key overlap due to region merge.
+        // If there are, we need to compact L0 and L1 files together to make sure there
+        // are no overlapping lp_key in l1 files.
+        let has_overlapping_l1_files = levels
+            .l1()
+            .windows(2)
+            .any(|w| w[0].props().get_largest_lp_key() >= w[1].props().get_smallest_lp_key());
+        if has_overlapping_l1_files {
+            return Some(CompactionPriority::FtsCompactL0);
+        }
+
+        if levels.l0().is_empty() {
+            return None;
+        }
+
+        if levels.tracked_indexes_ref().is_empty() {
+            // No tracked indexes (e.g. all fulltext indexes are dropped). Compact anyway
+            // to make sure stale L0 data gets dropped.
+            return Some(CompactionPriority::FtsCompactL0);
+        }
+
+        let total_size: u64 = levels.l0().iter().map(|file| file.file().size()).sum();
+        let build_opts = &self.opt.fts_build_options;
+        if levels.l0().len() < build_opts.max_l0_files && total_size < build_opts.max_l0_sizes.0 {
+            return None;
+        }
+        Some(CompactionPriority::FtsCompactL0)
+    }
+
+    /// Expose for test only.
+    #[cfg(test)]
+    pub(crate) fn test_get_fts_l2_compact_priority(&self) -> Option<CompactionPriority> {
+        let data = self.get_data();
+        self.get_fts_l2_compact_priority(&data)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_get_fts_incremental_update_priority(&self) -> Option<CompactionPriority> {
+        let data = self.get_data();
+        self.get_fts_incremental_update_priority(&data)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_get_fts_add_index_priority(&self) -> Option<CompactionPriority> {
+        let data = self.get_data();
+        self.get_fts_add_index_priority(&data)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_get_fts_cleanup_priority(&self) -> Option<CompactionPriority> {
+        let data = self.get_data();
+        self.get_fts_cleanup_priority(&data)
+    }
+
+    fn get_fts_l2_compact_priority(&self, data: &ShardData) -> Option<CompactionPriority> {
+        let l2 = data.fts_levels.l2();
+        if l2.is_empty() {
+            return None;
+        }
+
+        let opts = &self.opt.fts_build_options;
+        if opts.l2_max_files_per_lp == 0 {
+            return None;
+        }
+
+        let tracked_indexes: HashSet<(i64, i64)> = data
+            .fts_levels
+            .iter_tracked_indexes()
+            .flat_map(|(table_id, indexes)| {
+                indexes.iter().map(move |index_id| (*table_id, *index_id))
+            })
+            .collect();
+        if tracked_indexes.is_empty() {
+            return None;
+        }
+
+        let mut best: Option<(Vec<u8>, Vec<u64>)> = None;
+
+        for (lp_key, files) in l2 {
+            let candidates: Vec<crate::table::fts::LogMergeCandidate> = files
+                .iter()
+                .filter(|f| {
+                    tracked_indexes.contains(&(f.props().get_table_id(), f.props().get_index_id()))
+                })
+                .map(|f| crate::table::fts::LogMergeCandidate {
+                    id: f.id(),
+                    pk_total: f.props().get_pk_total(),
+                    size: f.file().size(),
+                })
+                .collect();
+
+            if candidates.len() < opts.l2_min_merge_files {
+                continue;
+            }
+
+            if let Some(file_ids) = crate::table::fts::pick_l2_merge_files(&candidates, opts) {
+                let replace = match &best {
+                    None => true,
+                    Some((_, prev_ids)) => file_ids.len() > prev_ids.len(),
+                };
+                if replace {
+                    best = Some((lp_key.clone(), file_ids));
+                }
+            }
+        }
+
+        best.map(|(lp_key, file_ids)| CompactionPriority::FtsCompactL2 { lp_key, file_ids })
+    }
+
+    fn get_fts_cleanup_priority(&self, data: &ShardData) -> Option<CompactionPriority> {
+        let (l1_file_ids, l2_file_ids) = data.fts_levels.collect_cleanup_candidates();
+        if l1_file_ids.is_empty() && l2_file_ids.is_empty() {
+            None
+        } else {
+            Some(CompactionPriority::FtsCleanup {
+                l1_file_ids,
+                l2_file_ids,
+            })
+        }
     }
 
     pub(crate) fn get_compaction_priority(&self) -> Option<CompactionPriority> {
@@ -1953,6 +2261,10 @@ impl ShardDataBuilder {
         self.columnar_table_ids = Some(columnar_table_ids);
     }
 
+    pub(crate) fn set_fts_levels(&mut self, fts_levels: FtsLevels) {
+        self.fts_levels = Some(fts_levels);
+    }
+
     pub(crate) fn set_persisted_version(&mut self, persisted_version: SnapVersion) {
         self.persisted_version = Some(persisted_version);
     }
@@ -1980,6 +2292,10 @@ impl ShardDataBuilder {
         for vec_idx in vector_indexes.get_mut_all() {
             vec_idx.update_extra_columnar_files(&col_levels);
         }
+        let fts_levels = self
+            .fts_levels
+            .take()
+            .unwrap_or_else(|| (*self.old.fts_levels).clone());
         ShardData::new(
             self.range.take().unwrap_or_else(|| self.old.range.clone()),
             self.inner_key_off.take().unwrap_or(self.old.inner_key_off),
@@ -2011,9 +2327,7 @@ impl ShardDataBuilder {
             self.columnar_table_ids
                 .take()
                 .unwrap_or_else(|| self.old.columnar_table_ids.clone()),
-            self.fts_levels
-                .take()
-                .unwrap_or_else(|| (*self.old.fts_levels).clone()),
+            fts_levels,
             self.persisted_version
                 .take()
                 .unwrap_or(self.old.persisted_version),
@@ -2270,6 +2584,20 @@ impl ShardDataCore {
         vec_idx_file_ids
     }
 
+    pub(crate) fn get_all_fts_files(&self) -> Vec<u64> {
+        let mut fts_file_ids = vec![];
+        for fts_l0_file in self.fts_levels.l0() {
+            fts_file_ids.push(fts_l0_file.id());
+        }
+        for fts_l1_file in self.fts_levels.l1() {
+            fts_file_ids.push(fts_l1_file.id());
+        }
+        for fts_l2_file in self.fts_levels.l2().values() {
+            fts_file_ids.extend(fts_l2_file.iter().map(|file| file.id()));
+        }
+        fts_file_ids
+    }
+
     #[inline]
     pub(crate) fn has_txn_file_locks(&self) -> bool {
         !self.lock_txn_files.is_empty()
@@ -2505,6 +2833,33 @@ impl ShardDataCore {
                 if !shard_bound.contains_bound(col_file.data_bound()) {
                     return true;
                 }
+            }
+        }
+        if self.has_over_bound_fts_data() {
+            return true;
+        }
+
+        false
+    }
+
+    fn has_over_bound_fts_data(&self) -> bool {
+        let shard_bound = self.data_bound();
+        for fts_l0_file in self.fts_levels.l0() {
+            if !shard_bound.contains_bound(fts_l0_file.data_bound()) {
+                return true;
+            }
+        }
+        for fts_l1_file in self.fts_levels.l1() {
+            if !shard_bound.contains_bound(fts_l1_file.data_bound()) {
+                return true;
+            }
+        }
+        for fts_l2_file in self.fts_levels.l2().values() {
+            if fts_l2_file
+                .iter()
+                .any(|file| !shard_bound.contains_bound(file.data_bound()))
+            {
+                return true;
             }
         }
         false

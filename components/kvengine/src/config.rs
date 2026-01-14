@@ -11,7 +11,7 @@ use crate::{
     ia::util::IaConfig,
     table::{
         ChecksumType, blobtable::builder::BlobTableBuildOptions,
-        columnar::ColumnarTableBuildOptions, sstable::BlockCacheType,
+        columnar::ColumnarTableBuildOptions, fts::FtsBuildOptions, sstable::BlockCacheType,
         vector_index::VectorIndexBuildOptions,
     },
 };
@@ -103,6 +103,8 @@ pub struct Config {
     pub ignore_columnar_table_load: bool,
     /// Enable building columnar table. Default is false.
     pub build_columnar: bool,
+    /// Enable building fts index. Default is false.
+    pub build_fts_index: bool,
     /// Enable columnar table read. Default is false.
     pub read_columnar: bool,
     /// Enable gc lock and extra cf. Default is false.
@@ -150,6 +152,8 @@ pub struct Config {
     pub columnar_table_build_options: ColumnarTableBuildOptions,
 
     pub vector_index_build_options: VectorIndexBuildOptions,
+
+    pub fts_build_options: FtsBuildOptions,
     // Note: Fields of simple (not structure) type can not be the last. Otherwise serializing the
     // config will meet the "ValueAfterTable" error.
     // See https://docs.rs/toml/0.5.11/toml/ser/enum.Error.html#variant.ValueAfterTable.
@@ -191,8 +195,10 @@ impl Default for Config {
             extra_dirs: vec![],
             columnar_table_build_options: Default::default(),
             vector_index_build_options: Default::default(),
+            fts_build_options: Default::default(),
             ignore_columnar_table_load: false,
             build_columnar: false,
+            build_fts_index: false,
             read_columnar: false,
             gc_lock_extra_cf: true,
         }

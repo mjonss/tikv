@@ -57,6 +57,7 @@ fn make_file_meta(file_type: FileType) -> FileMeta {
         biggest: Bytes::new(),
         l0_size: 0,
         table_meta_off: 0,
+        snap_version: None,
     }
 }
 

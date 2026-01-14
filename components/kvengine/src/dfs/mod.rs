@@ -38,6 +38,7 @@ use crate::{
         TxnChunk,
         blobtable::blobtable::BlobTable,
         columnar::ColumnarFileFooter,
+        fts::{DedicatedFileFooter, PackedFileFooter},
         schema_file::SchemaFileFooter,
         sstable::{L0Table, SsTable},
     },
@@ -178,6 +179,12 @@ pub trait Dfs: Any + Sync + Send {
             FileType::VectorIndex => {
                 format!("{}/vec/{:02x}/{:016x}.vec", prefix, idx, file_id)
             }
+            FileType::FtsPackedFile => {
+                format!("{}/fts/{:02x}/{:016x}.ftspack", prefix, idx, file_id)
+            }
+            FileType::FtsDedicatedFile => {
+                format!("{}/fts/{:02x}/{:016x}.ftsded", prefix, idx, file_id)
+            }
         }
     }
 }
@@ -267,6 +274,8 @@ pub enum FileType {
     Columnar = 3,
     Blob = 4,
     VectorIndex = 5,
+    FtsPackedFile = 6,
+    FtsDedicatedFile = 7,
 }
 
 impl FileType {
@@ -278,6 +287,8 @@ impl FileType {
             3 => Some(FileType::Columnar),
             4 => Some(FileType::Blob),
             5 => Some(FileType::VectorIndex),
+            6 => Some(FileType::FtsPackedFile),
+            7 => Some(FileType::FtsDedicatedFile),
             _ => None,
         }
     }
@@ -290,6 +301,8 @@ impl FileType {
             FileType::Columnar => "col",
             FileType::Blob => "blob",
             FileType::VectorIndex => "vec",
+            FileType::FtsPackedFile => "ftspack",
+            FileType::FtsDedicatedFile => "ftsded",
         }
     }
 
@@ -301,6 +314,8 @@ impl FileType {
             FileType::Columnar => ColumnarFileFooter::compute_size(),
             FileType::Blob => BlobTable::footer_size(),
             FileType::VectorIndex => unimplemented!(), // TODO
+            FileType::FtsPackedFile => PackedFileFooter::footer_size(),
+            FileType::FtsDedicatedFile => DedicatedFileFooter::footer_size(),
         }
     }
 }
@@ -322,6 +337,8 @@ impl TryFrom<&str> for FileType {
             "col" => FileType::Columnar,
             "blob" => FileType::Blob,
             "vec" => FileType::VectorIndex,
+            "ftspack" => FileType::FtsPackedFile,
+            "ftsded" => FileType::FtsDedicatedFile,
             _ => {
                 return Err(format!("invalid suffix: {value}"));
             }
@@ -351,6 +368,12 @@ impl LocalFs {
     pub fn local_vector_index_file_path(&self, file_id: u64) -> PathBuf {
         self.dir.join(self.vector_index_filename(file_id))
     }
+    pub fn local_ftspack_file_path(&self, file_id: u64) -> PathBuf {
+        self.dir.join(self.ftspack_filename(file_id))
+    }
+    pub fn local_ftsdedicated_file_path(&self, file_id: u64) -> PathBuf {
+        self.dir.join(self.ftsdedicated_filename(file_id))
+    }
     pub fn sst_filename(&self, file_id: u64) -> PathBuf {
         PathBuf::from(format!("{:016x}.sst", file_id))
     }
@@ -362,6 +385,12 @@ impl LocalFs {
     }
     pub fn vector_index_filename(&self, file_id: u64) -> PathBuf {
         PathBuf::from(format!("{:016x}.vec", file_id))
+    }
+    pub fn ftsdedicated_filename(&self, file_id: u64) -> PathBuf {
+        PathBuf::from(format!("{:016x}.ftsded", file_id))
+    }
+    pub fn ftspack_filename(&self, file_id: u64) -> PathBuf {
+        PathBuf::from(format!("{:016x}.ftspack", file_id))
     }
     pub fn tmp_file_path(&self, file_id: u64) -> PathBuf {
         let tmp_id = self
@@ -386,6 +415,8 @@ impl LocalFs {
             FileType::Columnar => self.local_columnar_file_path(file_id),
             FileType::Blob => self.local_blob_file_path(file_id),
             FileType::VectorIndex => self.local_vector_index_file_path(file_id),
+            FileType::FtsPackedFile => self.local_ftspack_file_path(file_id),
+            FileType::FtsDedicatedFile => self.local_ftsdedicated_file_path(file_id),
         }
     }
 }

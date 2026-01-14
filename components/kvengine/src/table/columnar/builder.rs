@@ -276,6 +276,10 @@ impl ColumnarFileBuilder {
         self.tables.len()
     }
 
+    pub(crate) fn get_snap_version(&self) -> Option<SnapVersion> {
+        self.snap_version
+    }
+
     pub(crate) fn reset(&mut self, id: u64) {
         self.file_id = id;
         self.estimated_size = 0;
