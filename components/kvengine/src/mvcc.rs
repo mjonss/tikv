@@ -46,6 +46,10 @@ impl UserMeta {
     pub fn is_rollback(&self) -> bool {
         self.commit_ts == 0
     }
+
+    pub fn is_commit(&self) -> bool {
+        self.commit_ts > 0
+    }
 }
 
 pub fn encode_extra_txn_status_key(key: &[u8], start_ts: u64) -> Bytes {

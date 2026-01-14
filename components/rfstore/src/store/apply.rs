@@ -65,6 +65,8 @@ use crate::{
     },
 };
 
+const TXN_FILE_AVERAGE_ENTRY_SIZE: usize = 1024; // 1KB
+
 pub(crate) struct PendingCmd {
     pub(crate) index: u64,
     pub(crate) term: u64,
@@ -657,6 +659,10 @@ impl Applier {
                     }
                 }
             }
+
+            if txn_file_um.is_commit() {
+                self.record_write_stat_txn_file(&lock_txn_file);
+            }
         }
         let mut txn_file_refs = TxnFileRefs::new();
         txn_file_refs.mut_txn_file_refs().push(txn_file_ref);
@@ -714,6 +720,14 @@ impl Applier {
         if let Some(s) = self.buckets.as_mut() {
             s.write_key(k, v.len() as u64);
         }
+    }
+
+    fn record_write_stat_txn_file(&mut self, txn_file: &kvengine::table::TxnFile) {
+        let size = txn_file.size();
+        // Txn file does not have easy way to get keys count, so we estimate it here.
+        let estimated_keys = (size / TXN_FILE_AVERAGE_ENTRY_SIZE).max(1);
+        self.metrics.written_keys += estimated_keys as u64;
+        self.metrics.written_bytes += size as u64;
     }
 
     pub(crate) fn exec_custom_log(
