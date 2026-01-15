@@ -12,7 +12,7 @@ use kvengine::{
     SnapAccess,
     context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
     dfs,
-    dfs::{FileType, S3Fs},
+    dfs::{FileType, new_dfs_from_config},
     ia::{
         manager::IaManager,
         util::{IaCapacity, IaManagerOptionsBuilder},
@@ -225,10 +225,10 @@ fn test_build_vector_index() {
         .segment_size(64)
         .build()
         .unwrap();
-    let s3fs = S3Fs::new_from_config(dfs_config);
+    let ia_dfs = new_dfs_from_config(dfs_config);
     let ia_mgr = IaManager::new(
         options,
-        Arc::new(s3fs.clone()),
+        ia_dfs.clone(),
         None,
         dfs.get_runtime().handle().clone().into(),
     )

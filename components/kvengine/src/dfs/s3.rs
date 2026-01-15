@@ -720,28 +720,6 @@ impl S3FsCore {
         Ok(writer.into_inner().freeze())
     }
 
-    pub async fn get_object_with_cache(
-        &self,
-        key: String,
-        file_name: String,
-        opts: GetObjectOptions,
-        cache_with_hook: Option<&ObjectCacheWithHook>,
-    ) -> crate::dfs::Result<Bytes> {
-        match cache_with_hook {
-            Some(cache_with_hook) => {
-                let ObjectCacheWithHook { cache, hook } = cache_with_hook;
-                let with = async {
-                    match self.get_object(key.clone(), file_name, opts).await {
-                        Ok(data) => hook.invoke(data).map_err(|e| Error::Hook(e)),
-                        Err(err) => Err(err),
-                    }
-                };
-                cache.get_or_insert_async(&key, with).await
-            }
-            None => self.get_object(key, file_name, opts).await,
-        }
-    }
-
     pub async fn get_object_to_writer<W, F>(
         &self,
         key: String,
@@ -1303,18 +1281,6 @@ impl Dfs for S3Fs {
         self.core.get_object(key, file_name, opts).await
     }
 
-    async fn get_object_with_cache(
-        &self,
-        key: String,
-        file_name: String,
-        opts: GetObjectOptions,
-        cache: Option<&ObjectCacheWithHook>,
-    ) -> crate::dfs::Result<Bytes> {
-        self.core
-            .get_object_with_cache(key, file_name, opts, cache)
-            .await
-    }
-
     async fn get_object_to_path(
         &self,
         key: String,
@@ -1366,6 +1332,26 @@ impl Dfs for S3Fs {
 
     async fn retain_file(&self, file_key: &str) -> crate::dfs::Result<()> {
         self.core.retain_file(file_key).await
+    }
+
+    async fn delete_object(&self, key: String, file_name: String) -> crate::dfs::Result<()> {
+        self.core.delete_object(key, file_name).await
+    }
+
+    async fn object_size(&self, key: String, file_name: String) -> crate::dfs::Result<u64> {
+        self.core.object_size(key, file_name).await
+    }
+
+    async fn list_folders(
+        &self,
+        prefix: &str,
+        delimiter: Option<&str>,
+    ) -> crate::dfs::Result<Vec<String>> {
+        self.core.list_folders(prefix, delimiter).await
+    }
+
+    async fn is_removed(&self, file_key: &str) -> crate::dfs::Result<bool> {
+        self.core.is_removed(file_key).await
     }
 
     fn list_objects(

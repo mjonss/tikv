@@ -5,7 +5,7 @@ use std::{ops::Deref, path::PathBuf, sync::Arc};
 use clap::Args;
 use kvengine::{
     dfs,
-    dfs::{DFSConfig, Dfs, S3Fs},
+    dfs::{DFSConfig, new_dfs_from_config},
     table::{TxnChunk, TxnChunkIterator, file::InMemFile, sstable::BlockCache},
 };
 use log_wrappers::Value;
@@ -69,11 +69,11 @@ pub fn execute_show_txn_chunk(args: ShowTxnChunkArgs) {
 }
 
 fn get_txn_chunk_data_from_dfs(id: u64, config: ShowTxnChunkConfig) -> bytes::Bytes {
-    let s3fs = S3Fs::new_from_config(config.dfs);
-    let runtime = s3fs.get_runtime();
+    let dfs = new_dfs_from_config(config.dfs);
+    let runtime = dfs.get_runtime();
     let opts = dfs::Options::default().with_type(dfs::FileType::TxnChunk);
     runtime
-        .block_on(s3fs.read_file(id, opts))
+        .block_on(dfs.read_file(id, opts))
         .expect("failed to read file from dfs")
 }
 

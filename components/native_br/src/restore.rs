@@ -10,7 +10,7 @@ use std::{
 use api_version::ApiV2;
 use cloud_server::TikvServer;
 use etcd_client::{Compare, CompareOp, Txn, TxnOp};
-use kvengine::dfs::{DFSConfig, Dfs, S3Fs};
+use kvengine::dfs::{DFSConfig, Dfs, new_dfs_from_config};
 use kvproto::raft_serverpb::StoreIdent;
 use pd_client::PdClient;
 use protobuf::Message;
@@ -70,14 +70,14 @@ pub fn restore_tikv(
     let tag = format!("restore_tikv:{store_id}");
     let mut dfs_conf = config.dfs.clone();
     dfs_conf.read_only = true; // Set read only for safety.
-    let dfs = S3Fs::new_from_config(dfs_conf);
-    let cluster_backup = get_cluster_backup_meta(&dfs, name);
+    let dfs = new_dfs_from_config(dfs_conf);
+    let cluster_backup = get_cluster_backup_meta(dfs.as_ref(), name);
     let dfs_clone = dfs.clone();
     // Get the alloc_id in the cluster latest backup meta.
     let latest_cluster_backup = dfs_clone
         .get_runtime()
         .block_on(get_latest_backup_meta(
-            &dfs_clone,
+            dfs_clone.as_ref(),
             cluster_backup.cluster_id,
         ))
         .unwrap_or_else(|_| cluster_backup.clone());
@@ -90,7 +90,7 @@ pub fn restore_tikv(
             "check new store id {} for store id {}",
             new_store_id, store.store_id
         );
-        match check_store_id_exists(&dfs_clone, new_store_id) {
+        match check_store_id_exists(dfs_clone.as_ref(), new_store_id) {
             Ok(false) => {}
             Ok(true) => {
                 panic!("new store id {} already exists", new_store_id);
@@ -114,7 +114,7 @@ pub fn restore_tikv(
             alloc_id,
             &cluster_backup,
             &tikv_conf,
-            Arc::new(dfs),
+            dfs,
             config.lower_memory,
         )
         .unwrap();
@@ -296,12 +296,15 @@ fn setup_raft_engine(
 
 pub fn restore_pd(config: RestoreConfig, name: String) {
     let dfs_conf = config.dfs.clone();
-    let dfs = S3Fs::new_from_config(dfs_conf);
-    let cluster_backup = get_cluster_backup_meta(&dfs, name);
+    let dfs = new_dfs_from_config(dfs_conf);
+    let cluster_backup = get_cluster_backup_meta(dfs.as_ref(), name);
     // Get the alloc_id in the cluster latest backup meta.
     let latest_cluster_backup = dfs
         .get_runtime()
-        .block_on(get_latest_backup_meta(&dfs, cluster_backup.cluster_id))
+        .block_on(get_latest_backup_meta(
+            dfs.as_ref(),
+            cluster_backup.cluster_id,
+        ))
         .unwrap_or_else(|_| cluster_backup.clone());
     if latest_cluster_backup.keyspace_meta.is_empty() {
         panic!("No keyspace meta in backup");

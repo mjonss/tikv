@@ -12,7 +12,6 @@ protobuf-codec = ["protobuf/bytes"]
 testexport = []
 is_sync = ["maybe-async/is_sync"]
 is_async = ["maybe-async/is_async"]
-
 debug-trace-ia-segments = []
 debug-trace-mem-table = []
 
@@ -25,6 +24,9 @@ arrow-buffer = "53.1.0"
 async-recursion = "1.1"
 async-trait = "0.1"
 aws = { path = "../cloud/aws" }
+azure_core = { version = "0.18", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
+azure_storage = { version = "0.18", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
+azure_storage_blobs = { version = "0.18", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
 backtrace = "0.3"
 base64 = "0.13"
 bincode = "1.3"

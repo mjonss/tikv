@@ -17,7 +17,7 @@ use futures::executor::block_on;
 use kvengine::{
     Engine, Shard, ShardMeta, SnapAccess, UserMeta,
     context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
-    dfs::{DFSConfig, Dfs, S3Fs},
+    dfs::{DFSConfig, Dfs, new_dfs_from_config},
     table::{
         columnar::ColumnarMetaCache,
         fts::{FtsCache, FtsDeltaCache},
@@ -83,19 +83,17 @@ pub fn execute_check_table(config: CheckTableConfig, params: CheckTableParams) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
     let dfs_cfg = config.dfs.clone();
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_cfg));
-    let master_key = s3fs
-        .get_runtime()
-        .block_on(config.security.new_master_key());
+    let dfs = new_dfs_from_config(dfs_cfg);
+    let master_key = dfs.get_runtime().block_on(config.security.new_master_key());
     let txn_chunk_manager = TxnChunkManager::new(
         vec![],
-        s3fs.clone(),
+        dfs.clone(),
         BlockCache::None,
         None,
         with_pool_size(TXN_CHUNK_WORKER_POOL_SIZE),
         TxnChunkManagerConfig::default(),
     );
-    let cluster_backup = get_cluster_backup_meta(s3fs.as_ref(), config.backup_name.clone());
+    let cluster_backup = get_cluster_backup_meta(dfs.as_ref(), config.backup_name.clone());
     let mut keyspace_ids = if config.all {
         if cluster_backup.keyspace_meta.is_empty() {
             panic!("check table: No keyspace meta in backup");
@@ -133,7 +131,7 @@ pub fn execute_check_table(config: CheckTableConfig, params: CheckTableParams) {
         &cluster_backup,
         PathBuf::from(&config.data_dir),
         pd_client,
-        s3fs.clone(),
+        dfs.clone(),
         restore_conf,
         keyspace_id,
         keyspace_id,
@@ -184,7 +182,7 @@ pub fn execute_check_table(config: CheckTableConfig, params: CheckTableParams) {
             check_table_ts,
             kv,
             shards,
-            s3fs.clone(),
+            dfs.clone(),
             master_key.clone(),
             txn_chunk_manager.clone(),
         ));

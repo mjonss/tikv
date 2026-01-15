@@ -4,7 +4,7 @@ use bytes::Buf;
 use clap::Args;
 use kvengine::{
     EXTRA_CF, LOCK_CF, UserMeta, WRITE_CF,
-    dfs::{DFSConfig, S3Fs},
+    dfs::{DFSConfig, new_dfs_from_config},
     encode_extra_txn_status_key,
 };
 use native_br::{
@@ -79,8 +79,8 @@ pub fn execute_mvcc(args: MvccArgs) {
     let config = MvccConfig::from_args(&args);
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
     let dfs_cfg = config.dfs.clone();
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_cfg));
-    let cluster_backup = get_cluster_backup_meta(s3fs.as_ref(), args.backup_name.clone());
+    let dfs = new_dfs_from_config(dfs_cfg);
+    let cluster_backup = get_cluster_backup_meta(dfs.as_ref(), args.backup_name.clone());
     let restore_conf = RestoreConfig {
         security: config.security.clone(),
         ..Default::default()
@@ -89,7 +89,7 @@ pub fn execute_mvcc(args: MvccArgs) {
         &cluster_backup,
         PathBuf::from(&config.data_dir),
         pd_client,
-        s3fs.clone(),
+        dfs.clone(),
         restore_conf,
         config.keyspace_id,
         config.keyspace_id,

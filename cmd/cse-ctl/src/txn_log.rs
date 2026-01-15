@@ -3,7 +3,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Args;
-use kvengine::dfs::{DFSConfig, S3Fs};
+use kvengine::dfs::{DFSConfig, new_dfs_from_config};
 use native_br::{
     common::create_pd_client,
     restore::{RestoreConfig, get_cluster_backup_meta},
@@ -70,8 +70,8 @@ impl ShowTxnLogConfig {
 pub(crate) fn execute_show_txn_log(args: ShowTxnLogArgs) {
     let config = ShowTxnLogConfig::from_args(&args);
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
-    let s3fs = Arc::new(S3Fs::new_from_config(config.dfs));
-    let mut cluster_backup = get_cluster_backup_meta(s3fs.as_ref(), args.backup_name.clone());
+    let dfs = new_dfs_from_config(config.dfs);
+    let mut cluster_backup = get_cluster_backup_meta(dfs.as_ref(), args.backup_name.clone());
     let restore_conf = RestoreConfig {
         security: config.security.clone(),
         ..Default::default()
@@ -101,7 +101,7 @@ pub(crate) fn execute_show_txn_log(args: ShowTxnLogArgs) {
         &cluster_backup,
         PathBuf::from(&config.data_dir),
         pd_client,
-        s3fs.clone(),
+        dfs.clone(),
         restore_conf,
         0,
         0,

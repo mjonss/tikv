@@ -11,7 +11,7 @@ use bytes::{Buf, BufMut, Bytes};
 use chrono::NaiveDate;
 use collections::{HashMap, HashSet};
 use engine_traits::GetObjectOptions;
-use kvengine::dfs::{self, DFSConfig, Dfs, FileType, Options, S3Fs, StorageClass};
+use kvengine::dfs::{self, DFSConfig, Dfs, FileType, Options, StorageClass, new_dfs_from_config};
 use pd_client::PdClient;
 use protobuf::Message;
 use rfenginepb::ClusterBackupMeta;
@@ -190,7 +190,7 @@ pub const ARCHIVE_INDEX_FORMAT_V2: u32 = 2;
 pub fn archive_with_cfg(config: ArchiveConfig) -> Result<()> {
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
     let dfs_conf = config.dfs.clone();
-    let dfs = Arc::new(S3Fs::new_from_config(dfs_conf));
+    let dfs = new_dfs_from_config(dfs_conf);
     let expiration_date = NaiveDate::parse_from_str(
         config.expiration_date.as_str(),
         INCREMENTAL_BACKUP_FOLDER_FORMAT,
@@ -1750,7 +1750,7 @@ pub fn parse_index_date(index_key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io::Read, sync::Arc};
+    use std::{fs, io::Read};
 
     use bytes::Bytes;
     use protobuf::Message;
@@ -1768,7 +1768,7 @@ mod tests {
         const NUM_FILE_IDS: u64 = 24;
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_archive_writer_");
-        let dfs = Arc::new(S3Fs::new_from_config(dfs_config));
+        let dfs = new_dfs_from_config(dfs_config);
         let get_file_id = |i: u64| i;
         let get_file_data =
             |file_id: u64| Bytes::from(b"x".repeat(100 + file_id as usize).to_vec());
@@ -1893,7 +1893,7 @@ mod tests {
         let (temp_dir, mut oss, dfs_config) = prepare_dfs("test_archive_reader_");
         let cache_dir = temp_dir.path().join("cache");
         fs::create_dir_all(cache_dir.clone()).unwrap();
-        let dfs = Arc::new(S3Fs::new_from_config(dfs_config));
+        let dfs = new_dfs_from_config(dfs_config);
         let first_date = chrono::Utc::now().date_naive() - chrono::Duration::days(NUM_DATES as i64);
         let get_date = |j: u64| first_date + chrono::Duration::days(j as i64);
         let get_num_stores = |j: u64| j + 8;
@@ -2039,7 +2039,7 @@ mod tests {
         const NUM_INDEXES: i64 = 3;
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_get_all_archive_index_paths_");
-        let dfs = Arc::new(S3Fs::new_from_config(dfs_config));
+        let dfs = new_dfs_from_config(dfs_config);
         let first_date = chrono::Utc::now().date_naive() - chrono::Duration::days(NUM_INDEXES);
         let get_date = |i: i64| first_date + chrono::Duration::days(i);
         dfs.get_runtime().block_on(async {

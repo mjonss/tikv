@@ -14,8 +14,8 @@ use chrono::DateTime;
 use clap::Args;
 use kvengine::dfs::{
     DFSConfig, Dfs, FileType, OSS_STORAGE_CLASS_ARCHIVE, OSS_STORAGE_CLASS_IA,
-    OSS_STORAGE_CLASS_STANDARD, S3Fs, STORAGE_CLASS_GLACIER_IR, STORAGE_CLASS_INTELLIGENT_TIERING,
-    STORAGE_CLASS_STANDARD, STORAGE_CLASS_STANDARD_IA, try_parse_all_file_id,
+    OSS_STORAGE_CLASS_STANDARD, STORAGE_CLASS_GLACIER_IR, STORAGE_CLASS_INTELLIGENT_TIERING,
+    STORAGE_CLASS_STANDARD, STORAGE_CLASS_STANDARD_IA, new_dfs_from_config, try_parse_all_file_id,
 };
 use kvproto::metapb::Store;
 use native_br::{
@@ -82,9 +82,9 @@ pub(crate) fn execute_stats(arg: StatsArgs) {
     let config = StatsConfig::from_args(&arg);
 
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
-    let s3fs = S3Fs::new_from_config(config.dfs);
+    let dfs = new_dfs_from_config(config.dfs);
 
-    let mut stats_worker = StatsWorker::new(pd_client, s3fs, arg.concurrency);
+    let mut stats_worker = StatsWorker::new(pd_client, dfs, arg.concurrency);
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -144,7 +144,7 @@ impl StatsConfig {
 #[derive(Clone)]
 struct StatsWorker {
     pd: Arc<RpcClient>,
-    s3fs: S3Fs,
+    dfs: Arc<dyn Dfs>,
     valid_files: Arc<HashSet<u64>>,
     concurrency: usize,
 }
@@ -269,10 +269,10 @@ impl Stats {
 }
 
 impl StatsWorker {
-    fn new(pd: Arc<RpcClient>, s3fs: S3Fs, concurrency: usize) -> Self {
+    fn new(pd: Arc<RpcClient>, dfs: Arc<dyn Dfs>, concurrency: usize) -> Self {
         Self {
             pd,
-            s3fs,
+            dfs,
             valid_files: Arc::new(HashSet::default()),
             concurrency,
         }
@@ -286,7 +286,7 @@ impl StatsWorker {
         for store in all_stores {
             let tx = tx.clone();
             let security_mgr = self.pd.get_security_mgr().clone();
-            self.s3fs.get_runtime().spawn(async move {
+            self.dfs.get_runtime().spawn(async move {
                 // Send failed when receive error from following `rx.recv()` and close the
                 // channel. So it can be ignored.
                 let _ = tx.send(Self::get_store_files(store, security_mgr).await);
@@ -344,18 +344,18 @@ impl StatsWorker {
 
         let start_time = Instant::now();
         let prefixes = self
-            .s3fs
+            .dfs
             .list_folders("", None)
             .await
             .map_err(|e| Error::DfsError(e))?;
         let mut prefixes_len = prefixes.len();
-        let strip_prefix = format!("{}/", self.s3fs.get_prefix());
+        let strip_prefix = format!("{}/", self.dfs.get_prefix());
         for prefix in prefixes {
             let prefix = prefix.strip_prefix(&strip_prefix).unwrap().to_owned();
             if let Some(folders) = folders {
                 if folders.contains(&prefix) {
                     let sub_prefixes = self
-                        .s3fs
+                        .dfs
                         .list_folders(&prefix, None)
                         .await
                         .map_err(|e| Error::DfsError(e))?;
@@ -430,7 +430,7 @@ impl StatsWorker {
         sema: Arc<Semaphore>,
     ) {
         let stats_worker = self.clone();
-        self.s3fs.get_runtime().spawn(async move {
+        self.dfs.get_runtime().spawn(async move {
             let permit = sema.acquire().await.unwrap();
             let res = stats_worker.stats_files_with_prefix(prefix.clone()).await;
             drop(permit);
@@ -447,7 +447,7 @@ impl StatsWorker {
         loop {
             info!("loop start: {}{}", prefix, start_after);
             let (files, _, next_start_after) = self
-                .s3fs
+                .dfs
                 .list(start_after.as_str(), Some(&prefix), None)
                 .await
                 .map_err(|e| Error::DfsError(e))?;

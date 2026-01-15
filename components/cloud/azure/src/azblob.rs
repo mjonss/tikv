@@ -1,29 +1,21 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
-use std::{
-    env, io,
-    str::FromStr,
-    sync::{Arc, RwLock},
-};
+use std::{env, io, str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use azure_core::{
-    auth::{TokenCredential, TokenResponse},
-    prelude::*,
-};
-use azure_identity::token_credentials::{ClientSecretCredential, TokenCredentialOptions};
+use azure_core::new_http_client;
+use azure_identity::{ClientSecretCredential, TokenCredentialOptions};
 use azure_storage::{
-    blob::prelude::*,
-    core::{ConnectionStringBuilder, prelude::*},
+    CloudLocation, ConnectionString, ConnectionStringBuilder, EndpointProtocol, StorageCredentials,
 };
-use chrono::{Duration as ChronoDuration, Utc};
+use azure_storage_blobs::prelude::*;
+use bytes::Bytes;
 use cloud::blob::{
     BlobConfig, BlobStorage, BucketConf, PutResource, StringNonEmpty, none_to_empty,
 };
 use futures_util::{
-    TryStreamExt,
+    StreamExt, TryStreamExt,
     io::{AsyncRead, AsyncReadExt},
     stream,
-    stream::StreamExt,
 };
 pub use kvproto::brpb::{AzureBlobStorage as InputConfig, CloudDynamic};
 use oauth2::{ClientId, ClientSecret};
@@ -31,10 +23,7 @@ use tikv_util::{
     debug,
     stream::{RetryError, retry},
 };
-use tokio::{
-    sync::Mutex,
-    time::{Duration, timeout},
-};
+use tokio::time::{Duration, timeout};
 
 const ENV_CLIENT_ID: &str = "AZURE_CLIENT_ID";
 const ENV_TENANT_ID: &str = "AZURE_TENANT_ID";
@@ -295,10 +284,9 @@ impl AzureUploader {
                 .get_client()
                 .await
                 .map_err(|e| e.to_string())?
-                .as_blob_client(&self.name)
+                .blob_client(&self.name)
                 .put_block_blob(data.to_vec())
                 .access_tier(self.storage_class)
-                .execute()
                 .await?;
             Ok(())
         })
@@ -333,9 +321,7 @@ impl AzureUploader {
     }
 }
 
-// if use azure ad to access the azure blob,
-// it need to update the token at regular intervals,
-// so wrap the client builder
+// If use azure AD to access the azure blob, wrap the client builder.
 #[async_trait]
 trait ContainerBuilder: 'static + Send + Sync {
     async fn get_client(&self) -> io::Result<Arc<ContainerClient>>;
@@ -352,117 +338,20 @@ impl ContainerBuilder for SharedKeyContainerBuilder {
     }
 }
 
-type TokenCacheType = Arc<RwLock<Option<(TokenResponse, Arc<ContainerClient>)>>>;
 struct TokenCredContainerBuilder {
-    account_name: String,
-    container_name: String,
-    token_resource: String,
-    token_cred: Arc<ClientSecretCredential>,
-    token_cache: TokenCacheType,
-
-    modify_place: Arc<Mutex<bool>>,
+    container_client: Arc<ContainerClient>,
 }
 
 impl TokenCredContainerBuilder {
-    fn new(
-        account_name: String,
-        container_name: String,
-        token_resource: String,
-        token_cred: Arc<ClientSecretCredential>,
-    ) -> Self {
-        Self {
-            account_name,
-            container_name,
-            token_resource,
-            token_cred,
-            token_cache: Arc::new(RwLock::new(None)),
-
-            modify_place: Arc::new(Mutex::new(true)),
-        }
+    fn new(container_client: Arc<ContainerClient>) -> Self {
+        Self { container_client }
     }
 }
-
-// if the token only has 5 minutes left.
-// Threads will try to modify it without blocked: try_lock
-// The thread doesn't get the lock will continue to use the token.
-const TOKEN_UPDATE_LEFT_TIME_MINS: i64 = 5;
-// if the token only has 2 minutes left.
-// Threads will try to modify it with blocked: lock
-const TOKEN_EXPIRE_LEFT_TIME_MINS: i64 = 2;
 
 #[async_trait]
 impl ContainerBuilder for TokenCredContainerBuilder {
     async fn get_client(&self) -> io::Result<Arc<ContainerClient>> {
-        // only the thread get the modify_lock can update the token,
-        // so that this thread can get the token before lock wirte-lock
-        // avoid to block other threads too much time.
-        let mut modify_lock = None;
-        {
-            let token_response = self.token_cache.read().unwrap();
-            if let Some(ref t) = *token_response {
-                let interval = t.0.expires_on - Utc::now();
-                // keep token updated 5 minutes before it expires
-                if interval > ChronoDuration::minutes(TOKEN_UPDATE_LEFT_TIME_MINS) {
-                    return Ok(t.1.clone());
-                }
-
-                if interval > ChronoDuration::minutes(TOKEN_EXPIRE_LEFT_TIME_MINS) {
-                    // there still have time to use the token,
-                    // and only need one thread to update token.
-                    if let Ok(l) = self.modify_place.try_lock() {
-                        modify_lock = Some(l);
-                    } else {
-                        // otherwise, continue to use the current token
-                        return Ok(t.1.clone());
-                    }
-                }
-            }
-        } // release the read lock
-
-        // give up getting the client from cache, try update it
-        if modify_lock.is_none() {
-            modify_lock = Some(self.modify_place.lock().await);
-        }
-
-        if let Some(_lock) = modify_lock {
-            // check whether there is another thread already updates the token.
-            {
-                let token_response = self.token_cache.read().unwrap();
-                if let Some(ref t) = *token_response {
-                    let interval = t.0.expires_on - Utc::now();
-                    // token is already updated
-                    if interval > ChronoDuration::minutes(TOKEN_UPDATE_LEFT_TIME_MINS) {
-                        return Ok(t.1.clone());
-                    }
-                }
-            }
-            // release read lock, the thread still have modify lock,
-            // so no other threads can write the token_cache, so read lock is not blocked.
-            let token = self
-                .token_cred
-                .get_token(&self.token_resource)
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}", &e)))?;
-            let http_client = new_http_client();
-            let storage_client = StorageAccountClient::new_bearer_token(
-                http_client,
-                self.account_name.clone(),
-                token.token.secret(),
-            )
-            .as_storage_client()
-            .as_container_client(self.container_name.clone());
-
-            {
-                let mut token_response = self.token_cache.write().unwrap();
-                *token_response = Some((token, storage_client.clone()));
-            }
-            Ok(storage_client)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "failed to get either modify_lock or client",
-            ))
-        }
+        Ok(self.container_client.clone())
     }
 }
 
@@ -487,15 +376,8 @@ impl AzureStorage {
         // priority: explicit shared key > env Azure AD > env shared key
         if let Some(connection_string) = config.parse_plaintext_account_url() {
             let bucket = (*config.bucket.bucket).to_owned();
-            let http_client = new_http_client();
-            let container_client = StorageAccountClient::new_connection_string(
-                http_client.clone(),
-                connection_string.as_str(),
-            )
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}", &e)))?
-            .as_storage_client()
-            .as_container_client(bucket);
-
+            let container_client =
+                container_client_from_connection_string(&connection_string, bucket)?;
             let client_builder = Arc::new(SharedKeyContainerBuilder { container_client });
             Ok(AzureStorage {
                 config,
@@ -504,20 +386,18 @@ impl AzureStorage {
         } else if let Some(credential_info) = config.credential_info.as_ref() {
             let bucket = (*config.bucket.bucket).to_owned();
             let account_name = config.get_account_name()?;
-            let token_resource = format!("https://{}.blob.core.windows.net", &account_name);
+            let http_client = new_http_client();
             let cred = ClientSecretCredential::new(
+                http_client,
                 credential_info.tenant_id.clone(),
                 credential_info.client_id.to_string(),
-                credential_info.client_secret.secret().clone(),
+                credential_info.client_secret.secret().to_owned(),
                 TokenCredentialOptions::default(),
             );
-
-            let client_builder = Arc::new(TokenCredContainerBuilder::new(
-                account_name,
-                bucket,
-                token_resource,
-                Arc::new(cred),
-            ));
+            let credentials = StorageCredentials::token_credential(Arc::new(cred));
+            let container_client =
+                Arc::new(ClientBuilder::new(account_name, credentials).container_client(bucket));
+            let client_builder = Arc::new(TokenCredContainerBuilder::new(container_client));
             // get token later
             Ok(AzureStorage {
                 config,
@@ -525,15 +405,8 @@ impl AzureStorage {
             })
         } else if let Some(connection_string) = config.parse_env_plaintext_account_url() {
             let bucket = (*config.bucket.bucket).to_owned();
-            let http_client = new_http_client();
-            let container_client = StorageAccountClient::new_connection_string(
-                http_client.clone(),
-                connection_string.as_str(),
-            )
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}", &e)))?
-            .as_storage_client()
-            .as_container_client(bucket);
-
+            let container_client =
+                container_client_from_connection_string(&connection_string, bucket)?;
             let client_builder = Arc::new(SharedKeyContainerBuilder { container_client });
             Ok(AzureStorage {
                 config,
@@ -562,7 +435,7 @@ impl AzureStorage {
         let name = self.maybe_prefix_key(name);
         debug!("read file from Azure storage"; "key" => %name);
         let t = async move {
-            let blob_client = self.client_builder.get_client().await?.as_blob_client(name);
+            let blob_client = self.client_builder.get_client().await?.blob_client(name);
 
             let builder = if let Some(r) = range {
                 blob_client.get().range(r)
@@ -570,15 +443,82 @@ impl AzureStorage {
                 blob_client.get()
             };
 
-            builder
-                .execute()
-                .await
-                .map(|res| res.data)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}", e)))
+            let mut stream = builder.into_stream();
+            let mut data = Vec::new();
+            while let Some(value) = stream.next().await {
+                let response = value
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}", e)))?;
+                let chunk =
+                    response.data.collect().await.map_err(|e| {
+                        io::Error::new(io::ErrorKind::InvalidInput, format!("{}", e))
+                    })?;
+                data.extend_from_slice(&chunk);
+            }
+            Ok(Bytes::from(data))
         };
         let k = stream::once(t);
         let t = k.boxed().into_async_read();
         Box::new(t)
+    }
+}
+
+fn container_client_from_connection_string(
+    connection_string: &str,
+    container_name: String,
+) -> io::Result<Arc<ContainerClient>> {
+    let connection_string = ConnectionString::new(connection_string)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}", e)))?;
+    if connection_string.use_development_storage == Some(true) {
+        return Ok(Arc::new(
+            ClientBuilder::emulator().container_client(container_name),
+        ));
+    }
+    let account_name = connection_string.account_name.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "account name cannot be empty to access azure blob storage",
+        )
+    })?;
+    let credentials = connection_string
+        .storage_credentials()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{}", e)))?;
+    let cloud_location = cloud_location_from_connection_string(&connection_string, account_name);
+    let container_client =
+        ClientBuilder::with_location(cloud_location, credentials).container_client(container_name);
+    Ok(Arc::new(container_client))
+}
+
+fn cloud_location_from_connection_string(
+    connection_string: &ConnectionString<'_>,
+    account_name: &str,
+) -> CloudLocation {
+    if let Some(blob_endpoint) = connection_string.blob_endpoint {
+        return CloudLocation::Custom {
+            account: account_name.to_string(),
+            uri: blob_endpoint.to_string(),
+        };
+    }
+    if connection_string.endpoint_suffix.is_some()
+        || connection_string.default_endpoints_protocol.is_some()
+    {
+        let protocol = match connection_string
+            .default_endpoints_protocol
+            .as_ref()
+            .unwrap_or(&EndpointProtocol::Https)
+        {
+            EndpointProtocol::Http => "http",
+            EndpointProtocol::Https => "https",
+        };
+        let endpoint_suffix = connection_string
+            .endpoint_suffix
+            .unwrap_or("core.windows.net");
+        return CloudLocation::Custom {
+            account: account_name.to_string(),
+            uri: format!("{protocol}://{account_name}.blob.{endpoint_suffix}"),
+        };
+    }
+    CloudLocation::Public {
+        account: account_name.to_string(),
     }
 }
 

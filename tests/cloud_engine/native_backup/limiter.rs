@@ -3,7 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use api_version::ApiV2;
-use kvengine::{ShardStats, WRITE_CF, dfs::S3Fs};
+use kvengine::{ShardStats, WRITE_CF, dfs::new_dfs_from_config};
 use native_br::{
     backup,
     limiter::{RateLimitConfig, ThroughputLimiter},
@@ -44,7 +44,7 @@ fn test_restore_keyspace_throughput_limit() {
     const EXTRA_KEYS: usize = 5 * 1024; // ~5 MiB
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_restore_keyspace_throughput_limit_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let runtime = Runtime::new().unwrap();
 
     let mut cluster = ServerCluster::new(

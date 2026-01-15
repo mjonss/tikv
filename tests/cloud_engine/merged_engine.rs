@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use api_version::ApiV2;
 use bytes::{Buf, Bytes};
 use futures::executor::block_on;
-use kvengine::{WRITE_CF, dfs::S3Fs, table::BIT_DELETE};
+use kvengine::{WRITE_CF, dfs::new_dfs_from_config, table::BIT_DELETE};
 use kvproto::metapb;
 use merged_engine::{MergedEngine, MergedEngineConfig, MergedEngineContext};
 use native_br::{backup, common::send_request_to_store};
@@ -70,7 +70,7 @@ fn test_merged_engine_once() {
         None,
     )
     .unwrap();
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_conf));
+    let s3fs = new_dfs_from_config(dfs_conf);
     let ctx = MergedEngineContext {
         pd: pd_client.clone(),
         fs: s3fs,

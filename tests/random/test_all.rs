@@ -11,7 +11,7 @@ use api_version::ApiV2;
 use cloud_encryption::KeyspaceEncryptionConfig;
 use futures::executor::block_on;
 use kvengine::{
-    dfs::{self, DFSConfig, DFSConnOptions, FileType, S3Fs},
+    dfs::{self, DFSConfig, DFSConnOptions, FileType, new_dfs_from_config},
     ia::util::IaConfig,
     metrics::{ENGINE_IA_SYNC_READ_COUNTER, ENGINE_REMOTE_COMPACT_EXCEED_MEMORY_LIMIT_COUNTER},
     table::{ChecksumType, schema_file::build_schema_file},
@@ -139,7 +139,7 @@ fn test_random_all_impl(use_builtin_dfs: bool) {
     backup::update_service_safe_point(pd_client.as_ref(), ts.into_inner()).unwrap();
 
     let dfs_conf = dfs_config.clone();
-    let s3fs = S3Fs::new_from_config(dfs_conf);
+    let s3fs = new_dfs_from_config(dfs_conf);
 
     // Start workloads & schedulers.
     let running = Running::new_start();
@@ -153,7 +153,7 @@ fn test_random_all_impl(use_builtin_dfs: bool) {
         handles.push(spawn_create_keyspace(
             cluster.get_pd_client(),
             keyspace_manager.clone(),
-            &s3fs,
+            s3fs.clone(),
             INITIAL_TABLE_COUNT,
             TABLE_SCHEMA_ENABLE_RATIO,
             TIMEOUT,
@@ -183,7 +183,7 @@ fn test_random_all_impl(use_builtin_dfs: bool) {
         Some(RfEngineCache::new(
             rfengine_cache_dir,
             restore_config.clone(),
-            Arc::new(s3fs.clone()),
+            s3fs.clone(),
             pd_client.clone(),
         ))
     } else {
@@ -198,7 +198,7 @@ fn test_random_all_impl(use_builtin_dfs: bool) {
                 runtime.block_on(cluster.new_keyspace_client()),
                 restore_config.clone(),
                 keyspace_manager.clone(),
-                &s3fs,
+                s3fs.clone(),
                 switches.enable_oss_chaos,
                 object_cache.clone(),
                 limiter.clone(),
@@ -246,7 +246,7 @@ fn test_random_all_impl(use_builtin_dfs: bool) {
             keyspace_manager.clone(),
             backup_config,
             backup_worker,
-            &s3fs,
+            s3fs.clone(),
             Duration::from_secs(5),
             TIMEOUT,
         ));

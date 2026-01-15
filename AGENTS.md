@@ -11,6 +11,7 @@
   - `tests/random/`: random tests.
 - `metrics/`: metrics docs/config; runtime metrics live in crate code (e.g. `components/native_br/src/metrics.rs`).
 - `scripts/`, `etc/`, `doc/`: tooling and documentation.
+- `~/.cargo/registry/src`: depedencies source code path.
 
 ## Build, Test, and Development Commands
 

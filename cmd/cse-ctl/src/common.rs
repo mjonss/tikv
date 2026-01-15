@@ -2,7 +2,7 @@
 
 use std::{path::Path, sync::Arc};
 
-use kvengine::dfs::{DFSConfig, S3Fs};
+use kvengine::dfs::{DFSConfig, Dfs, new_dfs_from_config};
 use kvproto::metapb::Store;
 use pd_client::util::get_all_stores_except_tiflash;
 use security::{GetSecurityManager, SecurityConfig, SecurityManager};
@@ -35,7 +35,7 @@ impl CommonConfig {
     }
 
     pub fn create_context(&self) -> CtlContext {
-        let s3fs = S3Fs::new_from_config(self.dfs.clone());
+        let dfs = new_dfs_from_config(self.dfs.clone());
         let pd_client = Arc::new(native_br::common::create_pd_client(
             &self.security,
             &self.pd,
@@ -43,7 +43,7 @@ impl CommonConfig {
         let security_mgr = pd_client.get_security_mgr();
         let http_client = security_mgr.http_client(hyper::Client::builder()).unwrap();
         CtlContext {
-            s3fs,
+            dfs,
             security_mgr,
             pd_client,
             http_client,
@@ -53,7 +53,7 @@ impl CommonConfig {
 
 #[derive(Clone)]
 pub struct CtlContext {
-    pub s3fs: S3Fs,
+    pub dfs: Arc<dyn Dfs>,
     pub security_mgr: Arc<SecurityManager>,
     pub pd_client: Arc<pd_client::RpcClient>,
     pub http_client: security::HttpClient,

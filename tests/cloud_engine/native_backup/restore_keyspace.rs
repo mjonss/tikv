@@ -15,7 +15,7 @@ use cloud_worker::broadcast_schema_update_to_all_stores;
 use collections::HashSet;
 use kvengine::{
     WRITE_CF,
-    dfs::{DFSConfig, Dfs, FileType, Options, S3Fs},
+    dfs::{DFSConfig, Dfs, FileType, Options, new_dfs_from_config},
     table::{
         columnar::{new_int_handle_column_info, new_version_column_info},
         schema_file::{SchemaBuf, build_schema_file},
@@ -235,7 +235,7 @@ fn test_restore_keyspace_impl(
         ..Default::default()
     };
     let restore_config = RestoreConfig::default_for_test();
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
 
     // Import data.
@@ -596,7 +596,7 @@ fn test_restore_archived_keyspace_impl(
         skip_keyspace_meta: true,
         ..Default::default()
     };
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
 
     let pd_client = cluster.get_pd_client();
@@ -884,7 +884,7 @@ fn test_restore_keyspace_with_resolve_locks(#[case] async_commit: bool) {
 
     test_util::init_log_for_test();
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_restore_keyspace_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
     let _enter = runtime.enter();
@@ -1103,7 +1103,7 @@ fn test_restore_multiple_keyspaces_uses_rfengine_cache() {
 
     test_util::init_log_for_test();
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_restore_rfengine_cache_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
 
     let mut cluster = ServerCluster::new(alloc_node_id_vec(3), |_, conf: &mut TikvConfig| {
@@ -1275,7 +1275,7 @@ fn test_restore_keyspace_with_no_chunk() {
 
     test_util::init_log_for_test();
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_restore_keyspace_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -1356,7 +1356,7 @@ fn test_restore_keyspace_with_slow_dfs() {
 
     test_util::init_log_for_test();
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_restore_keyspace_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -1469,7 +1469,7 @@ fn test_restore_keyspace_with_schema() {
 
     test_util::init_log_for_test();
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_restore_keyspace_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -1669,7 +1669,7 @@ fn test_restore_keyspace_with_failed_store(
     const KEYSPACE_ID: u32 = 1;
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test_restore_keyspace_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 

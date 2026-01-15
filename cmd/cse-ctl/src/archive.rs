@@ -5,7 +5,7 @@ use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 use chrono::NaiveDate;
 use clap::Args;
 use kvengine::{
-    dfs::{DFSConfig, S3Fs},
+    dfs::{DFSConfig, new_dfs_from_config},
     table::{
         blobtable::blobtable::BlobTable,
         file::InMemFile,
@@ -168,9 +168,9 @@ pub fn execute_show_archive(args: ShowArchiveArgs) {
         config = toml::from_slice(&data).unwrap();
     }
     config.dfs.override_from_env();
-    let s3fs = Arc::new(S3Fs::new_from_config(config.dfs));
+    let dfs = new_dfs_from_config(config.dfs);
     let date = NaiveDate::parse_from_str(&args.date, INCREMENTAL_BACKUP_FOLDER_FORMAT).unwrap();
-    let reader = ArchiveReader::new(s3fs, &date).unwrap();
+    let reader = ArchiveReader::new(dfs, &date).unwrap();
     if let Some(id) = args.file_id {
         let data = reader.read_file(id).unwrap();
         let file = Arc::new(InMemFile::new(id, data));

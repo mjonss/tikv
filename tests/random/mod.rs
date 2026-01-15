@@ -36,7 +36,7 @@ use futures::executor::block_on;
 use http::{Request, StatusCode};
 use hyper::Body;
 use kvengine::{
-    dfs::{self, Dfs, FileType, S3Fs},
+    dfs::{self, Dfs, FileType},
     table::{
         file::InMemFile,
         schema_file::{SchemaFile, build_schema_file},
@@ -532,7 +532,7 @@ pub(crate) fn spawn_dfs_unhealthy_chaos(
 pub fn spawn_create_keyspace(
     pd_client: Arc<TestPdClient>,
     keyspace_manager: KeyspaceManager,
-    fs: &S3Fs,
+    fs: Arc<dyn Dfs>,
     initial_table_count: usize,
     schema_enable_ratio: f64,
     timeout: Duration,
@@ -547,7 +547,7 @@ pub fn spawn_create_keyspace(
             let _ = fs.get_runtime().block_on(create_new_keyspace(
                 &pd_client,
                 &keyspace_manager,
-                &fs,
+                fs.as_ref(),
                 initial_table_count,
                 schema_enable_ratio,
                 false,
@@ -560,7 +560,7 @@ pub fn spawn_create_keyspace(
 async fn create_new_keyspace(
     pd_client: &Arc<TestPdClient>,
     keyspace_manager: &KeyspaceManager,
-    fs: &S3Fs,
+    fs: &dyn Dfs,
     initial_table_count: usize,
     schema_enable_ratio: f64,
     locked: bool,

@@ -6,10 +6,12 @@ publish = false
 
 [dependencies]
 async-trait = "0.1"
-azure_core = { version = "0.1.0", git = "https://github.com/Azure/azure-sdk-for-rust" }
-azure_identity = { version = "0.1.0", git = "https://github.com/Azure/azure-sdk-for-rust" }
-azure_storage = { version = "0.1.0", git = "https://github.com/Azure/azure-sdk-for-rust", default-features = false, features = ["account", "blob"] }
+azure_core = { version = "0.18", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
+azure_identity = "0.18"
+azure_storage = { version = "0.18", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
+azure_storage_blobs = { version = "0.18", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
 base64 = "0.13"
+bytes = "1.0"
 chrono = "0.4"
 cloud = { workspace = true }
 futures = "0.3"

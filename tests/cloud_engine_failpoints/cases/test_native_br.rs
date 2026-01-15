@@ -16,7 +16,7 @@ use collections::HashMap;
 use fail::cfg_callback;
 use futures::executor::block_on;
 use http::StatusCode;
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::new_dfs_from_config;
 use kvproto::{
     kvrpcpb::Op,
     metapb,
@@ -62,7 +62,7 @@ fn test_backup_on_scaling_up() {
     let get_all_stores_fp = "test_pd::get_all_stores";
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("t_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -242,7 +242,7 @@ fn test_restore_on_disk_full() {
     };
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("t_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -539,7 +539,7 @@ fn test_backup_pessimistic_lock() {
     const VALUE_SIZE: usize = 64;
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("t_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -716,7 +716,7 @@ fn test_check_backup_ts(#[case] write_method: TxnWriteMethod) {
     let check_backup_ts = true;
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("t_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -893,7 +893,7 @@ fn test_check_backup_ts_with_async_commit() {
     let check_backup_ts = true;
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("t_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let s3fs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 

@@ -1,10 +1,10 @@
 // Copyright 2022 TiKV Project Authors. Licensed under Apache-2.0.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::Args;
-use kvengine::dfs::{DFSConfig, Dfs, S3Fs};
+use kvengine::dfs::{DFSConfig, new_dfs_from_config};
 use native_br::{
     backup::{BackupConfig, execute_lightweight_backup},
     common::get_all_incremental_backups,
@@ -107,9 +107,10 @@ pub fn execute_show_backup(args: ShowBackupArgs) {
     }
     config.dfs.override_from_env();
 
-    let s3fs = S3Fs::new_from_config(config.dfs.clone());
+    let dfs = new_dfs_from_config(config.dfs.clone());
 
-    let cluster_backup = native_br::restore::get_cluster_backup_meta(&s3fs, args.name.clone());
+    let cluster_backup =
+        native_br::restore::get_cluster_backup_meta(dfs.as_ref(), args.name.clone());
 
     show_backup_summary(&cluster_backup, &args.name, 0);
 
@@ -118,7 +119,7 @@ pub fn execute_show_backup(args: ShowBackupArgs) {
             println!();
             println!("[Store {}]", store.store_id);
             if cluster_backup.is_lightweight {
-                let object_storage = Arc::new(s3fs.clone());
+                let object_storage = dfs.clone();
                 let snap_key = rfengine::find_latest_snapshot(
                     object_storage.clone(),
                     &config.dfs.prefix,
@@ -199,8 +200,8 @@ pub fn execute_show_backup_list(args: ShowBackupListArgs) {
     }
     config.dfs.override_from_env();
 
-    let s3fs = S3Fs::new_from_config(config.dfs);
-    let rt = s3fs.get_runtime();
+    let dfs = new_dfs_from_config(config.dfs);
+    let rt = dfs.get_runtime();
 
     let start = if args.start.is_empty() {
         Utc::now() - chrono::Duration::hours(1)
@@ -212,7 +213,7 @@ pub fn execute_show_backup_list(args: ShowBackupListArgs) {
 
     let (backups, has_more) = rt
         .block_on(get_all_incremental_backups(
-            &s3fs,
+            dfs.as_ref(),
             &start.date_naive(),
             Some(&start.time()),
             args.limit,

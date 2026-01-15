@@ -834,10 +834,9 @@ mod tests {
     use futures::future::join_all;
     use kvengine::{
         dfs,
-        dfs::{Dfs, FileType, Options, S3Fs},
+        dfs::{FileType, Options, new_dfs_from_config},
     };
     use rand::prelude::*;
-    use tempfile::tempfile;
 
     use super::*;
 
@@ -857,7 +856,7 @@ mod tests {
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test");
         oss.set_max_write_bytes_per_sec(TEST_DATA_SIZE * TEST_COUNT / 2);
         oss.set_max_read_bytes_per_sec(TEST_DATA_SIZE * TEST_COUNT / 2);
-        let s3fs = S3Fs::new_from_config(dfs_config);
+        let s3fs = new_dfs_from_config(dfs_config);
 
         let runtime = s3fs.get_runtime();
         let mut rng = rand::thread_rng();
@@ -958,7 +957,7 @@ mod tests {
         test_util::init_log_for_test();
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test");
-        let s3fs = S3Fs::new_from_config(dfs_config);
+        let s3fs = new_dfs_from_config(dfs_config);
         let runtime = s3fs.get_runtime();
 
         let file_id = 42;
@@ -1008,7 +1007,7 @@ mod tests {
         test_util::init_log_for_test();
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test");
-        let s3fs = S3Fs::new_from_config(dfs_config);
+        let s3fs = new_dfs_from_config(dfs_config);
 
         let runtime = s3fs.get_runtime();
         let mut rng = rand::thread_rng();
@@ -1045,7 +1044,7 @@ mod tests {
         test_util::init_log_for_test();
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test");
-        let s3fs = S3Fs::new_from_config(dfs_config);
+        let s3fs = new_dfs_from_config(dfs_config);
 
         let prefix = s3fs.get_prefix();
         s3fs.get_runtime().block_on(async {
@@ -1170,7 +1169,7 @@ mod tests {
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test");
         oss.set_max_read_bytes_per_sec(48 * 1024);
         oss.set_max_write_bytes_per_sec(16 * 1024);
-        let s3fs = S3Fs::new_from_config(dfs_config);
+        let s3fs = new_dfs_from_config(dfs_config);
 
         let mut data = vec![0u8; OBJECT_SIZE];
         thread_rng().fill_bytes(data.as_mut_slice());
@@ -1207,15 +1206,13 @@ mod tests {
                         .unwrap();
                     assert_eq!(read_data, expected);
 
-                    let build_writer = || {
-                        let f = tempfile().unwrap();
-                        Ok(std::io::BufWriter::new(f))
-                    };
-                    let (writer, len) = s3fs
-                        .get_object_to_writer(key, file_name, opts, build_writer)
+                    let tmp_dir = tempfile::tempdir().unwrap();
+                    let path = tmp_dir.path().join("object");
+                    let len = s3fs
+                        .get_object_to_path(key, file_name, opts, &path)
                         .await
                         .unwrap();
-                    let mut f = writer.into_inner().unwrap();
+                    let mut f = std::fs::File::open(&path).unwrap();
                     assert_eq!(len as usize, expected.len());
                     {
                         let mut read_data = Vec::with_capacity(len as usize);
@@ -1252,10 +1249,10 @@ mod tests {
         test_util::init_log_for_test();
 
         let (_temp_dir, mut oss, mut dfs_config) = prepare_dfs("test");
-        let s3fs = S3Fs::new_from_config(dfs_config.clone());
+        let s3fs = new_dfs_from_config(dfs_config.clone());
 
         dfs_config.read_only = true;
-        let s3fs_readonly = S3Fs::new_from_config(dfs_config);
+        let s3fs_readonly = new_dfs_from_config(dfs_config);
 
         let mut data = vec![0u8; OBJECT_SIZE];
         thread_rng().fill_bytes(data.as_mut_slice());

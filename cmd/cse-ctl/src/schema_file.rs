@@ -7,7 +7,7 @@ use std::{
 
 use clap::Args;
 use kvengine::{
-    dfs::{DFSConfig, Dfs, FileType, Options, S3Fs},
+    dfs::{DFSConfig, FileType, Options, new_dfs_from_config},
     table::{file::InMemFile, schema_file::SchemaFile},
 };
 
@@ -53,10 +53,10 @@ pub(crate) fn get_file_data_from_local(local: &Path) -> bytes::Bytes {
 }
 
 fn get_file_data_from_dfs(id: u64, config: ShowSchemaConfig) -> bytes::Bytes {
-    let s3fs = S3Fs::new_from_config(config.dfs);
-    let runtime = s3fs.get_runtime();
+    let dfs = new_dfs_from_config(config.dfs);
+    let runtime = dfs.get_runtime();
     runtime
-        .block_on(s3fs.read_file(id, Options::default().with_type(FileType::Schema)))
+        .block_on(dfs.read_file(id, Options::default().with_type(FileType::Schema)))
         .expect("failed to read file from dfs")
 }
 

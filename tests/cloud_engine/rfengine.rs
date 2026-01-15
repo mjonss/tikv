@@ -2,7 +2,7 @@
 
 use std::{fs, path::Path, sync::Arc, time::Duration};
 
-use kvengine::dfs::{Dfs, S3Fs};
+use kvengine::dfs::{Dfs, new_dfs_from_config};
 use kvproto::{metapb::Region, raft_serverpb::RegionLocalState};
 use protobuf::Message;
 use raft_proto::eraftpb::{Entry, EntryType};
@@ -30,8 +30,8 @@ fn test_rfengine_dfs_worker() {
     rf_cfg.wal_sync_dir = format!("{}/wal", temp_dir.path().to_str().unwrap());
     fs::create_dir_all(&rf_cfg.wal_sync_dir).unwrap();
     let dir = temp_dir.path().join("raftdb");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_conf));
-    let mut raft = open_engine(dir.as_path(), &rf_cfg, s3fs.clone());
+    let dfs = new_dfs_from_config(dfs_conf);
+    let mut raft = open_engine(dir.as_path(), &rf_cfg, dfs.clone());
     init_raft_data(&raft);
 
     // The dfs worker starts healthy after init.
@@ -46,7 +46,7 @@ fn test_rfengine_dfs_worker() {
     raft.stop_worker(false);
 
     // Restart the engine while the worker is unhealthy; it should remain unhealthy.
-    raft = open_engine(dir.as_path(), &rf_cfg, s3fs.clone());
+    raft = open_engine(dir.as_path(), &rf_cfg, dfs.clone());
     std::thread::sleep(Duration::from_secs(1));
     assert!(!raft.is_dfs_worker_healthy());
 
@@ -65,7 +65,7 @@ fn test_rfengine_dfs_worker() {
     raft.stop_worker(false);
 
     // Restart the engine while healthy; it should remain healthy after restart.
-    raft = open_engine(dir.as_path(), &rf_cfg, s3fs);
+    raft = open_engine(dir.as_path(), &rf_cfg, dfs);
     wait_health(&raft, true, "stay healthy after restart");
     oss.set_fail_all(true);
     write_wal_to_epoch(&raft, &mut entry_index, entry_size, 11);

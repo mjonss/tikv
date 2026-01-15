@@ -192,7 +192,7 @@ fn start_server_impl(
     running_ctl: &RunningController,
 ) -> (ServerFuture, Arc<server::Context>, ServiceHandles) {
     let dfs_config = config.dfs.clone();
-    let dfs = Arc::new(kvengine::dfs::S3Fs::new_from_config(dfs_config));
+    let dfs = kvengine::dfs::new_dfs_from_config(dfs_config);
 
     let block_cache = BlockCache::new(
         BlockCacheType::Quick,

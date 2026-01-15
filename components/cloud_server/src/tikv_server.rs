@@ -220,16 +220,20 @@ impl TikvServer {
         }
 
         let dfs_conf = &config.dfs;
-        let dfs: Arc<dyn Dfs> = if dfs_conf.s3_bucket.is_empty() && dfs_conf.s3_endpoint.is_empty()
-        {
-            info!("disable IA because builtin DFS is used");
-            config.kvengine.ia = IaConfig::disabled();
-            let builtin_dfs = builtin_dfs::BuiltinDfs::new(pd_client.clone());
-            Arc::new(builtin_dfs)
-        } else if dfs_conf.s3_endpoint == "memory" {
-            Arc::new(kvengine::dfs::InMemFs::new())
-        } else {
-            Arc::new(kvengine::dfs::S3Fs::new_from_config(dfs_conf.clone()))
+        let dfs: Arc<dyn Dfs> = match dfs_conf.backend.to_ascii_lowercase().as_str() {
+            "azure" => kvengine::dfs::new_dfs_from_config(dfs_conf.clone()),
+            _ => {
+                if dfs_conf.s3_bucket.is_empty() && dfs_conf.s3_endpoint.is_empty() {
+                    info!("disable IA because builtin DFS is used");
+                    config.kvengine.ia = IaConfig::disabled();
+                    let builtin_dfs = builtin_dfs::BuiltinDfs::new(pd_client.clone());
+                    Arc::new(builtin_dfs)
+                } else if dfs_conf.s3_endpoint == "memory" {
+                    Arc::new(kvengine::dfs::InMemFs::new())
+                } else {
+                    kvengine::dfs::new_dfs_from_config(dfs_conf.clone())
+                }
+            }
         };
 
         (security_mgr, env, pd_client, dfs)

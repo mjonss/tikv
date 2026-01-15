@@ -18,7 +18,7 @@ use clap::Args;
 use engine_traits::ListObjectContent;
 use kvengine::{
     dfs,
-    dfs::{DFSConfig, Dfs, FileType, S3Fs, try_parse_all_file_id},
+    dfs::{DFSConfig, Dfs, FileType, new_dfs_from_config, try_parse_all_file_id},
 };
 use kvproto::metapb::Store;
 use native_br::{
@@ -121,7 +121,7 @@ pub(crate) fn execute_dfsgc(arg: DfsGcArgs) {
 
     let start_after = arg.start.unwrap_or_default();
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
-    let s3fs = S3Fs::new_from_config(config.dfs);
+    let dfs = new_dfs_from_config(config.dfs);
     let start_time_safe_interval =
         chrono::Duration::from_std(Duration::from(arg.start_time_safe_interval)).unwrap();
     let progress_file_path = PathBuf::from(format!("{}/{}", &config.data_dir, "dfsgc.progress"));
@@ -131,7 +131,7 @@ pub(crate) fn execute_dfsgc(arg: DfsGcArgs) {
 
     let mut gc_worker = GcWorker::new(
         pd_client,
-        s3fs,
+        dfs,
         progress_file_path,
         config.gc_lifetime,
         arg.concurrency,
@@ -232,7 +232,7 @@ impl DfsGcConfig {
 #[derive(Clone)]
 struct GcWorker {
     pd: Arc<RpcClient>,
-    s3fs: S3Fs,
+    dfs: Arc<dyn Dfs>,
     progress_file_path: PathBuf,
     valid_files: Arc<HashSet<u64>>,
     gc_lifetime: Option<chrono::Duration>,
@@ -291,7 +291,7 @@ impl S3Object {
 impl GcWorker {
     fn new(
         pd: Arc<RpcClient>,
-        s3fs: S3Fs,
+        dfs: Arc<dyn Dfs>,
         progress_file_path: PathBuf,
         gc_lifetime: Option<Duration>,
         concurrency: usize,
@@ -299,7 +299,7 @@ impl GcWorker {
     ) -> Self {
         Self {
             pd,
-            s3fs,
+            dfs,
             progress_file_path,
             valid_files: Arc::new(HashSet::default()),
             gc_lifetime: gc_lifetime.map(|d| chrono::Duration::from_std(d).unwrap()),
@@ -316,7 +316,7 @@ impl GcWorker {
         for store in all_stores {
             let tx = tx.clone();
             let security_mgr = self.pd.get_security_mgr().clone();
-            self.s3fs.get_runtime().spawn(async move {
+            self.dfs.get_runtime().spawn(async move {
                 // Send failed when receive error from following `rx.recv()` and close the
                 // channel. So it can be ignored.
                 let _ = tx.send(Self::get_store_files(store, security_mgr).await);
@@ -393,7 +393,7 @@ impl GcWorker {
         loop {
             info!("loop start: {}", start_after);
             let (files, _, next_start_after) =
-                self.s3fs.list(start_after.as_str(), None, None).await?;
+                self.dfs.list(start_after.as_str(), None, None).await?;
             info!("listed {} files", files.len());
             let file_objs = files
                 .into_iter()
@@ -460,7 +460,7 @@ impl GcWorker {
         start_time: DateTime<chrono::Utc>,
     ) {
         let gc_worker = self.clone();
-        self.s3fs.get_runtime().spawn(async move {
+        self.dfs.get_runtime().spawn(async move {
             let permit = sema.acquire().await.unwrap();
             let exec_result = if !gc_worker.valid_files.contains(&s3_obj.file_id) {
                 gc_worker
@@ -471,7 +471,7 @@ impl GcWorker {
                     Ok(true) => {
                         warn!("{} in-used but removed: {:?}", s3_obj.file_id, s3_obj);
                         stat.lock().await.in_used_and_removed += 1;
-                        if let Err(e) = gc_worker.s3fs.retain_file(&s3_obj.key).await {
+                        if let Err(e) = gc_worker.dfs.retain_file(&s3_obj.key).await {
                             Err(Error::DfsError(e))
                         } else {
                             info!("{} is retained", s3_obj.file_id);
@@ -495,7 +495,7 @@ impl GcWorker {
 
     async fn is_file_removed(&self, s3_obj: &S3Object) -> Result<bool> {
         Ok(Self::is_storage_class_for_remove(&s3_obj.storage_class)
-            || self.s3fs.is_removed(&s3_obj.key).await?)
+            || self.dfs.is_removed(&s3_obj.key).await?)
     }
 
     async fn remove_garbage_file(
@@ -514,7 +514,7 @@ impl GcWorker {
         };
 
         if !removed {
-            self.s3fs
+            self.dfs
                 .remove(s3_obj.file_id, Some(s3_obj.size), opts)
                 .await;
             stat.lock().await.removed += 1;
@@ -526,7 +526,7 @@ impl GcWorker {
             let duration = *start_time - s3_obj.last_modified;
 
             if duration > gc_lifetime {
-                if let Err(err) = self.s3fs.permanently_remove(s3_obj.file_id, opts).await {
+                if let Err(err) = self.dfs.permanently_remove(s3_obj.file_id, opts).await {
                     warn!("{} permanently_remove error: {:?}", s3_obj.file_id, err);
                     return Err(Error::DfsError(err));
                 } else {

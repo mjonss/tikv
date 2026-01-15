@@ -18,7 +18,7 @@ use hyper::Body;
 use kvengine::{
     ShardStatsLite, SnapAccess,
     context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
-    dfs::{DFSConfig, Dfs, S3Fs},
+    dfs::{DFSConfig, Dfs, new_dfs_from_config},
     ia::{manager::IaManager, util::IaConfig},
     table::{
         columnar::{Block, ColumnarFilterReader, ColumnarMetaCache, GLOBAL_COMMON_HANDLE_END},
@@ -98,7 +98,7 @@ pub(crate) fn execute_check_columnar(args: CheckColumnarArgs) {
     let config = CheckColumnarConfig::from_args(&args);
     let pd_client = Arc::new(create_pd_client(&config.security, &config.pd));
     let dfs_cfg = config.dfs.clone();
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_cfg));
+    let dfs = new_dfs_from_config(dfs_cfg);
 
     // Use more worker threads for better parallelism
     let worker_threads = std::cmp::max(4, args.max_concurrency);
@@ -110,7 +110,7 @@ pub(crate) fn execute_check_columnar(args: CheckColumnarArgs) {
     let columnar_meta_cache = ColumnarMetaCache::default();
 
     let ctx = Arc::new(SchemaMgrContext {
-        dfs: s3fs.clone(),
+        dfs: dfs.clone(),
         pd: pd_client,
         columnar_meta_cache,
     });

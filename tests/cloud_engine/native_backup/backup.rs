@@ -11,7 +11,7 @@ use std::{
 
 use api_version::ApiV2;
 use chrono::Utc;
-use kvengine::dfs::{DFSConfig, S3Fs};
+use kvengine::dfs::{DFSConfig, new_dfs_from_config};
 use native_br::{
     backup, backup_worker, common::get_all_incremental_backups, error::Error as BrError, restore,
     restore::RestoreConfig, restore_keyspace,
@@ -194,7 +194,7 @@ fn test_periodic_backup() {
     const VALUE_SIZE: usize = 64;
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("t_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let dfs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -229,7 +229,7 @@ fn test_periodic_backup() {
     let now = Utc::now().date_naive();
     let files = try_wait_result(
         || match runtime.block_on(get_all_incremental_backups(
-            s3fs.as_ref(),
+            dfs.as_ref(),
             &now,
             None,
             usize::MAX,
@@ -261,7 +261,7 @@ fn test_periodic_backup() {
         KEYSPACE_ID,
         backup_file.name(),
         None,
-        s3fs.clone(),
+        dfs.clone(),
         RestoreConfig::default(),
         pd_client,
         &runtime,
@@ -293,7 +293,7 @@ fn test_batch_backup() {
     const VALUE_SIZE: usize = 64;
 
     let (_temp_dir, mut oss, dfs_config) = prepare_dfs("t_");
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config.clone()));
+    let dfs = new_dfs_from_config(dfs_config.clone());
     let reporter = Arc::new(DummyStepReporter::default());
     let runtime = Runtime::new().unwrap();
 
@@ -368,7 +368,7 @@ fn test_batch_backup() {
         KEYSPACE_ID,
         backup_file,
         None,
-        s3fs.clone(),
+        dfs.clone(),
         RestoreConfig::default(),
         pd_client,
         &runtime,

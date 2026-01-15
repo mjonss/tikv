@@ -12,7 +12,7 @@ use clap::Args;
 use futures::future::join_all;
 use kvengine::{
     IoContext,
-    dfs::{DFSConfig, Dfs, FileType, Options, S3Fs},
+    dfs::{DFSConfig, FileType, Options, new_dfs_from_config},
     table::{
         blobtable::{blobtable::BlobTable, builder::BlobFooter},
         file::{File, InMemFile},
@@ -51,10 +51,10 @@ pub(crate) fn get_file_data_from_local(local: &Path) -> bytes::Bytes {
 }
 
 fn get_file_data_from_dfs(id: u64, config: ShowSstConfig) -> bytes::Bytes {
-    let s3fs = S3Fs::new_from_config(config.dfs);
-    let runtime = s3fs.get_runtime();
+    let dfs = new_dfs_from_config(config.dfs);
+    let runtime = dfs.get_runtime();
     runtime
-        .block_on(s3fs.read_file(id, Options::default().with_type(FileType::Sst)))
+        .block_on(dfs.read_file(id, Options::default().with_type(FileType::Sst)))
         .expect("failed to read file from dfs")
 }
 

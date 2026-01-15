@@ -11,7 +11,7 @@ use fail::fail_point;
 use futures::{StreamExt, compat::Stream01CompatExt, executor::block_on};
 use http::Request;
 use hyper::Body;
-use kvengine::dfs::{DFSConfig, Dfs, S3Fs};
+use kvengine::dfs::{DFSConfig, new_dfs_from_config};
 use kvproto::metapb::Store;
 use pd_client::{PdClient, util::get_all_stores_except_tiflash};
 use protobuf::Message;
@@ -190,10 +190,10 @@ pub fn backup_cluster_with_ts(
         .unwrap();
 
     let dfs_conf = config.dfs.clone();
-    let dfs = S3Fs::new_from_config(dfs_conf);
+    let dfs = new_dfs_from_config(dfs_conf);
     let mut cluster_backup_meta = ClusterBackupMeta::new();
     let last_backup_meta = last_backup_meta.or_else(|| {
-        match runtime.block_on(get_latest_backup_meta(&dfs, cluster_id)) {
+        match runtime.block_on(get_latest_backup_meta(dfs.as_ref(), cluster_id)) {
             Ok(latest) => Some(latest),
             Err(err) => {
                 warn!("get latest backup meta failed"; "err" => ?err);
@@ -655,7 +655,6 @@ impl IncrementalBackupFile {
 #[cfg(test)]
 mod tests {
     use chrono::{DateTime, NaiveDateTime, Utc};
-    use kvengine::dfs::Dfs;
     use rfenginepb::{ChangeSet, ClusterBackupMeta, StoreBackupMeta, WalChunk};
     use test_cloud_server::oss::prepare_dfs;
     use test_pd_client::TestPdClient;
@@ -731,7 +730,7 @@ mod tests {
         test_util::init_log_for_test();
 
         let (_temp_dir, mut oss, dfs_config) = prepare_dfs("test");
-        let dfs = S3Fs::new_from_config(dfs_config);
+        let dfs = new_dfs_from_config(dfs_config);
         let pd_client = TestPdClient::new(1, false);
 
         // Use cluster_id to distinguish with different backup meta.
@@ -774,7 +773,7 @@ mod tests {
                 format!("{}/backup/check_table", prefix)
             );
 
-            let _ = get_latest_backup_meta(&dfs, CLUSTER_ID_INCREMENTAL)
+            let _ = get_latest_backup_meta(dfs.as_ref(), CLUSTER_ID_INCREMENTAL)
                 .await
                 .unwrap();
         });

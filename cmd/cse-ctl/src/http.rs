@@ -6,7 +6,6 @@ use bytes::Bytes;
 use clap::Args;
 use http::{Request, StatusCode, Uri};
 use hyper::Body;
-use kvengine::dfs::Dfs;
 use kvproto::metapb::Store;
 
 use crate::common::{CommonConfig, CtlContext};
@@ -50,7 +49,7 @@ pub fn send_request(ctx: &CtlContext, post: bool, uri: Uri, body: &str) -> (Stat
     } else {
         Request::get(uri).body(Body::empty()).unwrap()
     };
-    let runtime = ctx.s3fs.get_runtime();
+    let runtime = ctx.dfs.get_runtime();
     let resp = runtime.block_on(ctx.http_client.request(req)).unwrap();
     let status = resp.status();
     let body = runtime

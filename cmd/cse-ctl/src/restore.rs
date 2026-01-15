@@ -11,7 +11,7 @@ use std::{
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::{Args, Subcommand};
-use kvengine::dfs::{Dfs, S3Fs};
+use kvengine::dfs::new_dfs_from_config;
 use native_br::{
     common::{create_pd_client, now},
     limiter::{RateLimitConfig, ThroughputLimiter},
@@ -229,7 +229,7 @@ fn execute_restore_keyspace_impl(
 
     let pd_client: Arc<dyn PdClient> = Arc::new(create_pd_client(&config.security, &config.pd));
     let dfs_config = config.dfs.clone();
-    let s3fs = S3Fs::new_from_config(dfs_config);
+    let dfs = new_dfs_from_config(dfs_config);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(8)
         .enable_all()
@@ -248,7 +248,7 @@ fn execute_restore_keyspace_impl(
         target_keyspace_name,
         &args.name,
         Some(working_path),
-        Arc::new(s3fs),
+        dfs,
         pd_client,
         &runtime,
         args.truncate_ts,
@@ -426,13 +426,14 @@ fn show_restore_keyspace_info(
     let pd_ctl = PdControl::new(config.pd.clone(), security_mgr).unwrap();
 
     let dfs_config = config.dfs.clone();
-    let s3fs = S3Fs::new_from_config(dfs_config);
-    let rt = s3fs.get_runtime();
+    let dfs = new_dfs_from_config(dfs_config);
+    let rt = dfs.get_runtime();
 
     println!("Restore Keyspace");
     println!();
 
-    let cluster_backup = native_br::restore::get_cluster_backup_meta(&s3fs, args.name.clone());
+    let cluster_backup =
+        native_br::restore::get_cluster_backup_meta(dfs.as_ref(), args.name.clone());
     show_backup_summary(&cluster_backup, &args.name, 0);
     println!();
 

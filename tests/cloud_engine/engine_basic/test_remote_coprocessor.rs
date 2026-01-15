@@ -7,7 +7,7 @@ use futures::executor::block_on;
 use kvengine::{
     ShardStats, SnapAccess, WRITE_CF,
     context::{IaCtx, PrepareType, SnapCtx, new_meta_file_cache},
-    dfs::S3Fs,
+    dfs::{Dfs, new_dfs_from_config},
     ia::{
         manager::IaManager,
         util::{IaCapacity, IaManagerOptionsBuilder},
@@ -2375,7 +2375,7 @@ pub(crate) struct DagTestContext {
     temp_dir: TempDir,
     _oss: ObjectStorageService,
     pub(crate) rt: tokio::runtime::Runtime,
-    s3fs: S3Fs,
+    dfs: Arc<dyn Dfs>,
 }
 
 impl DagTestContext {
@@ -2383,13 +2383,13 @@ impl DagTestContext {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let (temp_dir, oss, dfs_cfg) = prepare_dfs("oss_");
         let dfs_conf = dfs_cfg.clone();
-        let s3fs = S3Fs::new_from_config(dfs_conf);
+        let dfs = new_dfs_from_config(dfs_conf);
         (
             Self {
                 temp_dir,
                 _oss: oss,
                 rt,
-                s3fs,
+                dfs,
             },
             dfs_cfg,
         )
@@ -2737,7 +2737,7 @@ impl<'a> DagTest<'a> {
                 .unwrap();
             let ia_mgr = IaManager::new(
                 opts,
-                Arc::new(self.ctx.s3fs.clone()),
+                self.ctx.dfs.clone(),
                 None,
                 self.ctx.rt.handle().clone().into(),
             )

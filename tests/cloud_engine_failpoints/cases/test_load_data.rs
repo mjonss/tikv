@@ -72,7 +72,7 @@ fn test_load_data() {
         checksum_type: ChecksumType::Crc32,
     };
 
-    let dfs = Arc::new(kvengine::dfs::S3Fs::new_from_config(dfs_conf));
+    let dfs = kvengine::dfs::new_dfs_from_config(dfs_conf);
     let master_key = cluster.get_kvengine(node_ids[0]).get_master_key();
     let load_data_dir = base_dir.join("load_data");
     fs::create_dir_all(&load_data_dir).unwrap();

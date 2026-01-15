@@ -1978,10 +1978,11 @@ impl StatusServer {
                 (true, None)
             };
 
-        let s3fs =
-            kvengine::dfs::S3Fs::new_from_config(ctx.cfg_controller.get_current().dfs.clone());
+        let object_storage = kvengine::dfs::new_object_storage_from_config(
+            ctx.cfg_controller.get_current().dfs.clone(),
+        );
         let (callback, future) = paired_future_callback();
-        let task = rfengine::BackupTask::new(Box::new(s3fs), callback, backup_config);
+        let task = rfengine::BackupTask::new(object_storage, callback, backup_config);
         ctx.rfengine.backup(task);
         Ok(match future.await {
             Ok(resp) => match resp {

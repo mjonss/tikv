@@ -8,6 +8,8 @@ use tikv_util::config::ReadableDuration;
 #[serde(default)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
+    pub backend: String,
+
     pub prefix: String,
 
     pub s3_endpoint: String,
@@ -30,11 +32,14 @@ pub struct Config {
     pub read_only: bool,
 
     pub conn_options: ConnOptions,
+
+    pub azure: AzureConfig,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            backend: "s3".to_string(),
             prefix: "".to_string(),
             s3_endpoint: "".to_string(),
             s3_key_id: "".to_string(),
@@ -44,8 +49,9 @@ impl Default for Config {
             remote_compactor_addr: "".to_string(),
             zstd_compression_level: "".to_string(),
             allow_fallback_local: true,
-            conn_options: ConnOptions::default(),
             read_only: false,
+            conn_options: ConnOptions::default(),
+            azure: AzureConfig::default(),
         }
     }
 }
@@ -70,12 +76,14 @@ impl Config {
     }
 
     pub fn override_from_env(&mut self) {
+        Self::env_or_default("DFS_BACKEND", &mut self.backend);
         Self::env_or_default("DFS_S3_BUCKET", &mut self.s3_bucket);
         Self::env_or_default("DFS_S3_ENDPOINT", &mut self.s3_endpoint);
         Self::env_or_default("DFS_PREFIX", &mut self.prefix);
         Self::env_or_default("DFS_S3_KEY_ID", &mut self.s3_key_id);
         Self::env_or_default("DFS_S3_SECRET_KEY", &mut self.s3_secret_key);
         Self::env_or_default("DFS_S3_REGION", &mut self.s3_region);
+        self.azure.override_from_env();
         Self::env_or_default("DFS_REMOTE_COMPACTOR_ADDR", &mut self.remote_compactor_addr);
         Self::env_or_default(
             "DFS_ZSTD_COMPRESSION_LEVEL",
@@ -83,6 +91,27 @@ impl Config {
         );
 
         Self::env_or_default_bool("DFS_ALLOW_FALLBACK_LOCAL", &mut self.allow_fallback_local);
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[serde(default)]
+#[serde(rename_all = "kebab-case")]
+pub struct AzureConfig {
+    pub connection_string: String,
+    pub account_name: String,
+    pub account_key: String,
+    pub container: String,
+    pub endpoint: String,
+}
+
+impl AzureConfig {
+    fn override_from_env(&mut self) {
+        Config::env_or_default("DFS_AZURE_CONNECTION_STRING", &mut self.connection_string);
+        Config::env_or_default("DFS_AZURE_ACCOUNT_NAME", &mut self.account_name);
+        Config::env_or_default("DFS_AZURE_ACCOUNT_KEY", &mut self.account_key);
+        Config::env_or_default("DFS_AZURE_CONTAINER", &mut self.container);
+        Config::env_or_default("DFS_AZURE_ENDPOINT", &mut self.endpoint);
     }
 }
 

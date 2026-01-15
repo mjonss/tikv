@@ -1,5 +1,6 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
+mod azure;
 mod config;
 mod metrics;
 mod remote_cached;
@@ -19,9 +20,12 @@ use std::{
 };
 
 use async_trait::async_trait;
+pub use azure::*;
 use bytes::Bytes;
-pub use config::{Config as DFSConfig, ConnOptions as DFSConnOptions};
-use engine_traits::{GetObjectOptions, ListObjectContent, ObjectCacheWithHook};
+pub use config::{
+    AzureConfig as DFSAzureConfig, Config as DFSConfig, ConnOptions as DFSConnOptions,
+};
+use engine_traits::{GetObjectOptions, ListObjectContent, ObjectCacheWithHook, ObjectStorage};
 use farmhash::fingerprint64;
 use file_system;
 use metrics::*;
@@ -100,8 +104,16 @@ pub trait Dfs: Any + Sync + Send {
         key: String,
         file_name: String,
         opts: GetObjectOptions,
-        _cache: Option<&ObjectCacheWithHook>,
-    ) -> Result<Bytes> {
+        cache_with_hook: Option<&ObjectCacheWithHook>,
+    ) -> crate::dfs::Result<Bytes> {
+        if let Some(cache_with_hook) = cache_with_hook {
+            let ObjectCacheWithHook { cache, hook } = cache_with_hook;
+            let with = async {
+                let data = self.get_object(key.clone(), file_name, opts).await?;
+                hook.invoke(data).map_err(Error::Hook)
+            };
+            return cache.get_or_insert_async(&key, with).await;
+        }
         self.get_object(key, file_name, opts).await
     }
 
@@ -137,6 +149,22 @@ pub trait Dfs: Any + Sync + Send {
 
     async fn retain_file(&self, _file_key: &str) -> Result<()> {
         Err(Error::Other("retain_file is unsupported".to_string()))
+    }
+
+    async fn delete_object(&self, _key: String, _file_name: String) -> Result<()> {
+        Err(Error::Other("delete_object is unsupported".to_string()))
+    }
+
+    async fn object_size(&self, _key: String, _file_name: String) -> Result<u64> {
+        Err(Error::Other("object_size is unsupported".to_string()))
+    }
+
+    async fn list_folders(&self, _prefix: &str, _delimiter: Option<&str>) -> Result<Vec<String>> {
+        Err(Error::Other("list_folders is unsupported".to_string()))
+    }
+
+    async fn is_removed(&self, _file_key: &str) -> Result<bool> {
+        Err(Error::Other("is_removed is unsupported".to_string()))
     }
 
     /// Synchronously lists objects in the DFS.
@@ -186,6 +214,20 @@ pub trait Dfs: Any + Sync + Send {
                 format!("{}/fts/{:02x}/{:016x}.ftsded", prefix, idx, file_id)
             }
         }
+    }
+}
+
+pub fn new_dfs_from_config(conf: DFSConfig) -> Arc<dyn Dfs> {
+    match conf.backend.to_ascii_lowercase().as_str() {
+        "azure" => Arc::new(AzureFs::new_from_config(conf)),
+        _ => Arc::new(S3Fs::new_from_config(conf)),
+    }
+}
+
+pub fn new_object_storage_from_config(conf: DFSConfig) -> Box<dyn ObjectStorage> {
+    match conf.backend.to_ascii_lowercase().as_str() {
+        "azure" => Box::new(AzureFs::new_from_config(conf)),
+        _ => Box::new(S3Fs::new_from_config(conf)),
     }
 }
 

@@ -5,7 +5,7 @@ use std::{assert_matches::assert_matches, fs, path::PathBuf, sync::Arc, time::Du
 use bytes::{Buf, Bytes};
 use kvengine::{
     FileMeta, dfs,
-    dfs::{Dfs, FileType, S3Fs},
+    dfs::{FileType, new_dfs_from_config},
     ia::{
         gc::{IaGcConfig, IaGcRunner},
         ia_file::{IaFile, table_meta_file_local_path},
@@ -72,7 +72,7 @@ fn test_read(#[case] mut ia_cap: IaCapacity) {
     let (temp_dir, mut oss, dfs_conf) = prepare_dfs("test");
     let temp_dir = temp_dir.path();
 
-    let s3fs = S3Fs::new_from_config(dfs_conf);
+    let s3fs = new_dfs_from_config(dfs_conf);
     let _s3fs = s3fs.clone();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -107,7 +107,7 @@ fn test_read(#[case] mut ia_cap: IaCapacity) {
         .await
         .unwrap();
 
-        let mgr = IaManager::new(options, Arc::new(s3fs.clone()), None, rt.into()).unwrap();
+        let mgr = IaManager::new(options, s3fs.clone(), None, rt.into()).unwrap();
         let dfs_opts = dfs::Options::default().with_shard(1, 1);
         let table_meta_data = IaFile::prepare_table_meta(
             file_id,
@@ -166,7 +166,7 @@ fn test_init() {
     let (temp_dir, mut oss, dfs_conf) = prepare_dfs("test");
     let temp_dir = temp_dir.path();
 
-    let s3fs = S3Fs::new_from_config(dfs_conf);
+    let s3fs = new_dfs_from_config(dfs_conf);
     let _s3fs = s3fs.clone();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -189,13 +189,8 @@ fn test_init() {
         let fm = make_file_meta(file_type);
 
         {
-            let mgr = IaManager::new(
-                options.clone(),
-                Arc::new(s3fs.clone()),
-                None,
-                rt.clone().into(),
-            )
-            .unwrap();
+            let mgr =
+                IaManager::new(options.clone(), s3fs.clone(), None, rt.clone().into()).unwrap();
 
             let mut files = Vec::with_capacity(10);
             for i in 1..10 {
@@ -242,7 +237,7 @@ fn test_init() {
         }
 
         {
-            let mgr = IaManager::new(options, Arc::new(s3fs.clone()), None, rt.into()).unwrap();
+            let mgr = IaManager::new(options, s3fs.clone(), None, rt.into()).unwrap();
 
             let mut segments_ident = mgr.get_local_segments().await;
             segments_ident.sort_by(|(m_ident, ..), (n_ident, ..)| m_ident.cmp(n_ident));
@@ -291,7 +286,7 @@ fn test_abnormal_local_file() {
     let temp_dir = temp_dir.path();
     let local_path = temp_dir.join("ia");
 
-    let s3fs = S3Fs::new_from_config(dfs_conf);
+    let s3fs = new_dfs_from_config(dfs_conf);
     let _s3fs = s3fs.clone();
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -318,7 +313,7 @@ fn test_abnormal_local_file() {
             .freq_update_interval(FREQ_UPDATE_INTERVAL)
             .build()
             .unwrap();
-        let mgr = IaManager::new(options, Arc::new(s3fs.clone()), None, rt.into()).unwrap();
+        let mgr = IaManager::new(options, s3fs.clone(), None, rt.into()).unwrap();
 
         {
             let dfs_opts = dfs::Options::default().with_shard(1, 1);
@@ -394,7 +389,7 @@ fn test_local_gc() {
     let (temp_dir, mut oss, dfs_conf) = prepare_dfs("test");
     let temp_dir = temp_dir.path();
 
-    let s3fs = S3Fs::new_from_config(dfs_conf);
+    let s3fs = new_dfs_from_config(dfs_conf);
     let _s3fs = s3fs.clone();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -426,7 +421,7 @@ fn test_local_gc() {
         let fm = make_file_meta(file_type);
         let file_count = 10;
 
-        let mgr = IaManager::new(options, Arc::new(s3fs.clone()), None, rt.clone().into()).unwrap();
+        let mgr = IaManager::new(options, s3fs.clone(), None, rt.clone().into()).unwrap();
 
         let mut files = Vec::with_capacity(file_count);
         for i in 1..=file_count {
@@ -527,7 +522,7 @@ fn test_local_gc() {
             .capacity(ia_cap)
             .build()
             .unwrap();
-        let mgr = IaManager::new(options, Arc::new(s3fs.clone()), None, rt.clone().into()).unwrap();
+        let mgr = IaManager::new(options, s3fs.clone(), None, rt.clone().into()).unwrap();
 
         let config = IaGcConfig {
             segment_interval: ReadableDuration::ZERO,
@@ -583,7 +578,7 @@ fn test_blob_ia() {
     let (temp_dir, mut oss, dfs_conf) = prepare_dfs("test");
     let temp_dir = temp_dir.path();
 
-    let s3fs = S3Fs::new_from_config(dfs_conf);
+    let s3fs = new_dfs_from_config(dfs_conf);
     let _s3fs = s3fs.clone();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -602,13 +597,7 @@ fn test_blob_ia() {
             .build()
             .unwrap();
 
-        let mgr = IaManager::new(
-            options.clone(),
-            Arc::new(s3fs.clone()),
-            None,
-            rt.clone().into(),
-        )
-        .unwrap();
+        let mgr = IaManager::new(options.clone(), s3fs.clone(), None, rt.clone().into()).unwrap();
 
         let kvs = generate_key_values("key", 1024);
         let (sst_data, sst_meta_off, blob_data, blob_meta_off) =

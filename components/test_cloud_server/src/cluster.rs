@@ -185,18 +185,26 @@ impl ServerCluster {
 
     fn prepare_dfs(config: &TikvConfig, pd_client: Arc<dyn PdClient>) -> Arc<dyn Dfs> {
         let dfs_conf = &config.dfs;
-        if dfs_conf.s3_bucket.is_empty() && dfs_conf.s3_endpoint.is_empty()
-            || dfs_conf.s3_endpoint == "local"
-        {
-            info!("prepare_dfs: use builtin dfs");
-            let builtin_dfs = builtin_dfs::BuiltinDfs::new(pd_client.clone());
-            Arc::new(builtin_dfs)
-        } else if dfs_conf.s3_endpoint == "memory" {
-            info!("prepare_dfs: use memory");
-            Arc::new(kvengine::dfs::InMemFs::new())
-        } else {
-            info!("prepare_dfs: use S3Fs");
-            Arc::new(kvengine::dfs::S3Fs::new_from_config(dfs_conf.clone()))
+        match dfs_conf.backend.to_ascii_lowercase().as_str() {
+            "azure" => {
+                info!("prepare_dfs: use Azure");
+                kvengine::dfs::new_dfs_from_config(dfs_conf.clone())
+            }
+            _ => {
+                if dfs_conf.s3_bucket.is_empty() && dfs_conf.s3_endpoint.is_empty()
+                    || dfs_conf.s3_endpoint == "local"
+                {
+                    info!("prepare_dfs: use builtin dfs");
+                    let builtin_dfs = builtin_dfs::BuiltinDfs::new(pd_client.clone());
+                    Arc::new(builtin_dfs)
+                } else if dfs_conf.s3_endpoint == "memory" {
+                    info!("prepare_dfs: use memory");
+                    Arc::new(kvengine::dfs::InMemFs::new())
+                } else {
+                    info!("prepare_dfs: use S3Fs");
+                    kvengine::dfs::new_dfs_from_config(dfs_conf.clone())
+                }
+            }
         }
     }
 

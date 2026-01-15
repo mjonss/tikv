@@ -7,7 +7,7 @@ use std::{
 };
 
 use engine_traits::ObjectCache;
-use kvengine::dfs::S3Fs;
+use kvengine::dfs::{Dfs, new_dfs_from_config};
 use native_br::{
     backup::BackupConfig,
     backup_worker,
@@ -52,7 +52,7 @@ pub(crate) fn do_restore_keyspace(
     rfengine_cache: Option<RfEngineCache>,
 ) -> native_br::Result<restore_keyspace::RestoredKeyspace> {
     let dfs_config = config.dfs.clone();
-    let s3fs = Arc::new(S3Fs::new_from_config(dfs_config));
+    let dfs = new_dfs_from_config(dfs_config);
     if let Some(rf_cache) = &rfengine_cache {
         rf_cache.fill_cache(backup_name, truncate_ts, object_cache.clone())?;
     }
@@ -61,7 +61,7 @@ pub(crate) fn do_restore_keyspace(
         target_keyspace,
         backup_name,
         None,
-        s3fs,
+        dfs,
         config,
         pd_client,
         runtime,
@@ -78,11 +78,11 @@ pub(crate) fn spawn_backup(
     keyspace_manager: KeyspaceManager,
     config: BackupConfig,
     backup_worker: Arc<backup_worker::BackupWorker>,
-    s3fs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     interval: Duration,
     timeout: Duration,
 ) -> tokio::task::JoinHandle<()> {
-    let s3fs = s3fs.clone();
+    let dfs = dfs.clone();
     tokio::spawn(async move {
         let start_time = Instant::now();
         let mut last_backup_time = start_time;
@@ -124,9 +124,11 @@ pub(crate) fn spawn_backup(
             keyspace_manager.add_backup(keyspace_backup);
             drop(shared_guard);
 
-            let backup_meta =
-                get_cluster_backup_meta_async(&s3fs, backup_res.backup_file.name().to_string())
-                    .await;
+            let backup_meta = get_cluster_backup_meta_async(
+                dfs.as_ref(),
+                backup_res.backup_file.name().to_string(),
+            )
+            .await;
             info!(
                 "instant backup success, keyspace {}, res {:?}, backup_meta {:?}",
                 keyspace_id, backup_res, backup_meta,
@@ -188,14 +190,14 @@ pub(crate) fn spawn_restore_keyspace(
     mut client: ClusterKeyspaceClient,
     restore_config: RestoreConfig,
     keyspace_manager: KeyspaceManager,
-    s3fs: &S3Fs,
+    dfs: Arc<dyn Dfs>,
     _enable_oss_chaos: bool,
     object_cache: Option<ObjectCache>,
     limiter: Option<Arc<ThroughputLimiter>>,
     timeout: Duration,
     rfengine_cache: Option<RfEngineCache>,
 ) -> JoinHandle<()> {
-    let s3fs = s3fs.clone();
+    let dfs = dfs.clone();
     std::thread::spawn(move || {
         let mut rng = rand::thread_rng();
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -226,7 +228,7 @@ pub(crate) fn spawn_restore_keyspace(
                 let (new_keyspace, lock_guard) = runtime.block_on(create_new_keyspace(
                     &pd_client,
                     &keyspace_manager,
-                    &s3fs,
+                    dfs.as_ref(),
                     0,
                     0.0,
                     true,
@@ -241,7 +243,7 @@ pub(crate) fn spawn_restore_keyspace(
                 (source_keyspace, None)
             };
             let backup_name = backup.backup_name().to_string();
-            let backup_meta = get_cluster_backup_meta(&s3fs, backup_name.clone());
+            let backup_meta = get_cluster_backup_meta(dfs.as_ref(), backup_name.clone());
             let tag = format!("{}->{}[{}]", source_keyspace, target_keyspace, backup_name);
 
             let mut config = restore_config.clone();

@@ -1146,7 +1146,7 @@ impl Drop for MemoryLimiterGuard {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use kvengine::dfs::{DFSConfig, S3Fs};
+    use kvengine::dfs::{DFSConfig, new_dfs_from_config};
     use rand::prelude::*;
 
     use super::*;
@@ -1180,7 +1180,7 @@ mod tests {
     fn test_wal_chunk_integrity() {
         let (_, rx) = tikv_util::mpsc::unbounded();
         let (tx, _) = tikv_util::mpsc::unbounded();
-        let s3fs = Arc::new(S3Fs::new_from_config(DFSConfig::default()));
+        let dfs = new_dfs_from_config(DFSConfig::default());
         let service_worker_epoch = Arc::new(AtomicU32::new(0));
         let mut worker = ObjectStorageWorker::new(
             LightweightBackupConfig::new(
@@ -1192,7 +1192,7 @@ mod tests {
                 4096,
                 1 << 20,
             ),
-            s3fs,
+            dfs,
             1,
             4,
             Arc::new(AtomicU64::new(1)),
@@ -1229,7 +1229,7 @@ mod tests {
     fn test_overwritten_epoch() {
         let (_, rx) = tikv_util::mpsc::unbounded();
         let (tx, _) = tikv_util::mpsc::unbounded();
-        let s3fs = Arc::new(S3Fs::new_from_config(DFSConfig::default()));
+        let dfs = new_dfs_from_config(DFSConfig::default());
         let service_worker_epoch = Arc::new(AtomicU32::new(0));
         let worker = ObjectStorageWorker::new(
             LightweightBackupConfig::new(
@@ -1241,7 +1241,7 @@ mod tests {
                 4096,
                 1 << 20,
             ),
-            s3fs,
+            dfs,
             1,
             4,
             Arc::new(AtomicU64::new(1)),
