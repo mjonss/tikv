@@ -723,6 +723,7 @@ impl TidbClusterCore {
     }
 }
 
+#[derive(Clone)]
 pub struct ConnParams {
     pub host: String,
     pub port: u16,

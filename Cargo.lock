@@ -8733,6 +8733,7 @@ dependencies = [
  "serde_json",
  "slog",
  "slog-global",
+ "sqlx",
  "tempfile",
  "test_pd",
  "test_pd_client",

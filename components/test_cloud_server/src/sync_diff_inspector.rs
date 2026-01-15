@@ -1,13 +1,15 @@
 // Copyright 2025 TiKV Project Authors. Licensed under Apache-2.0.
 
-use std::{fs, path::PathBuf, process::Command, thread, time::Duration};
+use std::{cell::Cell, fs, path::PathBuf, process::Command, thread, time::Duration};
 
 use anyhow::{Context, Result};
+use futures::executor::block_on;
 use lazy_static::lazy_static;
 use serde_derive::Serialize;
-use tikv_util::{error, future::paired_future_callback, info};
+use tikv_util::{error, future::paired_future_callback, info, time::Instant, warn};
+use txn_types::TimeStamp;
 
-use crate::tidb::ConnParams;
+use crate::{TryWaiter, tidb::ConnParams};
 
 const OUTPUT_DIR: &str = "output";
 const DIFF_CONFIG_FILE: &str = "diff_config.toml";
@@ -282,6 +284,11 @@ impl SyncDiffer {
         compare_interval: Duration,
     ) -> Self {
         fs::create_dir_all(&work_dir).unwrap();
+
+        let downstream_cp = downstream.clone();
+        let wait_syncpoint_task =
+            thread::spawn(move || wait_syncpoint_table(&downstream_cp, Duration::from_secs(180)));
+
         let (task_tx, task_rx) = tikv_util::mpsc::unbounded();
         thread::spawn(move || {
             let use_snapshot = true;
@@ -301,6 +308,7 @@ impl SyncDiffer {
                 task_rx,
                 compare_interval,
                 skip_until_snapshot: None,
+                wait_syncpoint_task: Some(wait_syncpoint_task),
             };
             runner.run();
         });
@@ -332,6 +340,53 @@ impl SyncDiffer {
             .unwrap();
         fut.await.unwrap();
     }
+
+    #[track_caller]
+    pub fn must_wait_sync_to(
+        &self,
+        sync_ts: u64,
+        wait_timeout: Duration,
+        no_progress_timeout: Duration,
+        retry_interval: Duration,
+    ) {
+        let last_upstream_snapshot = Cell::new(0);
+        let mut last_upstream_time = Instant::now_coarse();
+
+        TryWaiter::timeout_dur(wait_timeout)
+            .interval_dur(retry_interval)
+            .must_wait(
+                || {
+                    let Some(summary) = block_on(self.compare()) else {
+                        return false;
+                    };
+                    info!("sync_diff: compare result: {:?}", summary; "sync_ts" => sync_ts);
+                    assert!(summary.success);
+
+                    let upstream_snapshot = summary.upstream_snapshot.unwrap_or_default();
+                    let ok = upstream_snapshot >= sync_ts;
+                    if !ok {
+                        if last_upstream_snapshot.get() != upstream_snapshot {
+                            last_upstream_snapshot.set(upstream_snapshot);
+                            last_upstream_time = Instant::now_coarse();
+                        } else {
+                            let elapsed = last_upstream_time.saturating_elapsed();
+                            if elapsed > no_progress_timeout {
+                                panic!("sync_diff: no progress for {:?}, snapshot {}", elapsed, upstream_snapshot);
+                            }
+                        }
+                    }
+                    ok
+                },
+                || {
+                    let last_snapshot = last_upstream_snapshot.get();
+                    let lag = Duration::from_millis(
+                        TimeStamp::from(sync_ts.saturating_sub(last_snapshot))
+                            .physical(),
+                    );
+                    format!("sync_diff: wait sync to {sync_ts} timeout, lag: {lag:?}, last_snapshot: {last_snapshot}")
+                },
+            );
+    }
 }
 
 struct SyncDiffRunner {
@@ -339,6 +394,7 @@ struct SyncDiffRunner {
     task_rx: tikv_util::mpsc::Receiver<SyncDiffTask>,
     compare_interval: Duration,
     skip_until_snapshot: Option<u64>,
+    wait_syncpoint_task: Option<thread::JoinHandle<Result<()>>>,
 }
 
 impl SyncDiffRunner {
@@ -347,10 +403,12 @@ impl SyncDiffRunner {
             if let Ok(task) = self.task_rx.recv_timeout(self.compare_interval) {
                 match task {
                     SyncDiffTask::Compare(cb) => {
+                        self.wait_syncpoint_task_finished_blocking();
                         let summary = self.compare();
                         cb(summary);
                     }
                     SyncDiffTask::Stop(cb) => {
+                        self.wait_syncpoint_task_finished_blocking();
                         cb(());
                         return;
                     }
@@ -360,11 +418,39 @@ impl SyncDiffRunner {
                         cb(());
                     }
                 }
-            } else if let Some(summary) = self.compare() {
+            } else {
+                if !self.try_wait_syncpoint_task_finished() {
+                    warn!("sync_diff_inspector: syncpoint table not ready, skip periodic compare");
+                    continue;
+                }
+                let Some(summary) = self.compare() else {
+                    continue;
+                };
                 info!("sync_diff_inspector compare"; "summary" => ?summary);
                 assert!(summary.success);
             }
         }
+    }
+
+    fn wait_syncpoint_task_finished_blocking(&mut self) {
+        let Some(handle) = self.wait_syncpoint_task.take() else {
+            return;
+        };
+        match handle.join() {
+            Ok(res) => res.unwrap_or_else(|e| panic!("wait syncpoint table failed: {e:#}")),
+            Err(panic_err) => std::panic::resume_unwind(panic_err),
+        }
+    }
+
+    fn try_wait_syncpoint_task_finished(&mut self) -> bool {
+        let Some(handle) = self.wait_syncpoint_task.as_ref() else {
+            return true;
+        };
+        if !handle.is_finished() {
+            return false;
+        }
+        self.wait_syncpoint_task_finished_blocking();
+        true
     }
 
     /// Return `None` when the snapshot of compare result is skipped.
@@ -382,6 +468,97 @@ impl SyncDiffRunner {
         }
         Some(summary)
     }
+}
+
+fn wait_syncpoint_table(downstream: &ConnParams, timeout: Duration) -> Result<()> {
+    const SYNCPOINT_SCHEMA: &str = "tidb_cdc";
+    const SYNCPOINT_TABLE: &str = "syncpoint_v1";
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+
+    runtime.block_on(async move {
+        let start = Instant::now_coarse();
+        let mut pool: Option<sqlx::MySqlPool> = None;
+
+        loop {
+            if start.saturating_elapsed() > timeout {
+                return Err(anyhow::anyhow!(
+                    "wait syncpoint table timeout: {SYNCPOINT_SCHEMA}.{SYNCPOINT_TABLE} \
+                        is not ready after {:?} (downstream {}:{})",
+                    timeout,
+                    downstream.host,
+                    downstream.port,
+                ));
+            }
+
+            if pool.is_none() {
+                let mut opts = sqlx::mysql::MySqlConnectOptions::new()
+                    .host(&downstream.host)
+                    .port(downstream.port)
+                    .username(&downstream.user)
+                    .database("information_schema");
+                if !downstream.password.is_empty() {
+                    opts = opts.password(&downstream.password);
+                }
+                match sqlx::mysql::MySqlPoolOptions::new()
+                    .max_connections(1)
+                    .connect_with(opts)
+                    .await
+                {
+                    Ok(p) => pool = Some(p),
+                    Err(e) => {
+                        info!(
+                            "wait syncpoint table: connect downstream tidb failed, retrying";
+                            "err" => ?e,
+                            "host" => &downstream.host,
+                            "port" => downstream.port,
+                        );
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        continue;
+                    }
+                }
+            }
+
+            let table_rows = match sqlx::query_scalar::<_, i64>(
+                "SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES \
+                    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? LIMIT 1",
+            )
+            .bind(SYNCPOINT_SCHEMA)
+            .bind(SYNCPOINT_TABLE)
+            .fetch_optional(pool.as_ref().unwrap())
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    info!(
+                        "wait syncpoint table: query failed, retrying";
+                        "err" => ?e,
+                        "host" => &downstream.host,
+                        "port" => downstream.port,
+                    );
+                    pool = None;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+
+            if table_rows.unwrap_or_default() > 0 {
+                info!(
+                    "wait syncpoint table: table is ready";
+                    "table" => format!("{SYNCPOINT_SCHEMA}.{SYNCPOINT_TABLE}"),
+                    "host" => &downstream.host,
+                    "port" => downstream.port,
+                    "elapsed" => ?start.saturating_elapsed(),
+                );
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    })
 }
 
 #[cfg(test)]

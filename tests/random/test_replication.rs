@@ -14,7 +14,7 @@ use replication_worker::{KeyspacesResp, LocalProvider, SafepointConfig};
 use security::{HttpClient, SecurityManager};
 use sqlx::Row;
 use test_cloud_server::{
-    TryWaiter, must_wait, must_wait_result, oss::prepare_dfs, sync_diff_inspector::*, ticdc::*,
+    must_wait, must_wait_result, oss::prepare_dfs, sync_diff_inspector::*, ticdc::*,
     tidb::ConnParams,
 };
 use tidb_query_datatype::codec::table::encode_row_key;
@@ -31,10 +31,16 @@ const TEST_DURATION: Duration = Duration::from_secs(120);
 const LOCAL_TIDB_HEALTHY_TIMEOUT: Duration = Duration::from_secs(90);
 
 const KEYSPACE_ID: u32 = 1;
-const SYNC_DIFF_COMPARE_INTERVAL: Duration = Duration::from_secs(3);
-// The minimum value TiCDC `sync_point_interval` is `30s`, so use `90s` for wait
-// sync timeout. TODO: shorten the `sync_point_interval` for test purpose.
-const WAIT_SYNC_TIMEOUT: Duration = Duration::from_secs(90);
+
+// Interval for TiCDC to generate sync points.
+// Depends on CSE branch https://github.com/pingcap/tiflow/pull/12354.
+const SYNC_POINT_INTERVAL: Duration = Duration::from_secs(5);
+
+// Wait up to WAIT_SYNC_TIMEOUT for replication to sync to current timestamp.
+const WAIT_SYNC_TIMEOUT: Duration = Duration::from_secs(300);
+
+// Wait up to NO_PROGRESS_TIMEOUT for replication makes no progress.
+const NO_PROGRESS_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[test]
 fn test_random_replication() {
@@ -244,7 +250,7 @@ fn test_random_replication() {
         start_ts: Some(start_ts),
         replica_config: ChangefeedReplicaConfig {
             enable_sync_point: true,
-            sync_point_interval: "30s".into(),
+            sync_point_interval: format!("{}s", SYNC_POINT_INTERVAL.as_secs()),
             ..Default::default()
         },
     };
@@ -299,7 +305,7 @@ fn test_random_replication() {
         upstream,
         downstream,
         check_tables,
-        SYNC_DIFF_COMPARE_INTERVAL,
+        SYNC_POINT_INTERVAL,
     );
 
     // Start workload.
@@ -516,19 +522,13 @@ fn test_random_replication() {
 
     // Verify.
     let verify_ts = client.get_ts().into_inner();
-    TryWaiter::timeout_dur(WAIT_SYNC_TIMEOUT)
-        .interval(1)
-        .must_wait(
-            || {
-                let Some(summary) = runtime.block_on(sync_differ.compare()) else {
-                    return false;
-                };
-                info!("compare result: {:?}", summary; "verify_ts" => verify_ts);
-                assert!(summary.success);
-                summary.upstream_snapshot.unwrap_or_default() >= verify_ts
-            },
-            || "wait for sync timeout".into(),
-        );
+    sync_differ.must_wait_sync_to(
+        verify_ts,
+        WAIT_SYNC_TIMEOUT,
+        NO_PROGRESS_TIMEOUT,
+        SYNC_POINT_INTERVAL,
+    );
+
     let query2 = format!("select id, col_i from {table_name}");
     let result = block_on(sqlx::query(&query2).fetch_all(&pool_downstream)).unwrap();
     for row in result.iter() {
