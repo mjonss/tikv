@@ -36,7 +36,7 @@ use crate::dfs::{
 #[cfg(test)]
 const DEVELOPMENT_STORAGE_CONNECTION_STRING: &str = "UseDevelopmentStorage=true";
 const TAG_DELETED_KEY: &str = "deleted";
-const MAX_DELAY_DURATION: Duration = Duration::from_secs(00);
+const MAX_DELAY_DURATION: Duration = Duration::from_secs(600);
 
 #[derive(Clone)]
 pub struct AzureFs {
