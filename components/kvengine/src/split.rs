@@ -22,10 +22,13 @@ use slog_global::info;
 
 use crate::{
     table::{
-        BoundedDataSet, DataBound, InnerKey, SnapVersion, columnar::ColumnarLevels,
+        BoundedDataSet, DataBound, InnerKey, SnapVersion, columnar::ColumnarLevels, fts::FtsLevels,
         vector_index::VectorIndexes,
     },
-    table_id::{get_table_id_from_data_bound, keys_belong_to_same_table, merge_columnar_table_ids},
+    table_id::{
+        get_table_id_from_data_bound, has_consistent_tracked_fts_indexes,
+        keys_belong_to_same_table, merge_columnar_table_ids,
+    },
     *,
 };
 
@@ -205,6 +208,18 @@ impl Engine {
                     vec_index.snap_version,
                 );
             }
+            let shard_bound = new_shard.data_bound();
+            let columnar_l0_file_ids: Vec<u64> = new_col_levels.levels[0]
+                .files
+                .iter()
+                .map(|file| file.id())
+                .collect();
+            let new_fts_levels = split_fts_levels(
+                shard_bound,
+                &columnar_table_ids,
+                &columnar_l0_file_ids,
+                &old_data.fts_levels,
+            );
             let mut builder = ShardDataBuilder::new(new_shard.get_data());
             builder.set_mem_tbls(new_mem_tbls);
             builder.set_l0_tbls(new_l0s);
@@ -215,6 +230,7 @@ impl Engine {
             builder.set_schema(schema_version, restore_version, schema_file);
             builder.set_columnar_levels(new_col_levels);
             builder.set_vector_indexes(new_vec_indexes);
+            builder.set_fts_levels(new_fts_levels);
             builder.set_columnar_table_ids(columnar_table_ids);
             builder.set_persisted_version(old_data.persisted_version);
             new_shard.set_data(builder.build());
@@ -234,13 +250,17 @@ impl Engine {
             self.refresh_shard_states(&shard);
             let all_files = shard.get_all_files();
             let all_col_files = shard.get_all_col_files();
+            let all_vec_files = shard.get_all_vec_idx_files();
+            let all_fts_files = shard.get_all_fts_files();
             info!(
-                "split new shard {}, start {:x}, end {:x}, all files {:?} (columnar {:?})",
+                "split new shard {}, start {:x}, end {:x}, all files {:?} (columnar {:?}, vector {:?}, fts {:?})",
                 shard.tag(),
                 shard.outer_start,
                 shard.outer_end,
                 all_files,
                 all_col_files,
+                all_vec_files,
+                all_fts_files
             );
         }
         Ok(())
@@ -284,6 +304,16 @@ impl Engine {
         let target_shard = self.get_shard_with_ver(target_id, target_ver)?;
         if !target_shard.get_initial_flushed() {
             return Err(Error::CheckMerge("target not initial flushed".to_string()));
+        }
+        if !has_consistent_tracked_fts_indexes(
+            source_shard.get_data().fts_levels.tracked_indexes_ref(),
+            target_shard.get_data().fts_levels.tracked_indexes_ref(),
+            source_shard.data_bound(),
+            target_shard.data_bound(),
+        ) {
+            return Err(Error::CheckMerge(
+                "source and target have inconsistent FTS indexes".to_string(),
+            ));
         }
         let target_sc_spec =
             StorageClassSpec::unmarshal(target_shard.get_property(STORAGE_CLASS_KEY).as_deref());
@@ -567,6 +597,7 @@ impl Engine {
                     std::cmp::max(old_snap_version, source_vec_index.snap_version.into()),
                 );
             }
+            let mut fts_levels = Self::merge_fts(&old_data, source);
             let mut schema_version = old_data.schema_version;
             let mut restore_version = old_data.restore_version;
             let mut schema_file = old_data.schema_file.clone();
@@ -592,6 +623,7 @@ impl Engine {
                 &columnar_table_ids,
                 &mut columnar_levels,
                 &mut vector_indexes,
+                &mut fts_levels,
             );
             let mut builder = ShardDataBuilder::new(old_data);
             builder.set_range(new_shard.range.clone());
@@ -608,6 +640,7 @@ impl Engine {
             builder.set_columnar_levels(columnar_levels);
             builder.set_schema(schema_version, restore_version, schema_file);
             builder.set_vector_indexes(vector_indexes);
+            builder.set_fts_levels(fts_levels);
             builder.set_columnar_table_ids(columnar_table_ids);
             builder.set_persisted_version(new_snap_version);
             builder.build()
@@ -630,16 +663,107 @@ impl Engine {
         new_shard.parent_id = shard_id;
         let all_files = new_shard.get_all_files();
         let all_col_files = new_shard.get_all_col_files();
+        let all_vec_files = new_shard.get_all_vec_idx_files();
+        let all_fts_files = new_shard.get_all_fts_files();
         info!(
-            "merged new shard {}, start {:x}, end {:x}, all files {:?} (columnar {:?})",
+            "merged new shard {}, start {:x}, end {:x}, all files {:?} (columnar {:?}, vector {:?}, fts {:?})",
             new_shard.tag(),
             new_shard.outer_start,
             new_shard.outer_end,
             all_files,
             all_col_files,
+            all_vec_files,
+            all_fts_files,
         );
         self.insert_shard_and_refresh(Arc::new(new_shard));
         Ok(())
+    }
+
+    fn merge_fts(old_data: &ShardData, source: &ChangeSet) -> FtsLevels {
+        let mut fts_levels = (*old_data.fts_levels).clone();
+        let source_snap = source.get_snapshot();
+        for tbl_idx in source_snap.get_fts_indexes() {
+            fts_levels.track_index(tbl_idx.table_id, tbl_idx.index_id);
+        }
+        if !source_snap.get_fts_l0_files().is_empty() {
+            let mut new_files = vec![];
+            for file_ref in source_snap.get_fts_l0_files() {
+                if fts_levels
+                    .l0()
+                    .iter()
+                    .any(|file| file.id() == file_ref.get_id())
+                {
+                    continue;
+                }
+                if let Some(file) = source.fts_l0_files.get(&file_ref.get_id()) {
+                    new_files.push(file.clone());
+                } else {
+                    warn!(
+                        "FTS L0 file {} missing in changeset {:?}",
+                        file_ref.get_id(),
+                        source_snap
+                    );
+                    debug_assert!(false, "missing FTS L0 file in changeset");
+                }
+            }
+            fts_levels.mut_l0(move |l0| l0.extend(new_files));
+        }
+        if !source_snap.get_fts_l1_files().is_empty() {
+            let mut new_files = vec![];
+            for file_ref in source_snap.get_fts_l1_files() {
+                if fts_levels
+                    .l1()
+                    .iter()
+                    .any(|file| file.id() == file_ref.get_id())
+                {
+                    continue;
+                }
+                if let Some(file) = source.fts_l1_files.get(&file_ref.get_id()) {
+                    new_files.push(file.clone());
+                } else {
+                    warn!(
+                        "FTS L1 file {} missing in changeset {:?}",
+                        file_ref.get_id(),
+                        source_snap
+                    );
+                    debug_assert!(false, "missing FTS L1 file in changeset");
+                }
+            }
+            fts_levels.mut_l1(move |l1| l1.extend(new_files));
+        }
+        for file_ref in source_snap.get_fts_l2_files() {
+            let Some(file) = source.fts_l2_files.get(&file_ref.get_id()) else {
+                warn!(
+                    "FTS L2 file {} missing in changeset {:?}",
+                    file_ref.get_id(),
+                    source_snap
+                );
+                debug_assert!(false, "missing FTS L2 file in changeset");
+                continue;
+            };
+
+            if let Some(l2_files) = fts_levels.l2().get(file.props().get_lp_key()) {
+                if l2_files.iter().any(|f| f.id() == file_ref.get_id()) {
+                    continue;
+                }
+            }
+            fts_levels.insert_l2_file(file.clone());
+        }
+        fts_levels.l0_snap_version = max(
+            fts_levels.l0_snap_version,
+            source_snap.get_fts_l0_snap_version().into(),
+        );
+        if !fts_levels.is_empty() {
+            fts_levels.mut_pending_columnar_l0_ids(|ids| {
+                ids.clear();
+                ids.extend(collect_pending_fts_l0_columnar_ids(
+                    old_data,
+                    source_snap.get_fts_pending_l0_ids(),
+                ));
+            });
+        }
+
+        fts_levels
     }
 
     pub(crate) fn new_shard_version(&self, old_shard: &Shard, sequence: u64) -> Shard {
@@ -681,6 +805,7 @@ fn retain_columnar_and_vector(
     columnar_table_ids: &[i64],
     col_levels: &mut ColumnarLevels,
     vector_indexes: &mut VectorIndexes,
+    fts_levels: &mut FtsLevels,
 ) {
     col_levels.retain(|col| {
         let data_bound = col.data_bound();
@@ -693,6 +818,96 @@ fn retain_columnar_and_vector(
         col_levels.unconverted_l0s.clear();
     }
     vector_indexes.retain(|idx| columnar_table_ids.contains(&idx.table_id));
+    let columnar_l0_ids: Vec<u64> = col_levels.levels[0]
+        .files
+        .iter()
+        .map(|file| file.id())
+        .collect();
+    fts_levels.retain_for_tables(columnar_table_ids, &columnar_l0_ids);
+}
+
+fn split_fts_levels(
+    shard_bound: DataBound<'_>,
+    columnar_table_ids: &[i64],
+    columnar_l0_file_ids: &[u64],
+    old_levels: &FtsLevels,
+) -> FtsLevels {
+    if columnar_table_ids.is_empty() {
+        return FtsLevels::default();
+    }
+    let mut new_levels = FtsLevels::default();
+    new_levels.l0_snap_version = old_levels.l0_snap_version;
+    for (table_id, index_ids) in old_levels.iter_tracked_indexes() {
+        if columnar_table_ids.contains(table_id) {
+            for &index_id in index_ids {
+                new_levels.track_index(*table_id, index_id);
+            }
+        }
+    }
+    new_levels.mut_l0(|l0| {
+        l0.extend(
+            old_levels
+                .l0()
+                .iter()
+                .filter(|file| {
+                    fts_file_overlaps(
+                        shard_bound,
+                        file.props().get_smallest_key(),
+                        file.props().get_biggest_key(),
+                    )
+                })
+                .cloned(),
+        )
+    });
+    new_levels.mut_l1(|l1| {
+        l1.extend(
+            old_levels
+                .l1()
+                .iter()
+                .filter(|file| {
+                    fts_file_overlaps(
+                        shard_bound,
+                        file.props().get_smallest_key(),
+                        file.props().get_biggest_key(),
+                    )
+                })
+                .cloned(),
+        )
+    });
+    new_levels.insert_l2_files(old_levels.l2().values().flat_map(|files_in_lp| {
+        files_in_lp
+            .iter()
+            .filter(|file| {
+                fts_file_overlaps(
+                    shard_bound,
+                    file.props().get_smallest_key(),
+                    file.props().get_biggest_key(),
+                )
+            })
+            .cloned()
+    }));
+    if !old_levels.pending_columnar_l0_ids().is_empty() {
+        let l0_id_set: HashSet<u64> = columnar_l0_file_ids.iter().copied().collect();
+        new_levels.mut_pending_columnar_l0_ids(|ids| {
+            ids.extend(
+                old_levels
+                    .pending_columnar_l0_ids()
+                    .iter()
+                    .copied()
+                    .filter(|id| l0_id_set.contains(id)),
+            );
+        });
+    }
+    new_levels
+}
+
+fn fts_file_overlaps(shard_bound: DataBound<'_>, smallest: &[u8], biggest: &[u8]) -> bool {
+    let file_bound = DataBound::new(
+        InnerKey::from_inner_buf(smallest),
+        InnerKey::from_inner_buf(biggest),
+        true,
+    );
+    shard_bound.overlap_bound(file_bound)
 }
 
 pub fn get_split_shard_index(split_keys: &[Vec<u8>], key: &[u8]) -> usize {
@@ -730,11 +945,44 @@ pub fn need_clear_region_data_on_merge(
     )
 }
 
+fn collect_pending_fts_l0_columnar_ids(
+    data: &ShardData,
+    source_pending_l0_ids: &[u64],
+) -> Vec<u64> {
+    let valid_ids: HashSet<u64> = data.col_levels.levels[0]
+        .files
+        .iter()
+        .map(|f| f.id())
+        .collect();
+    // Existing pending file is still pending
+    let mut pending: HashSet<u64> = data
+        .fts_levels
+        .pending_columnar_l0_ids()
+        .iter()
+        .filter(|id| valid_ids.contains(id))
+        .copied()
+        .collect();
+    let old_watermark = data.fts_levels.l0_snap_version;
+    // For files newer than old watermark, add them to pending ids.
+    for col_file in &data.col_levels.levels[0].files {
+        let l0_version = col_file.get_snap_version().unwrap_or_default();
+        if l0_version > old_watermark {
+            pending.insert(col_file.id());
+        }
+    }
+    pending.extend(source_pending_l0_ids.iter().copied());
+    pending.into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::Iterator;
 
     use super::*;
+    use crate::table::{
+        DataBound, InnerKey,
+        fts::test_util::{new_ded, new_packed},
+    };
 
     #[test]
     fn test_need_clear_region_data_on_merge() {
@@ -770,5 +1018,46 @@ mod tests {
             let res = need_clear_region_data_on_merge(source_outer_start, target_outer_start);
             assert_eq!(res, expected, "case {}", idx);
         }
+    }
+
+    #[test]
+    fn test_split_fts_levels_keeps_files_when_untracked() {
+        let mut old_levels = FtsLevels::default();
+
+        old_levels.mut_l1(|l1| {
+            l1.push(
+                new_packed(1, 1)
+                    .lp(1, 1, |d| {
+                        d(1, 1, false, "doc1");
+                    })
+                    .finish_as_file(),
+            );
+        });
+        old_levels.insert_l2_file(
+            new_ded(2)
+                .lp(1, 1, |d| {
+                    d(1, 1, false, "doc1");
+                })
+                .finish_as_file(),
+        );
+
+        // Use a very broad bound so the test is insensitive to key encoding.
+        let shard_bound = DataBound::new(
+            InnerKey::from_inner_buf(b""),
+            InnerKey::from_inner_buf(b"\xff"),
+            true,
+        );
+
+        let new_levels = split_fts_levels(shard_bound, &[1], &[], &old_levels);
+        assert!(new_levels.is_empty(), "expected no tracked indexes");
+        assert_eq!(new_levels.l1().len(), 1);
+        assert_eq!(
+            new_levels
+                .l2()
+                .values()
+                .map(|files| files.len())
+                .sum::<usize>(),
+            1
+        );
     }
 }

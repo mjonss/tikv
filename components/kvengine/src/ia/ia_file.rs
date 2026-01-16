@@ -25,7 +25,8 @@ use crate::{
         types::{FileSegmentIdent, FileSegmentPosition, TABLE_META_LOCAL_FILE_SUFFIX},
     },
     metrics::{ENGINE_IA_SYNC_READ_COUNTER, PREPARE_COUNTER_VEC},
-    new_blob_filename, new_columnar_filename, new_sst_filename, new_vector_index_filename,
+    new_blob_filename, new_columnar_filename, new_fts_dedicated_filename, new_fts_packed_filename,
+    new_sst_filename, new_vector_index_filename,
     table::{
         Error, Result,
         blobtable::{self, blobtable::BlobTable},
@@ -82,6 +83,10 @@ impl IaFile {
             FileType::Sst => Self::open_for_sst(id, table_meta_file, mgr, tiny_meta.as_sst()),
             FileType::Columnar => Self::open_for_columnar(id, table_meta_file, mgr),
             FileType::VectorIndex => Self::open_for_vector(id, fm, table_meta_file, mgr),
+            FileType::FtsPackedFile => Self::open_for_fts_packed(id, fm, table_meta_file, mgr),
+            FileType::FtsDedicatedFile => {
+                Self::open_for_fts_dedicated(id, fm, table_meta_file, mgr)
+            }
             FileType::Blob => Self::open_for_blob(id, table_meta_file, mgr),
             _ => Err(Error::IaMgr(format!(
                 "{id} open: file type not supported: {:?}",
@@ -280,6 +285,92 @@ impl IaFile {
         };
 
         debug!("{} ia open for vector: {:?}", id, f);
+        Ok(f)
+    }
+
+    fn open_for_fts_packed(
+        id: u64,
+        _fm: &FileMeta,
+        table_meta_file: Arc<dyn File>,
+        mgr: IaManager,
+    ) -> Result<Self> {
+        use crate::table::fts::{PackedFile, PackedFileFooter};
+        let footer_size = PackedFileFooter::footer_size();
+        let footer_data = table_meta_file.read_footer(footer_size)?;
+        let footer = PackedFileFooter::unmarshal(&footer_data)
+            .map_err(|e| Error::IaMgr(format!("{id} failed to unmarshal footer: {}", e)))?;
+
+        let table_meta_off = footer.metadata_offset();
+        let meta_size = table_meta_file.size();
+        let total_file_size = table_meta_off + meta_size;
+
+        let mut f = Self {
+            id,
+            size: total_file_size,
+            ftype: FileType::FtsPackedFile,
+            table_meta_off,
+            segment_offsets: vec![],
+            table_meta_file: table_meta_file.clone(),
+            mgr,
+        };
+
+        // A correct table_meta_off must be set before feed into PackedFile, otherwise
+        // PackedFile cannot read the meta from the offset correctly.
+
+        let segments = PackedFile::generate_ia_segment_boundaries(&f, f.mgr.segment_size() as u64)
+            .map_err(|e| {
+                Error::IaMgr(format!(
+                    "{} failed to generate ia segment boundaries: {}",
+                    id, e
+                ))
+            })?;
+        f.segment_offsets = segments;
+
+        debug!("{} ia open for fts packed: {:?}", id, f);
+        Ok(f)
+    }
+
+    fn open_for_fts_dedicated(
+        id: u64,
+        _fm: &FileMeta,
+        table_meta_file: Arc<dyn File>,
+        mgr: IaManager,
+    ) -> Result<Self> {
+        use crate::table::fts::{DedicatedFile, DedicatedFileFooter};
+        let footer_size = DedicatedFileFooter::footer_size();
+        let footer_data = table_meta_file.read_footer(footer_size)?;
+        let footer = DedicatedFileFooter::unmarshal(&footer_data)
+            .map_err(|e| Error::IaMgr(format!("{id} failed to unmarshal footer: {}", e)))?;
+
+        let table_meta_off = footer.metadata_offset();
+        let meta_size = table_meta_file.size();
+        let total_file_size = table_meta_off + meta_size;
+
+        let mut f = Self {
+            id,
+            size: total_file_size,
+            ftype: FileType::FtsDedicatedFile,
+            table_meta_off,
+            segment_offsets: vec![],
+            table_meta_file: table_meta_file.clone(),
+            mgr,
+        };
+
+        // A correct table_meta_off must be set before feed into DedicatedFile,
+        // otherwise DedicatedFile cannot read the meta from the offset
+        // correctly.
+
+        let segments =
+            DedicatedFile::generate_ia_segment_boundaries(&f, f.mgr.segment_size() as u64)
+                .map_err(|e| {
+                    Error::IaMgr(format!(
+                        "{} failed to generate ia segment boundaries: {}",
+                        id, e
+                    ))
+                })?;
+        f.segment_offsets = segments;
+
+        debug!("{} ia open for fts dedicated: {:?}", id, f);
         Ok(f)
     }
 
@@ -752,6 +843,16 @@ pub fn table_meta_file_local_path(file_id: u64, file_type: FileType, data_dir: &
         FileType::VectorIndex => data_dir.join(format!(
             "{}.{}",
             new_vector_index_filename(file_id).display(),
+            TABLE_META_LOCAL_FILE_SUFFIX
+        )),
+        FileType::FtsPackedFile => data_dir.join(format!(
+            "{}.{}",
+            new_fts_packed_filename(file_id).display(),
+            TABLE_META_LOCAL_FILE_SUFFIX
+        )),
+        FileType::FtsDedicatedFile => data_dir.join(format!(
+            "{}.{}",
+            new_fts_dedicated_filename(file_id).display(),
             TABLE_META_LOCAL_FILE_SUFFIX
         )),
         FileType::Blob => data_dir.join(format!(

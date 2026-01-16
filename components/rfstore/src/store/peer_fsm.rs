@@ -2,7 +2,7 @@
 
 use std::{
     cmp,
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     mem,
     ops::{Deref, DerefMut},
     sync::{
@@ -17,8 +17,10 @@ use fail::fail_point;
 use kvengine::{
     CheckMergeResult, DEL_PREFIXES_KEY, IdVer, LARGE_NUM_COLUMNAR_TABLES_IN_SHARD,
     MANUAL_MAJOR_COMPACTION, MANUAL_MAJOR_COMPACTION_DISABLE, MANUAL_MAJOR_COMPACTION_ENABLE,
-    MANUAL_MAJOR_COMPACTION_ENABLE_COLUMNAR, Shard, TERM_KEY, ia::ia_auto_file::report_transitions,
-    table::schema_file::SchemaFile, table_id::is_table_boundary_key,
+    MANUAL_MAJOR_COMPACTION_ENABLE_COLUMNAR, Shard, TERM_KEY,
+    ia::ia_auto_file::report_transitions,
+    table::{DataBound, InnerKey, schema_file::SchemaFile},
+    table_id::{has_consistent_tracked_fts_indexes, is_table_boundary_key},
 };
 use kvproto::{
     import_sstpb::SwitchMode,
@@ -339,6 +341,7 @@ impl<'a> PeerMsgHandler<'a> {
             CasualMessage::ClearColumnar { restore_version } => {
                 self.on_clear_columnar(restore_version)
             }
+            CasualMessage::ClearFtsIndex => self.on_clear_fts_index(),
             CasualMessage::TriggerRefreshShardStates => self.on_trigger_refresh_shard_states(),
             CasualMessage::ForceSwitchMemTable {
                 current_size,
@@ -975,6 +978,56 @@ impl<'a> PeerMsgHandler<'a> {
                     source_region,
                     region
                 ));
+            }
+            let source_meta = msg.get_admin_request().get_commit_merge().get_source_meta();
+            let mut source_meta_cs = kvenginepb::ChangeSet::default();
+            if source_meta_cs.merge_from_bytes(source_meta).is_err() {
+                return Err(box_err!("failed to get merge source change set from meta"));
+            }
+            let source_fts_indexes = {
+                let mut source_fts_indexes: HashMap<i64, HashSet<i64>> = HashMap::new();
+                for idx in source_meta_cs.get_snapshot().get_fts_indexes() {
+                    source_fts_indexes
+                        .entry(idx.get_table_id())
+                        .or_default()
+                        .insert(idx.get_index_id());
+                }
+                source_fts_indexes
+            };
+
+            let Some(target_meta) = self.fsm.get_peer().get_store().shard_meta.as_ref() else {
+                return Ok(());
+            };
+
+            let target_fts_indexes = {
+                let mut target_fts_indexes: HashMap<i64, HashSet<i64>> = HashMap::new();
+                for &(table_id, index_id) in &target_meta.fts_indexes {
+                    target_fts_indexes
+                        .entry(table_id)
+                        .or_default()
+                        .insert(index_id);
+                }
+                target_fts_indexes
+            };
+
+            let source_snap = source_meta_cs.get_snapshot();
+            let source_data_bound = DataBound::new(
+                InnerKey::from_outer_key(source_snap.get_outer_start()),
+                InnerKey::from_outer_end_key(source_snap.get_outer_end()),
+                true,
+            );
+            let target_data_bound = DataBound::new(
+                InnerKey::from_outer_key(target_meta.range.outer_start.as_ref()),
+                InnerKey::from_outer_end_key(target_meta.range.outer_end.as_ref()),
+                true,
+            );
+            if !has_consistent_tracked_fts_indexes(
+                &source_fts_indexes,
+                &target_fts_indexes,
+                source_data_bound,
+                target_data_bound,
+            ) {
+                return Err(box_err!("source and target have inconsistent FTS indexes"));
             }
         }
 
@@ -1777,6 +1830,21 @@ impl<'a> PeerMsgHandler<'a> {
             clear_columnar.set_restore_version(shard_meta.schema.restore_ver());
         }
         info!("{} propose clear_columnar", self.peer.tag());
+        self.propose_change_set(change_set, Callback::None);
+    }
+
+    fn on_clear_fts_index(&mut self) {
+        if !self.peer.is_leader() {
+            return;
+        }
+        let shard_meta = self.peer.get_store().shard_meta.as_ref().unwrap();
+        if !shard_meta.schema.has_value() {
+            return;
+        }
+        let mut change_set = kvengine::new_change_set(shard_meta.id, shard_meta.ver);
+        let fts_update = change_set.mut_fts_update();
+        fts_update.set_clear_all(true);
+        info!("{} propose clear_fts_index", self.peer.tag());
         self.propose_change_set(change_set, Callback::None);
     }
 

@@ -420,6 +420,7 @@ impl TidbServers {
         let mut config = TidbConfig {
             keyspace_name: keyspace_name_by_idx(idx),
             enable_safe_point_v2: true,
+            force_enable_fulltext_index: true,
             cse: CseConfig {
                 columnar_store_type,
                 enable_region_client: false,
@@ -806,6 +807,7 @@ struct TidbConfig {
     split_table: bool,          // Set to false.
     enable_safe_point_v2: bool, // Deprecated since v7.5
     disaggregated_tiflash: bool,
+    force_enable_fulltext_index: bool,
     use_autoscaler: bool,
     tikv_client: TikvClientConfig,
     tiflash_replicas: Option<TiFlashReplicas>,

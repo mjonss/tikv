@@ -35,6 +35,7 @@ use crate::{
         ia_file::{IaFile, table_meta_file_local_path},
     },
     limiter::{DfsLoadLimiter, DfsLoadLimiterPermit},
+    meta::FileMeta,
     metrics::{ENGINE_LEVEL_WRITE_VEC, PREPARE_COUNTER_VEC},
     table::{
         BoundedDataSet,
@@ -1211,6 +1212,8 @@ impl FilePrepareType {
             }
             FileType::Columnar => Self::Ia,
             FileType::VectorIndex => Self::Ia,
+            FileType::FtsPackedFile => Self::Ia,
+            FileType::FtsDedicatedFile => Self::Ia,
             _ => Self::Local,
         }
     }

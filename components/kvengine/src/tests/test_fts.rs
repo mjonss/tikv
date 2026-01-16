@@ -10,7 +10,7 @@ use tidb_query_datatype::{FieldTypeTp, codec::table::encode_row_key};
 use tikv_util::config::ReadableSize;
 
 use crate::{
-    DEL_PREFIXES_KEY, DeletePrefixes,
+    DEL_PREFIXES_KEY, DeletePrefixes, FilePrepareType, IdVer, PrepareOpts,
     compaction::CompactionPriority,
     dfs,
     dfs::FileType,
@@ -30,7 +30,7 @@ use crate::{
         schema_file::{Schema, SchemaFile, build_schema_file},
     },
     tests::{
-        DEF_BLOCK_SIZE, KEYSPACE_ID, TestEngine, keyspace_prefix, new_test_engine_opt,
+        DEF_BLOCK_SIZE, KEYSPACE_ID, Splitter, TestEngine, keyspace_prefix, new_test_engine_opt,
         new_test_engine_opt_with_custom_options, prepare_table_region, try_wait,
     },
 };
@@ -1451,6 +1451,351 @@ fn test_fts_l0_compaction_no_promotion_below_l2_threshold() {
         .map(|file| search_packed(file, table_id, index_id, "stayl1").len())
         .sum();
     assert_eq!(stayl1_hits, 2, "stayl1 docs should be searchable in L1");
+}
+
+#[test]
+fn test_fts_split_merge() {
+    ::test_util::init_log_for_test();
+
+    let keyspace_id = KEYSPACE_ID;
+    let table_id = 60;
+    let (engine, apply_tx) = new_test_engine_opt(true, DEF_BLOCK_SIZE, "");
+    let id = || engine.id_allocator.alloc_id(1).unwrap()[0];
+    let shard_id = prepare_table_region(&engine, &apply_tx, keyspace_id, table_id);
+    let shard = engine.get_shard(shard_id).unwrap();
+
+    // Build a schema file so shard metadata looks consistent.
+    let schema = crate::table::columnar::tests::new_schema(table_id, false);
+    let schema_file = put_schema_file(&engine, id(), &[&schema]);
+
+    // Create packed file with entries spanning a range (handles 10-90)
+    // L0 file covering low range (handles 10-40)
+    let l0_id_low = id();
+    let l0_file_low = put_packed(
+        &engine,
+        l0_id_low,
+        new_packed(l0_id_low, 500).lp(table_id, 1, |d| {
+            d(10, 200, false, "split doc");
+            d(20, 190, false, "split doc");
+            d(30, 180, false, "split doc");
+            d(40, 170, false, "split doc");
+        }),
+    );
+    let l0_id_overlap = id();
+    let l0_file_overlap = put_packed(
+        &engine,
+        l0_id_overlap,
+        new_packed(l0_id_overlap, 500).lp(table_id, 1, |d| {
+            d(35, 280, false, "split doc");
+            d(60, 270, false, "split doc");
+        }),
+    );
+    // L0 file covering high range (handles 60-90)
+    let l0_id_high = id();
+    let l0_file_high = put_packed(
+        &engine,
+        l0_id_high,
+        new_packed(l0_id_high, 500).lp(table_id, 1, |d| {
+            d(60, 160, false, "split doc");
+            d(70, 150, false, "split doc");
+            d(80, 140, false, "split doc");
+            d(90, 130, false, "split doc");
+        }),
+    );
+
+    // Create L2 dedicated files with different key ranges
+    let l2_id_low = id();
+    let l2_file_low = put_ded(
+        &engine,
+        l2_id_low,
+        new_ded(l2_id_low).lp(table_id, 1, |d| {
+            d(15, 300, false, "split doc");
+            d(25, 290, false, "split doc");
+        }),
+    );
+    let l2_id_overlap = id();
+    let l2_file_overlap = put_ded(
+        &engine,
+        l2_id_overlap,
+        new_ded(l2_id_overlap).lp(table_id, 1, |d| {
+            d(35, 280, false, "split doc");
+            d(60, 270, false, "split doc");
+        }),
+    );
+    let l2_id_high = id();
+    let l2_file_high = put_ded(
+        &engine,
+        l2_id_high,
+        new_ded(l2_id_high).lp(table_id, 1, |d| {
+            d(65, 280, false, "split doc");
+            d(75, 270, false, "split doc");
+        }),
+    );
+
+    let mut levels = FtsLevels::default();
+    levels.track_index(table_id, 1);
+    levels.l0_snap_version = SnapVersion::from(123);
+    levels.mut_l0(|files| {
+        files.push(l0_file_low);
+        files.push(l0_file_overlap);
+        files.push(l0_file_high);
+    });
+    levels.insert_l2_file(l2_file_low);
+    levels.insert_l2_file(l2_file_overlap);
+    levels.insert_l2_file(l2_file_high);
+
+    let mut builder = ShardDataBuilder::new(shard.get_data());
+    builder.set_schema(schema_file.get_version(), 0, Some(schema_file));
+    builder.set_columnar_table_ids(vec![table_id]);
+    builder.set_fts_levels(levels.clone());
+    shard.set_data(builder.build());
+    shard
+        .initial_flushed
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    // Verify initial state
+    let data_before = shard.get_data();
+    assert_eq!(
+        data_before.fts_levels.l0().len(),
+        3,
+        "should have 3 L0 files before split"
+    );
+    assert_eq!(
+        data_before
+            .fts_levels
+            .l2()
+            .values()
+            .map(|v| v.len())
+            .sum::<usize>(),
+        3,
+        "should have 3 L2 files before split"
+    );
+    let l0_snap_version_before = data_before.fts_levels.l0_snap_version;
+
+    // Split shard at handle 50 (middle of range), similar to
+    // test_columnar_trim_over_bound
+    let split_key = [keyspace_prefix(keyspace_id), encode_row_key(table_id, 50)].concat();
+    let shard_ver = shard.ver;
+    let mut splitter = Splitter::new(
+        vec![split_key],
+        IdVer::new(shard_id, shard_ver),
+        100,
+        apply_tx,
+    );
+    let handle = std::thread::spawn(move || {
+        splitter.run();
+    });
+
+    // Wait for split to complete (expect 6 shards now: initial 5 + 1 new)
+    let ok = try_wait(|| engine.shards.len() == 6, 5);
+    assert!(
+        ok,
+        "fts split failed: expected 6 shards, got {}",
+        engine.shards.len()
+    );
+    handle.join().unwrap();
+
+    // The original shard (shard_id) should now cover higher range (>=50)
+    // New shard (101) should cover lower range (<50)
+    let new_shard_id = 101;
+    let shard_high = engine.get_shard(shard_id).unwrap();
+    let shard_low = engine.get_shard(new_shard_id).unwrap();
+
+    // Check FTS levels in the high range shard
+    let levels_high = &shard_high.get_data().fts_levels;
+    assert_eq!(
+        levels_high.l0().len(),
+        2,
+        "high range shard should have 2 L0 files"
+    );
+    // High range shard should only have the L0 file that overlaps with high range
+    assert!(
+        levels_high.l0().iter().any(|f| f.id() == l0_id_high),
+        "high range shard should have high L0 file"
+    );
+    assert!(
+        levels_high.l0().iter().any(|f| f.id() == l0_id_overlap),
+        "high range shard should have overlap L0 file"
+    );
+
+    // Check FTS levels in the low range shard
+    let levels_low = &shard_low.get_data().fts_levels;
+    assert_eq!(
+        levels_low.l0().len(),
+        2,
+        "low range shard should have 2 L0 files"
+    );
+    // Low range shard should only have the L0 file that overlaps with low range
+    assert!(
+        levels_low.l0().iter().any(|f| f.id() == l0_id_low),
+        "low range shard should have low L0 file"
+    );
+    assert!(
+        levels_low.l0().iter().any(|f| f.id() == l0_id_overlap),
+        "low range shard should have overlap L0 file"
+    );
+    // Verify L2 files are correctly distributed
+    assert_eq!(
+        levels_high.l2().values().map(|v| v.len()).sum::<usize>(),
+        2,
+        "high range shard should have 2 L2 files"
+    );
+    assert_eq!(
+        levels_low.l2().values().map(|v| v.len()).sum::<usize>(),
+        2,
+        "low range shard should have 2 L2 files"
+    );
+    assert!(
+        levels_high
+            .l2()
+            .values()
+            .any(|files| files.iter().any(|f| f.id() == l2_id_high)),
+        "high range shard should have high L2 file"
+    );
+    assert!(
+        levels_low
+            .l2()
+            .values()
+            .any(|files| files.iter().any(|f| f.id() == l2_id_low)),
+        "low range shard should have low L2 file"
+    );
+    assert!(
+        levels_high
+            .l2()
+            .values()
+            .any(|files| files.iter().any(|f| f.id() == l2_id_overlap)),
+        "high range shard should have overlap L2 file"
+    );
+    assert!(
+        levels_low
+            .l2()
+            .values()
+            .any(|files| files.iter().any(|f| f.id() == l2_id_overlap)),
+        "low range shard should have overlap L2 file"
+    );
+
+    // Verify l0_snap_version is preserved in both shards
+    assert_eq!(
+        levels_high.l0_snap_version, l0_snap_version_before,
+        "high shard should preserve l0_snap_version"
+    );
+    assert_eq!(
+        levels_low.l0_snap_version, l0_snap_version_before,
+        "low shard should preserve l0_snap_version"
+    );
+
+    // Verify tracked indexes are preserved in both shards
+    assert!(
+        levels_high
+            .iter_tracked_indexes()
+            .any(|(tid, _)| *tid == table_id),
+        "high range shard should track table_id"
+    );
+    assert!(
+        levels_low
+            .iter_tracked_indexes()
+            .any(|(tid, _)| *tid == table_id),
+        "low range shard should track table_id"
+    );
+
+    // Merge shard_low into shard_high.
+
+    let shard_low_ver = shard_low.ver;
+    engine
+        .prepare_merge(
+            shard_low.id,
+            shard_low_ver,
+            shard_low.get_write_sequence() + 1,
+        )
+        .unwrap();
+    // Generate changeset for source shard.
+    let mut source_cs = kvenginepb::ChangeSet::new();
+    source_cs.set_shard_id(shard_low.id);
+    source_cs.set_shard_ver(shard_low_ver + 1);
+    let snap = source_cs.mut_snapshot();
+    snap.set_outer_start(shard_low.get_data().range.outer_start.to_vec());
+    snap.set_outer_end(shard_low.get_data().range.outer_end.to_vec());
+    snap.set_base_version(shard_low.get_base_version());
+    snap.set_data_sequence(shard_low.get_write_sequence());
+    snap.set_columnar_table_ids(shard_low.get_data().columnar_table_ids.clone());
+    snap.set_fts_l0_snap_version(levels_low.l0_snap_version.into_inner());
+    snap.set_fts_indexes(
+        levels_low
+            .iter_tracked_indexes()
+            .map(|(tid, _)| {
+                let mut idx = kvenginepb::fts::TableIndexId::default();
+                idx.set_table_id(*tid);
+                idx.set_index_id(1);
+                idx
+            })
+            .collect::<Vec<_>>()
+            .into(),
+    );
+    snap.set_fts_l0_files(
+        levels_low
+            .l0()
+            .iter()
+            .map(|file| file.build_info())
+            .collect(),
+    );
+    snap.set_fts_l1_files(
+        levels_low
+            .l1()
+            .iter()
+            .map(|file| file.build_info())
+            .collect(),
+    );
+    let fts_l2_files = levels_low
+        .l2()
+        .values()
+        .map(|files| {
+            files
+                .iter()
+                .map(|file| file.build_info())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    snap.set_fts_l2_files(
+        fts_l2_files
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .into(),
+    );
+
+    let prepared_cs = engine
+        .prepare_change_set(
+            source_cs,
+            PrepareOpts {
+                prepare_type: FilePrepareType::Local,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    engine
+        .commit_merge(
+            shard_high.id,
+            shard_high.ver,
+            &prepared_cs,
+            shard_high.get_write_sequence() + 1,
+        )
+        .unwrap();
+    let merged_data = engine.get_shard(shard_high.id).unwrap().get_data();
+    assert_eq!(
+        merged_data.fts_levels.l0().len(),
+        3,
+        "should have 3 L0 files after merge"
+    );
+    assert_eq!(
+        merged_data
+            .fts_levels
+            .l2()
+            .values()
+            .map(|v| v.len())
+            .sum::<usize>(),
+        3,
+        "should have 3 L2 files after merge"
+    );
 }
 
 fn collect_packed_handles(file: &PackedFile, table_id: i64) -> Vec<i64> {

@@ -1102,8 +1102,79 @@ impl ShardMeta {
                     new_shard.vector_indexes.push(new_vec_idx);
                 }
             }
+            Self::apply_fts_split_to_new_shard(new_shard, old);
         }
         new_shards
+    }
+
+    fn apply_fts_split_to_new_shard(new_shard: &mut ShardMeta, old_shard: &ShardMeta) {
+        if new_shard.columnar_table_ids.is_empty() {
+            return;
+        }
+        new_shard.fts_l0_snap_version = old_shard.fts_l0_snap_version;
+        for &(table_id, index_id) in &old_shard.fts_indexes {
+            if new_shard.columnar_table_ids.contains(&table_id) {
+                new_shard.fts_indexes.insert((table_id, index_id));
+            }
+        }
+        let new_shard_bound = new_shard.range.data_bound();
+        new_shard.fts_l0_files.extend(
+            old_shard
+                .fts_l0_files
+                .iter()
+                .filter(|file| {
+                    let file_bound = DataBound::new(
+                        InnerKey::from_inner_buf(&file.smallest),
+                        InnerKey::from_inner_buf(&file.biggest),
+                        true,
+                    );
+                    new_shard_bound.overlap_bound(file_bound)
+                })
+                .cloned(),
+        );
+        new_shard.fts_l1_files.extend(
+            old_shard
+                .fts_l1_files
+                .iter()
+                .filter(|file| {
+                    let file_bound = DataBound::new(
+                        InnerKey::from_inner_buf(&file.smallest),
+                        InnerKey::from_inner_buf(&file.biggest),
+                        true,
+                    );
+                    new_shard_bound.overlap_bound(file_bound)
+                })
+                .cloned(),
+        );
+        new_shard.fts_l2_files.extend(
+            old_shard
+                .fts_l2_files
+                .iter()
+                .filter(|file| {
+                    let file_bound = DataBound::new(
+                        InnerKey::from_inner_buf(&file.smallest),
+                        InnerKey::from_inner_buf(&file.biggest),
+                        true,
+                    );
+                    new_shard_bound.overlap_bound(file_bound)
+                })
+                .cloned(),
+        );
+        let pending_l0_ids: Vec<u64> = old_shard
+            .fts_pending_l0_ids
+            .iter()
+            .filter(|id| {
+                old_shard
+                    .files
+                    .get(id)
+                    .map(|fm| new_shard.data_bound().overlap_bound(fm.data_bound()))
+                    .unwrap_or(false)
+            })
+            .copied()
+            .collect();
+        new_shard.fts_pending_l0_ids.extend(pending_l0_ids);
+        new_shard.fts_pending_l0_ids.sort_unstable();
+        new_shard.fts_pending_l0_ids.dedup();
     }
 
     pub fn apply_columnar_compaction(&mut self, comp: &pb::ColumnarCompaction) {
@@ -1513,13 +1584,20 @@ impl ShardMeta {
             // clear all files if exists
             parent.files.clear();
             parent.vector_indexes.clear();
+            parent.clear_fts();
             self.files.clear();
             self.vector_indexes.clear();
+            self.clear_fts();
             // remove DEL_PREFIXES_KEY property if exists
             self.del_property(DEL_PREFIXES_KEY);
             self.del_property(STORAGE_CLASS_KEY);
         }
         if !clear_source {
+            // Merge FTS state before merging source columnar file metas into `self.files`.
+            // Otherwise, pending calculation based on target watermark may mistakenly
+            // include source columnar L0s that are already indexed in the source shard.
+            self.merge_fts(source);
+
             for (&id, source_file) in &source.files {
                 parent.files.insert(id, source_file.clone());
             }
@@ -1580,15 +1658,15 @@ impl ShardMeta {
         );
         // Remove columnar and vector if related table is not in the merged
         // columnar_table_ids.
-        self.retain_columnar_and_vector();
+        self.retain_columnar_and_indexes();
         self.parent = Some(Box::new(parent));
         self.seq = sequence;
     }
 
-    fn retain_columnar_and_vector(&mut self) {
+    fn retain_columnar_and_indexes(&mut self) {
         let columnar_table_ids = self.columnar_table_ids.clone();
         self.files.retain(|_, file| {
-            if !file.is_columnar_file() && !file.is_vector_index_file() {
+            if !file.is_columnar_file() && !file.is_vector_index_file() && !file.is_fts_file() {
                 return true;
             }
             let data_bound = file.data_bound();
@@ -1605,6 +1683,7 @@ impl ShardMeta {
         }
         self.vector_indexes
             .retain(|vec| columnar_table_ids.contains(&vec.table_id));
+        self.retain_fts(&columnar_table_ids);
     }
 
     fn merge_vector_index(&mut self, vec_idx: &VectorIndex) {
@@ -1621,6 +1700,34 @@ impl ShardMeta {
             }
         } else {
             self.vector_indexes.push(vec_idx.clone());
+        }
+    }
+
+    fn merge_fts(&mut self, source: &ShardMeta) {
+        for &(table_id, index_id) in &source.fts_indexes {
+            self.fts_indexes.insert((table_id, index_id));
+        }
+        Self::extend_unique_fts_files(&mut self.fts_l0_files, &source.fts_l0_files, |f| f.get_id());
+        Self::extend_unique_fts_files(&mut self.fts_l1_files, &source.fts_l1_files, |f| f.get_id());
+        Self::extend_unique_fts_files(&mut self.fts_l2_files, &source.fts_l2_files, |f| f.get_id());
+        self.fts_pending_l0_ids = self.collect_fts_pending_l0_ids(&source.fts_pending_l0_ids);
+        self.fts_l0_snap_version = max(self.fts_l0_snap_version, source.fts_l0_snap_version);
+    }
+
+    fn extend_unique_fts_files<T, F>(target: &mut Vec<T>, source: &[T], id_fn: F)
+    where
+        T: Clone,
+        F: Fn(&T) -> u64,
+    {
+        let mut existing = HashSet::with_capacity(target.len() + source.len());
+        for item in target.iter() {
+            existing.insert(id_fn(item));
+        }
+        for item in source {
+            let id = id_fn(item);
+            if existing.insert(id) {
+                target.push(item.clone());
+            }
         }
     }
 
@@ -1771,6 +1878,7 @@ impl ShardMeta {
         self.columnar_l2_snap_version = SnapVersion::zero();
         self.unconverted_l0s.clear();
         self.vector_indexes.clear();
+        self.clear_fts();
         if let Some(parent) = &mut self.parent {
             parent.clear_columnar_related_meta();
         }
@@ -2152,6 +2260,8 @@ impl SchemaFileMeta {
 #[cfg(test)]
 mod tests {
     use std::iter::{FromIterator, Iterator};
+
+    use tidb_query_datatype::codec::table::encode_row_key;
 
     use super::*;
 
@@ -2720,5 +2830,408 @@ mod tests {
             assert_eq!(new_idx.files.len(), 1);
             assert_eq!(new_idx.files[0].id, 6);
         }
+    }
+
+    #[test]
+    fn test_fts_meta_merge() {
+        ::test_util::init_log_for_test();
+
+        let keyspace_id = 1;
+        let table_id = 70;
+        let mut target = new_shard_meta_for_range(keyspace_id, table_id, 0, 50, 20);
+        target.fts_l0_snap_version = SnapVersion::from(5);
+        target.fts_indexes.insert((table_id, 1));
+        target
+            .fts_l0_files
+            .push(new_fts_packed_info(8000, table_id, 0, 40, Some(5)));
+        target
+            .fts_l1_files
+            .push(new_fts_packed_info(8100, table_id, 0, 40, None));
+        target
+            .fts_l2_files
+            .push(new_fts_ded_info(8200, table_id, 0, 40));
+
+        let mut source = new_shard_meta_for_range(keyspace_id, table_id, 50, 100, 30);
+        source.fts_l0_snap_version = SnapVersion::from(9);
+        source.fts_indexes.insert((table_id, 2));
+        source.fts_indexes.insert((table_id + 1, 1));
+        let incoming_l0_id = 8300;
+        source.fts_l0_files.push(new_fts_packed_info(
+            incoming_l0_id,
+            table_id,
+            60,
+            90,
+            Some(9),
+        ));
+        source
+            .fts_l1_files
+            .push(new_fts_packed_info(8400, table_id, 60, 95, None));
+        source
+            .fts_l2_files
+            .push(new_fts_ded_info(8500, table_id, 60, 95));
+        source
+            .fts_l2_files
+            .push(new_fts_ded_info(8600, table_id + 1, 60, 95));
+
+        target.commit_merge(&source, 500);
+
+        assert!(target.fts_indexes.contains(&(table_id, 1)));
+        assert!(target.fts_indexes.contains(&(table_id, 2)));
+        assert!(
+            !target
+                .fts_indexes
+                .iter()
+                .any(|(tid, _)| *tid == table_id + 1),
+            "indexes from unrelated tables should be dropped"
+        );
+
+        assert!(
+            target
+                .fts_l0_files
+                .iter()
+                .any(|info| info.get_id() == incoming_l0_id),
+            "merged shard should include new L0 file"
+        );
+        assert!(
+            target.fts_l1_files.iter().any(|info| info.get_id() == 8400),
+            "merged shard should include new L1 file"
+        );
+        assert!(
+            target.fts_l2_files.iter().any(|info| info.get_id() == 8500),
+            "merged shard should include new L2 file"
+        );
+        assert!(
+            target.fts_l2_files.iter().all(|info| {
+                let data_bound = DataBound::new(
+                    InnerKey::from_inner_buf(&info.smallest),
+                    InnerKey::from_inner_buf(&info.biggest),
+                    true,
+                );
+                let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+                table_id >= min_table_id && table_id <= max_table_id
+            }),
+            "L2 files belonging to other tables should be removed"
+        );
+        assert_eq!(target.fts_l0_snap_version, source.fts_l0_snap_version);
+    }
+
+    #[test]
+    fn test_fts_meta_split() {
+        ::test_util::init_log_for_test();
+
+        let keyspace_id = 1;
+        let table_id = 70;
+        let mut parent = new_shard_meta_for_range(keyspace_id, table_id, 0, 100, 20);
+        parent.columnar_table_ids.push(table_id + 1);
+        parent.fts_l0_snap_version = SnapVersion::from(11);
+        parent.fts_indexes.insert((table_id, 1));
+        parent.fts_indexes.insert((table_id + 1, 2));
+
+        let left_l0_id = 9000;
+        let right_l0_id = 9001;
+        let other_l0_id = 9002;
+        parent
+            .fts_l0_files
+            .push(new_fts_packed_info(left_l0_id, table_id, 0, 40, Some(11)));
+        parent
+            .fts_l0_files
+            .push(new_fts_packed_info(right_l0_id, table_id, 60, 95, Some(11)));
+        parent.fts_l0_files.push(new_fts_packed_info(
+            other_l0_id,
+            table_id + 1,
+            0,
+            40,
+            Some(11),
+        ));
+
+        let left_l1_id = 9100;
+        let right_l1_id = 9101;
+        let other_l1_id = 9102;
+        parent
+            .fts_l1_files
+            .push(new_fts_packed_info(left_l1_id, table_id, 0, 40, None));
+        parent
+            .fts_l1_files
+            .push(new_fts_packed_info(right_l1_id, table_id, 60, 95, None));
+        parent
+            .fts_l1_files
+            .push(new_fts_packed_info(other_l1_id, table_id + 1, 0, 40, None));
+
+        let left_l2_id = 9200;
+        let right_l2_id = 9201;
+        let other_l2_id = 9202;
+        parent
+            .fts_l2_files
+            .push(new_fts_ded_info(left_l2_id, table_id, 0, 40));
+        parent
+            .fts_l2_files
+            .push(new_fts_ded_info(right_l2_id, table_id, 60, 95));
+        parent
+            .fts_l2_files
+            .push(new_fts_ded_info(other_l2_id, table_id + 1, 0, 40));
+
+        let split_key = outer_row_key(keyspace_id, table_id, 50);
+        let mut split = kvenginepb::Split::new();
+        split.mut_keys().push(split_key.clone());
+        let mut left_props = kvenginepb::Properties::new();
+        left_props.set_shard_id(parent.id + 1);
+        split.mut_new_shards().push(left_props);
+        let mut right_props = kvenginepb::Properties::new();
+        right_props.set_shard_id(parent.id);
+        split.mut_new_shards().push(right_props);
+
+        let new_shards = parent.apply_split(&split, 500, 400);
+        assert_eq!(new_shards.len(), 2);
+
+        let mut left = None;
+        let mut right = None;
+        let parent_start = parent.range.outer_start.clone();
+        for shard in &new_shards {
+            if shard.range.outer_start.as_ref() == parent_start.as_ref() {
+                left = Some(shard);
+            } else if shard.range.outer_start.as_ref() == split_key.as_slice() {
+                right = Some(shard);
+            }
+        }
+        let left = left.expect("left shard should exist");
+        let right = right.expect("right shard should exist");
+
+        assert_eq!(left.fts_l0_snap_version, parent.fts_l0_snap_version);
+        assert_eq!(right.fts_l0_snap_version, parent.fts_l0_snap_version);
+
+        assert!(left.fts_indexes.contains(&(table_id, 1)));
+        assert!(right.fts_indexes.contains(&(table_id, 1)));
+        assert!(left.fts_indexes.iter().all(|(tid, _)| *tid == table_id));
+        assert!(right.fts_indexes.iter().all(|(tid, _)| *tid == table_id));
+
+        assert!(
+            left.fts_l0_files
+                .iter()
+                .any(|info| info.get_id() == left_l0_id),
+            "left shard should keep overlapping L0 file"
+        );
+        assert!(
+            !left
+                .fts_l0_files
+                .iter()
+                .any(|info| info.get_id() == right_l0_id),
+            "left shard should drop non-overlapping L0 file"
+        );
+        assert!(
+            !left
+                .fts_l0_files
+                .iter()
+                .any(|info| info.get_id() == other_l0_id),
+            "left shard should drop files from other tables"
+        );
+        assert!(
+            right
+                .fts_l0_files
+                .iter()
+                .any(|info| info.get_id() == right_l0_id),
+            "right shard should keep overlapping L0 file"
+        );
+        assert!(
+            !right
+                .fts_l0_files
+                .iter()
+                .any(|info| info.get_id() == left_l0_id),
+            "right shard should drop non-overlapping L0 file"
+        );
+        assert!(
+            !right
+                .fts_l0_files
+                .iter()
+                .any(|info| info.get_id() == other_l0_id),
+            "right shard should drop files from other tables"
+        );
+
+        assert!(
+            left.fts_l1_files
+                .iter()
+                .any(|info| info.get_id() == left_l1_id),
+            "left shard should keep overlapping L1 file"
+        );
+        assert!(
+            !left
+                .fts_l1_files
+                .iter()
+                .any(|info| info.get_id() == right_l1_id),
+            "left shard should drop non-overlapping L1 file"
+        );
+        assert!(
+            !left
+                .fts_l1_files
+                .iter()
+                .any(|info| info.get_id() == other_l1_id),
+            "left shard should drop files from other tables"
+        );
+        assert!(
+            right
+                .fts_l1_files
+                .iter()
+                .any(|info| info.get_id() == right_l1_id),
+            "right shard should keep overlapping L1 file"
+        );
+        assert!(
+            !right
+                .fts_l1_files
+                .iter()
+                .any(|info| info.get_id() == left_l1_id),
+            "right shard should drop non-overlapping L1 file"
+        );
+        assert!(
+            !right
+                .fts_l1_files
+                .iter()
+                .any(|info| info.get_id() == other_l1_id),
+            "right shard should drop files from other tables"
+        );
+
+        assert!(
+            left.fts_l2_files
+                .iter()
+                .any(|info| info.get_id() == left_l2_id),
+            "left shard should keep overlapping L2 file"
+        );
+        assert!(
+            !left
+                .fts_l2_files
+                .iter()
+                .any(|info| info.get_id() == right_l2_id),
+            "left shard should drop non-overlapping L2 file"
+        );
+        assert!(
+            !left
+                .fts_l2_files
+                .iter()
+                .any(|info| info.get_id() == other_l2_id),
+            "left shard should drop files from other tables"
+        );
+        assert!(
+            right
+                .fts_l2_files
+                .iter()
+                .any(|info| info.get_id() == right_l2_id),
+            "right shard should keep overlapping L2 file"
+        );
+        assert!(
+            !right
+                .fts_l2_files
+                .iter()
+                .any(|info| info.get_id() == left_l2_id),
+            "right shard should drop non-overlapping L2 file"
+        );
+        assert!(
+            !right
+                .fts_l2_files
+                .iter()
+                .any(|info| info.get_id() == other_l2_id),
+            "right shard should drop files from other tables"
+        );
+
+        assert!(
+            left.fts_l0_files.iter().all(|info| {
+                let data_bound = DataBound::new(
+                    InnerKey::from_inner_buf(&info.smallest),
+                    InnerKey::from_inner_buf(&info.biggest),
+                    true,
+                );
+                let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+                table_id >= min_table_id && table_id <= max_table_id
+            }),
+            "left shard should only keep files from target table"
+        );
+        assert!(
+            right.fts_l0_files.iter().all(|info| {
+                let data_bound = DataBound::new(
+                    InnerKey::from_inner_buf(&info.smallest),
+                    InnerKey::from_inner_buf(&info.biggest),
+                    true,
+                );
+                let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+                table_id >= min_table_id && table_id <= max_table_id
+            }),
+            "right shard should only keep files from target table"
+        );
+        assert!(
+            left.fts_l2_files.iter().all(|info| {
+                let data_bound = DataBound::new(
+                    InnerKey::from_inner_buf(&info.smallest),
+                    InnerKey::from_inner_buf(&info.biggest),
+                    true,
+                );
+                let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+                table_id >= min_table_id && table_id <= max_table_id
+            }),
+            "left shard should only keep files from target table"
+        );
+        assert!(
+            right.fts_l2_files.iter().all(|info| {
+                let data_bound = DataBound::new(
+                    InnerKey::from_inner_buf(&info.smallest),
+                    InnerKey::from_inner_buf(&info.biggest),
+                    true,
+                );
+                let (min_table_id, max_table_id) = get_table_id_from_data_bound(data_bound);
+                table_id >= min_table_id && table_id <= max_table_id
+            }),
+            "right shard should only keep files from target table"
+        );
+    }
+
+    fn new_shard_meta_for_range(
+        keyspace_id: u32,
+        table_id: i64,
+        start_handle: i64,
+        end_handle: i64,
+        shard_id: u64,
+    ) -> ShardMeta {
+        let outer_start = outer_row_key(keyspace_id, table_id, start_handle);
+        let outer_end = outer_row_key(keyspace_id, table_id, end_handle);
+        let mut meta = ShardMeta::default();
+        meta.engine_id = 1;
+        meta.id = shard_id;
+        meta.ver = 1;
+        meta.seq = 1;
+        meta.range = ShardRange::new(&outer_start, &outer_end);
+        meta.columnar_table_ids = vec![table_id];
+        meta
+    }
+
+    fn new_fts_packed_info(
+        id: u64,
+        table_id: i64,
+        smallest_handle: i64,
+        biggest_handle: i64,
+        snap_version: Option<u64>,
+    ) -> kvenginepb::FtsPackedFileInfo {
+        let mut info = kvenginepb::FtsPackedFileInfo::new();
+        info.set_id(id);
+        info.set_smallest(encode_row_key(table_id, smallest_handle));
+        info.set_biggest(encode_row_key(table_id, biggest_handle));
+        if let Some(snap_version) = snap_version {
+            info.set_snap_version(snap_version);
+        }
+        info
+    }
+
+    fn new_fts_ded_info(
+        id: u64,
+        table_id: i64,
+        smallest_handle: i64,
+        biggest_handle: i64,
+    ) -> kvenginepb::FtsDedFileInfo {
+        let mut info = kvenginepb::FtsDedFileInfo::new();
+        info.set_id(id);
+        info.set_smallest(encode_row_key(table_id, smallest_handle));
+        info.set_biggest(encode_row_key(table_id, biggest_handle));
+        info
+    }
+
+    fn outer_row_key(keyspace_id: u32, table_id: i64, handle: i64) -> Vec<u8> {
+        let mut key = ApiV2::get_txn_keyspace_prefix(keyspace_id);
+        key.extend_from_slice(&encode_row_key(table_id, handle));
+        key
     }
 }

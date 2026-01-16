@@ -266,6 +266,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-once-cell"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
+
+[[package]]
 name = "async-recursion"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4151,6 +4157,7 @@ dependencies = [
  "anyhow",
  "api_version",
  "arrow-buffer",
+ "async-once-cell",
  "async-recursion 1.1.1",
  "async-trait",
  "aws",
@@ -7409,7 +7416,7 @@ dependencies = [
  "errno",
  "libc 0.2.174",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9040,6 +9047,7 @@ dependencies = [
  "bytes",
  "cdc",
  "chrono",
+ "clara_fts",
  "cloud_encryption",
  "cloud_server",
  "cloud_worker",

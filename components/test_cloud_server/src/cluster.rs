@@ -550,8 +550,10 @@ impl ServerCluster {
     }
 
     pub fn wait_pd_region_min_count(&self, min_count: usize) {
+        let start_time = Instant::now_coarse();
+        let timeout = Duration::from_secs(5);
         let mut region_count = 0;
-        for _ in 0..10 {
+        while start_time.saturating_elapsed() < timeout {
             region_count = self.pd_client.get_regions_number();
             if region_count >= min_count {
                 return;

@@ -528,6 +528,7 @@ pub enum CasualMessage {
     ClearColumnar {
         restore_version: Option<u64>,
     },
+    ClearFtsIndex,
     TriggerRefreshShardStates,
     ForceSwitchMemTable {
         current_size: u64,
@@ -591,6 +592,9 @@ impl fmt::Debug for CasualMessage {
                     "clear columnar, restore_version: {:?}",
                     restore_version
                 )
+            }
+            CasualMessage::ClearFtsIndex => {
+                write!(fmt, "clear fts index")
             }
             CasualMessage::TriggerRefreshShardStates => {
                 write!(fmt, "trigger refresh shard states")

@@ -312,9 +312,71 @@ impl Engine {
                             .mut_vector_indexes()
                             .push(vec_idx.to_vector_index_pb());
                     }
+
+                    initial_flush.set_fts_indexes(
+                        flush
+                            .shard_data
+                            .fts_levels
+                            .iter_tracked_indexes()
+                            .flat_map(|(table_id, index_ids)| {
+                                index_ids
+                                    .iter()
+                                    .map(|index_id| {
+                                        let mut tbl_idx_id = kvenginepb::fts::TableIndexId::new();
+                                        tbl_idx_id.set_table_id(*table_id);
+                                        tbl_idx_id.set_index_id(*index_id);
+                                        tbl_idx_id
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .collect::<Vec<_>>()
+                            .into(),
+                    );
+                    initial_flush.set_fts_pending_l0_ids(
+                        flush
+                            .shard_data
+                            .fts_levels
+                            .pending_columnar_l0_ids()
+                            .to_vec(),
+                    );
+                    initial_flush.set_fts_l0_snap_version(
+                        flush.shard_data.fts_levels.l0_snap_version.into_inner(),
+                    );
+                    initial_flush.set_fts_l0_files(
+                        flush
+                            .shard_data
+                            .fts_levels
+                            .l0()
+                            .iter()
+                            .map(|file| file.build_info())
+                            .collect::<Vec<_>>()
+                            .into(),
+                    );
+                    initial_flush.set_fts_l1_files(
+                        flush
+                            .shard_data
+                            .fts_levels
+                            .l1()
+                            .iter()
+                            .map(|file| file.build_info())
+                            .collect::<Vec<_>>()
+                            .into(),
+                    );
+                    initial_flush.set_fts_l2_files(
+                        flush
+                            .shard_data
+                            .fts_levels
+                            .l2()
+                            .values()
+                            .flat_map(|files| files.iter())
+                            .map(|file| file.build_info())
+                            .collect::<Vec<_>>()
+                            .into(),
+                    );
                 }
             }
         }
+
         // If the shard is restored, we need to retain the restore version.
         if flush.shard_data.restore_version > 0 {
             let schema_meta = initial_flush.mut_schema_meta();

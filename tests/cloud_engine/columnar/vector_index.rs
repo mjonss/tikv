@@ -88,8 +88,17 @@ fn test_build_vector_index() {
         .unwrap();
     let status_addr = cluster.status_addr(node_id);
     let kvengine = cluster.get_kvengine(node_id);
+    must_wait(
+        || kvengine.get_all_shard_id_vers().len() == 8,
+        10,
+        || {
+            format!(
+                "expected 8 shards, got {}",
+                kvengine.get_all_shard_id_vers().len()
+            )
+        },
+    );
     let all_ids_vers = kvengine.get_all_shard_id_vers();
-    assert_eq!(all_ids_vers.len(), 8);
     must_wait(
         || {
             dfs.get_runtime().block_on(send_schema_file_request(
@@ -388,8 +397,17 @@ fn test_build_vector_index_with_all_rows_deleted() {
         .unwrap();
     let status_addr = cluster.status_addr(node_id);
     let kvengine = cluster.get_kvengine(node_id);
+    must_wait(
+        || kvengine.get_all_shard_id_vers().len() == 8,
+        10,
+        || {
+            format!(
+                "expected 8 shards, got {}",
+                kvengine.get_all_shard_id_vers().len()
+            )
+        },
+    );
     let all_ids_vers = kvengine.get_all_shard_id_vers();
-    assert_eq!(all_ids_vers.len(), 8);
     must_wait(
         || {
             dfs.get_runtime().block_on(send_schema_file_request(
@@ -642,8 +660,17 @@ fn test_read_distance_from_vector_index_and_table() {
         .unwrap();
     let status_addr = cluster.status_addr(node_id);
     let kvengine = cluster.get_kvengine(node_id);
+    must_wait(
+        || kvengine.get_all_shard_id_vers().len() == 8,
+        10,
+        || {
+            format!(
+                "expected 8 shards, got {}",
+                kvengine.get_all_shard_id_vers().len()
+            )
+        },
+    );
     let all_ids_vers = kvengine.get_all_shard_id_vers();
-    assert_eq!(all_ids_vers.len(), 8);
     must_wait(
         || {
             dfs.get_runtime().block_on(send_schema_file_request(
@@ -942,8 +969,17 @@ fn test_read_distance_from_vector_index() {
         .unwrap();
     let status_addr = cluster.status_addr(node_id);
     let kvengine = cluster.get_kvengine(node_id);
+    must_wait(
+        || kvengine.get_all_shard_id_vers().len() == 8,
+        10,
+        || {
+            format!(
+                "expected 8 shards, got {}",
+                kvengine.get_all_shard_id_vers().len()
+            )
+        },
+    );
     let all_ids_vers = kvengine.get_all_shard_id_vers();
-    assert_eq!(all_ids_vers.len(), 8);
     must_wait(
         || {
             dfs.get_runtime().block_on(send_schema_file_request(
@@ -1185,8 +1221,17 @@ fn test_drop_vector_index() {
         .unwrap();
     let status_addr = cluster.status_addr(node_id);
     let kvengine = cluster.get_kvengine(node_id);
+    must_wait(
+        || kvengine.get_all_shard_id_vers().len() == 8,
+        10,
+        || {
+            format!(
+                "expected 8 shards, got {}",
+                kvengine.get_all_shard_id_vers().len()
+            )
+        },
+    );
     let all_ids_vers = kvengine.get_all_shard_id_vers();
-    assert_eq!(all_ids_vers.len(), 8);
     must_wait(
         || {
             dfs.get_runtime().block_on(send_schema_file_request(

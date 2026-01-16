@@ -24,6 +24,7 @@ use tipb::{ColumnInfo, ExecType, Executor, TableScan};
 use crate::client::ClusterClient;
 
 // used by full text search test.
+// TODO: To be removed.
 pub const SCORE_SAMPLE_DOCS: &[&str] = &[
     // 0
     "machine learning machine learning machine learning",

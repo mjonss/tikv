@@ -823,8 +823,9 @@ impl Manifest {
     }
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(any(test, feature = "testexport"))]
+#[cfg_attr(feature = "testexport", allow(unused))]
+pub mod tests {
     use super::*;
 
     #[test]

@@ -60,6 +60,7 @@ pub struct EngineStats {
     pub kv_size: u64,
     pub txn_file_locks: usize,
     pub columnar_levels: Vec<ColumnarLevelStats>,
+    pub fts_levels: Vec<FtsLevelStats>,
     pub vector_indexes: VectorIndexStats,
     pub tops: TopStatCollection,
     pub ia: StorageClassStats,
@@ -72,6 +73,8 @@ impl EngineStats {
         stats.cf_total_sizes = vec![0; 3];
         stats.level_num_files = vec![0; 3];
         stats.level_total_sizes = vec![0; 3];
+        stats.columnar_levels = vec![ColumnarLevelStats::default(); COLUMNAR_LEVELS];
+        stats.fts_levels = vec![FtsLevelStats::default(); 3];
         stats
     }
 }
@@ -132,7 +135,6 @@ impl super::Engine {
         let mut engine_stats = EngineStats::new();
         engine_stats.num_shards = shard_stats.len();
         engine_stats.open_files = self.fd_cache.size() as i64;
-        engine_stats.columnar_levels = vec![ColumnarLevelStats::default(); COLUMNAR_LEVELS];
         for shard in &shard_stats {
             if shard.active {
                 engine_stats.num_active_shards += 1;
@@ -193,6 +195,13 @@ impl super::Engine {
                 engine_col_level.num_files += col_level.num_files;
                 engine_col_level.data_size += col_level.data_size;
                 engine_col_level.data_kv_size += col_level.data_kv_size;
+            }
+            for (i, fts_level) in shard.fts_levels.iter().enumerate() {
+                let engine_fts_level = &mut engine_stats.fts_levels[i];
+                shard_file_count += fts_level.num_files;
+                engine_fts_level.num_files += fts_level.num_files;
+                engine_fts_level.data_size += fts_level.data_size;
+                engine_fts_level.pk_total += fts_level.pk_total;
             }
             engine_stats.vector_indexes.data_size += shard.vector_indexes.data_size;
             engine_stats.vector_indexes.num_files += shard.vector_indexes.num_files;
@@ -477,6 +486,7 @@ pub struct ShardStats {
     pub columnar_tables: usize,
     pub unconverted_l0_count: usize,
     pub columnar_levels: Vec<ColumnarLevelStats>,
+    pub fts_levels: Vec<FtsLevelStats>,
     pub vector_indexes: VectorIndexStats,
     pub encryption: bool,
 }
@@ -582,6 +592,15 @@ pub struct ColumnarLevelStats {
     pub num_files: usize,
     pub data_size: u64,
     pub data_kv_size: u64,
+}
+
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
+#[serde(rename_all = "kebab-case")]
+pub struct FtsLevelStats {
+    pub num_files: usize,
+    pub data_size: u64,
+    pub pk_total: u64,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
@@ -883,6 +902,30 @@ impl super::Shard {
                 vector_indexes.data_size += f.file_size();
             }
         }
+        let mut fts_levels = vec![FtsLevelStats::default(); 3];
+        {
+            let levels = &data.fts_levels;
+            let l0_stats = &mut fts_levels[0];
+            l0_stats.num_files = levels.l0().len();
+            for file in levels.l0() {
+                l0_stats.data_size += file.file().size();
+                l0_stats.pk_total += file.props().get_pk_total();
+            }
+            let l1_stats = &mut fts_levels[1];
+            l1_stats.num_files = levels.l1().len();
+            for file in levels.l1() {
+                l1_stats.data_size += file.file().size();
+                l1_stats.pk_total += file.props().get_pk_total();
+            }
+            let l2_stats = &mut fts_levels[2];
+            for files in levels.l2().values() {
+                l2_stats.num_files += files.len();
+                for file in files {
+                    l2_stats.data_size += file.file().size();
+                    l2_stats.pk_total += file.props().get_pk_total();
+                }
+            }
+        }
         let sc_spec = pending_ops.storage_class_spec;
         ia_stats.num_shards = sc_spec.is_specified() as usize;
         ShardStats {
@@ -940,6 +983,7 @@ impl super::Shard {
             columnar_tables,
             unconverted_l0_count,
             columnar_levels,
+            fts_levels,
             vector_indexes,
             encryption: self.is_encrypted(),
         }

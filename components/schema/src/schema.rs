@@ -158,6 +158,7 @@ pub struct ColumnInfo {
     pub vector_index: Option<VectorIndexInfo>,
 }
 
+/// Aligned with TiDB: pkg/parser/model/model.go
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexInfo {
     pub id: i64,

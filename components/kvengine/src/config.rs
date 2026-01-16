@@ -5,6 +5,7 @@ use std::{
     error::Error,
 };
 
+use serde::{Deserialize, Serialize};
 use tikv_util::config::{AbsoluteOrPercentSize, ReadableDuration};
 
 use crate::{

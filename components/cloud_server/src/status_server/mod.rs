@@ -34,7 +34,7 @@ use keys::next_key;
 use kvengine::{
     ENCRYPTION_KEY, GLOBAL_SHARD_END_KEY, IdVer, Shard, ShardStats, ShardTag,
     dfs::FileType,
-    table::{BoundedDataSet, InnerKey, SnapVersion},
+    table::{BoundedDataSet, DataBound, InnerKey, SnapVersion},
 };
 use kvenginepb::ChangeSet;
 use kvproto::{
@@ -1585,10 +1585,19 @@ impl StatusServer {
                 table_key.clear();
                 table_key.put_u8(b't');
                 table_key.encode_i64(*table_id).unwrap();
-                if shard
-                    .data_bound()
-                    .overlap_key(InnerKey::from_inner_buf(&table_key))
-                {
+
+                let table_end_key = next_key(&table_key);
+
+                // Construct a DataBound for the table range.
+                let table_data_bound = DataBound::new(
+                    InnerKey::from_inner_buf(&table_key),
+                    InnerKey::from_inner_buf(&table_end_key),
+                    false,
+                );
+
+                // The data in a table may be distributed across multiple shards, so the
+                // actual range of table_data_bound is larger than shard.data_bound().
+                if table_data_bound.overlap_bound(shard.data_bound()) {
                     target_regions.push(shard_id);
                     break;
                 }

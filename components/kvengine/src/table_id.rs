@@ -2,7 +2,10 @@
 
 //! Utilities for handling TiDB (not SST) table IDs.
 
-use std::{collections::HashSet, ops::Deref};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Deref,
+};
 
 use bytes::BufMut;
 use tidb_query_datatype::codec::table::{
@@ -47,6 +50,26 @@ pub fn merge_columnar_table_ids(
         .collect::<Vec<_>>();
     merged_table_ids.sort();
     merged_table_ids
+}
+
+pub fn has_consistent_tracked_fts_indexes(
+    source_indexes: &HashMap<i64, HashSet<i64>>,
+    target_indexes: &HashMap<i64, HashSet<i64>>,
+    source_bound: DataBound<'_>,
+    target_bound: DataBound<'_>,
+) -> bool {
+    let (min_source_table_id, max_source_table_id) = get_table_id_from_data_bound(source_bound);
+    let (min_target_table_id, max_target_table_id) = get_table_id_from_data_bound(target_bound);
+    let min_table_id = std::cmp::max(min_source_table_id, min_target_table_id);
+    let max_table_id = std::cmp::min(max_source_table_id, max_target_table_id);
+    source_indexes
+        .iter()
+        .filter(|(&table_id, _)| table_id >= min_table_id && table_id <= max_table_id)
+        .all(|(table_id, source_indexes)| target_indexes.get(table_id) == Some(source_indexes))
+        && target_indexes
+            .iter()
+            .filter(|(&table_id, _)| table_id >= min_table_id && table_id <= max_table_id)
+            .all(|(table_id, target_indexes)| source_indexes.get(table_id) == Some(target_indexes))
 }
 
 /// Try to get the table id from the data bound.
@@ -143,6 +166,8 @@ pub fn get_table_id_from_ingest_files(ingest_files: &kvenginepb::IngestFiles) ->
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+
     use super::*;
     use crate::table::InnerKey;
 
@@ -192,6 +217,73 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn test_has_consistent_tracked_fts_indexes() {
+        fn to_index_map(entries: &[(i64, &[i64])]) -> HashMap<i64, HashSet<i64>> {
+            let mut map = HashMap::new();
+            for &(table_id, index_ids) in entries {
+                map.insert(table_id, index_ids.iter().copied().collect());
+            }
+            map
+        }
+
+        let t1 = hex::decode("748000000000000001").unwrap();
+        let t3 = hex::decode("748000000000000003").unwrap();
+        let t5 = hex::decode("748000000000000005").unwrap();
+        let t7 = hex::decode("748000000000000007").unwrap();
+
+        // Bound covers table_id in [1, 2].
+        let bound_1_2 = DataBound::new(
+            InnerKey::from_inner_buf(&t1),
+            InnerKey::from_inner_buf(&t3),
+            true,
+        );
+        // Bound covers table_id in [5, 6].
+        let bound_5_6 = DataBound::new(
+            InnerKey::from_inner_buf(&t5),
+            InnerKey::from_inner_buf(&t7),
+            true,
+        );
+
+        // No overlap => vacuously consistent.
+        assert!(has_consistent_tracked_fts_indexes(
+            &to_index_map(&[(1, &[1, 2])]),
+            &to_index_map(&[(5, &[9])]),
+            bound_1_2,
+            bound_5_6,
+        ));
+
+        // Overlap, exact match => consistent (entries outside overlap are ignored).
+        assert!(has_consistent_tracked_fts_indexes(
+            &to_index_map(&[(1, &[1, 2]), (2, &[3])]),
+            &to_index_map(&[(1, &[2, 1]), (2, &[3]), (100, &[7])]),
+            bound_1_2,
+            bound_1_2,
+        ));
+
+        // Overlap, mismatched index set => inconsistent.
+        assert!(!has_consistent_tracked_fts_indexes(
+            &to_index_map(&[(1, &[1, 2]), (2, &[3])]),
+            &to_index_map(&[(1, &[1, 2]), (2, &[4])]),
+            bound_1_2,
+            bound_1_2,
+        ));
+
+        // Overlap, missing table entry on either side => inconsistent.
+        assert!(!has_consistent_tracked_fts_indexes(
+            &to_index_map(&[(1, &[1, 2])]),
+            &to_index_map(&[(2, &[3])]),
+            bound_1_2,
+            bound_1_2,
+        ));
+        assert!(!has_consistent_tracked_fts_indexes(
+            &to_index_map(&[(2, &[3])]),
+            &to_index_map(&[(1, &[1, 2])]),
+            bound_1_2,
+            bound_1_2,
+        ));
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::{assert_matches::assert_matches, fs, path::PathBuf, sync::Arc, time::Du
 use bytes::{Buf, Bytes};
 use kvengine::{
     FileMeta, dfs,
-    dfs::{FileType, new_dfs_from_config},
+    dfs::{Dfs, FileType, S3Fs, new_dfs_from_config},
     ia::{
         gc::{IaGcConfig, IaGcRunner},
         ia_file::{IaFile, table_meta_file_local_path},
@@ -724,6 +724,406 @@ fn make_sstable(
     let file_data = Bytes::from(buf);
     let user_data = file_data.slice(0..res.meta_offset as usize);
     (file_data, user_data, res.meta_offset as u64)
+}
+
+#[rstest]
+#[case::disk_and_mem(IaCapacity::MemoryAndDiskCap(
+    (1024 * 1024).into(), // 1MB memory
+    vec![PathBuf::from("ia")],
+    (10 * 1024 * 1024).into(), // 10MB disk
+))]
+#[case::mem_only(IaCapacity::MemoryCap((10 * 1024 * 1024).into()))] // 10MB memory only
+#[case::small_mem_big_disk(IaCapacity::MemoryAndDiskCap(
+    (512 * 1024).into(), // 512KB memory
+    vec![PathBuf::from("ia")],
+    (20 * 1024 * 1024).into(), // 20MB disk
+))]
+fn test_mmap_range(#[case] ia_capacity: IaCapacity) {
+    init_log_for_test();
+
+    let (temp_dir, mut oss, dfs_conf) = prepare_dfs("test_mmap_range");
+    let temp_dir = temp_dir.path();
+    let local_path = temp_dir.join("ia");
+
+    // Adjust capacity path to use temp_dir
+    let ia_cap = match ia_capacity {
+        IaCapacity::MemoryAndDiskCap(mem_cap, _, disk_cap) => {
+            IaCapacity::MemoryAndDiskCap(mem_cap, vec![local_path.clone()], disk_cap)
+        }
+        other => other,
+    };
+
+    let s3fs = S3Fs::new_from_config(dfs_conf);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let rt = runtime.handle().clone();
+
+    // Ensure local_path exists for all cases
+    std::fs::create_dir_all(&local_path).unwrap();
+
+    runtime.block_on(async move {
+        let file_id = 12345u64;
+        let file_type = FileType::Sst;
+        // Create a larger SSTable to ensure multiple segments
+        let (file_data, user_data, table_meta_off) =
+            make_sstable(file_id, BLOCK_SIZE, 50, 7, 5, false);
+
+        s3fs.put_object(
+            s3fs.file_key(file_id, file_type),
+            file_data,
+            format!("{}.{}", file_id, file_type.suffix()),
+        )
+        .await
+        .unwrap();
+
+        let options = IaManagerOptionsBuilder::default()
+            .capacity(ia_cap)
+            .segment_size(SEGMENT_SIZE)
+            .freq_update_interval(FREQ_UPDATE_INTERVAL)
+            .build()
+            .unwrap();
+
+        let mgr = IaManager::new(options, Arc::new(s3fs.clone()), None, rt.into()).unwrap();
+
+        // Prepare meta data
+        let dfs_opts = dfs::Options::default().with_shard(1, 1);
+        let table_meta_data = IaFile::prepare_table_meta(
+            file_id,
+            file_type,
+            table_meta_off,
+            &local_path,
+            &dfs_opts,
+            &mgr,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let table_meta_file = InMemFile::new(file_id, table_meta_data);
+        let fm = make_file_meta(file_type);
+        let ia_file = IaFile::open(file_id, &fm, Arc::new(table_meta_file), mgr.clone()).unwrap();
+
+        info!("Test setup complete"; "user_data_len" => user_data.len());
+
+        // Test Case 1: mmap part of a segment
+        test_mmap_part_of_segment(&ia_file, &user_data).await;
+
+        // Test Case 2: mmap whole segment
+        test_mmap_whole_segment(&ia_file, &user_data).await;
+
+        // Test Case 3: mmap cross segments (should fail)
+        test_mmap_cross_segments(&ia_file).await;
+    });
+
+    oss.shutdown();
+}
+
+async fn test_mmap_part_of_segment(ia_file: &IaFile, user_data: &Bytes) {
+    info!("Testing mmap part of segment");
+
+    // Use the first segment and map part of it
+    let test_offset = 8u64; // Start 8 bytes into the first segment
+    let test_length = 32usize; // Half of segment size
+
+    let result = ia_file.mmap_range(test_offset, test_length).await;
+    assert!(
+        result.is_ok(),
+        "mmap_range should succeed for part of segment"
+    );
+
+    let (mmap_data, source) = result.unwrap();
+    assert_eq!(
+        mmap_data.len(),
+        test_length,
+        "mmap data length should match requested length"
+    );
+    assert!(source.is_valid(), "IaMmapSource should be valid initially");
+
+    // Verify data correctness
+    let expected_data =
+        &user_data[test_offset as usize..(test_offset + test_length as u64) as usize];
+    assert_eq!(
+        &mmap_data[..],
+        expected_data,
+        "mmap data should match expected data"
+    );
+
+    info!("✓ Part of segment test passed");
+}
+
+async fn test_mmap_whole_segment(ia_file: &IaFile, user_data: &Bytes) {
+    info!("Testing mmap whole segment");
+
+    // Test mapping a segment entirely - use SEGMENT_SIZE
+    let segment_start = 0u64;
+    let segment_size = SEGMENT_SIZE as usize;
+
+    let result = ia_file.mmap_range(segment_start, segment_size).await;
+    assert!(
+        result.is_ok(),
+        "mmap_range should succeed for whole segment"
+    );
+
+    let (mmap_data, source) = result.unwrap();
+    assert_eq!(
+        mmap_data.len(),
+        segment_size,
+        "mmap data length should match segment size"
+    );
+    assert!(source.is_valid(), "IaMmapSource should be valid initially");
+
+    // Verify data correctness
+    let expected_data = &user_data[segment_start as usize..(segment_start as usize + segment_size)];
+    assert_eq!(
+        &mmap_data[..],
+        expected_data,
+        "mmap data should match expected segment data"
+    );
+
+    info!("✓ Whole segment test passed");
+}
+
+async fn test_mmap_cross_segments(ia_file: &IaFile) {
+    info!("Testing mmap cross segments (should fail)");
+
+    // Try to map across segments by starting near the end of first segment
+    let start_offset = SEGMENT_SIZE as u64 - 16; // Start near end of first segment
+    let length = 32usize; // This should cross into second segment
+
+    let result = ia_file.mmap_range(start_offset, length).await;
+    assert!(
+        result.is_err(),
+        "mmap_range should fail when crossing segments"
+    );
+
+    if let Err(error) = result {
+        let error_msg = format!("{}", error);
+        assert!(
+            error_msg.contains("read more than one segment"),
+            "Error should indicate cross-segment access: {}",
+            error_msg
+        );
+    }
+
+    info!("✓ Cross segments test passed (correctly failed)");
+}
+
+#[test]
+fn test_mmap_source_validity() {
+    init_log_for_test();
+
+    let (temp_dir, mut oss, dfs_conf) = prepare_dfs("test_mmap_source_validity");
+    let temp_dir = temp_dir.path();
+    let local_path = temp_dir.join("ia");
+
+    // Use a configuration that allows both memory and disk storage
+    let ia_cap = IaCapacity::MemoryAndDiskCap(
+        (256).into(), // Small memory - 256 bytes
+        vec![local_path.clone()],
+        (2048).into(), // Small disk - 2KB
+    );
+
+    let s3fs = S3Fs::new_from_config(dfs_conf);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let rt = runtime.handle().clone();
+
+    // Ensure local_path exists
+    std::fs::create_dir_all(&local_path).unwrap();
+
+    runtime.block_on(async move {
+        let file_id = 12345u64;
+        let file_type = FileType::Sst;
+        let (file_data, user_data, table_meta_off) =
+            make_sstable(file_id, BLOCK_SIZE, 50, 7, 5, false);
+
+        s3fs.put_object(
+            s3fs.file_key(file_id, file_type),
+            file_data,
+            format!("{}.{}", file_id, file_type.suffix()),
+        )
+        .await
+        .unwrap();
+
+        let options = IaManagerOptionsBuilder::default()
+            .capacity(ia_cap)
+            .segment_size(SEGMENT_SIZE)
+            .freq_update_interval(FREQ_UPDATE_INTERVAL)
+            .build()
+            .unwrap();
+
+        let mgr = IaManager::new(options, Arc::new(s3fs.clone()), None, rt.into()).unwrap();
+
+        // Prepare meta data
+        let dfs_opts = dfs::Options::default().with_shard(1, 1);
+        let table_meta_data = IaFile::prepare_table_meta(
+            file_id,
+            file_type,
+            table_meta_off,
+            &local_path,
+            &dfs_opts,
+            &mgr,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let table_meta_file = InMemFile::new(file_id, table_meta_data);
+        let fm = make_file_meta(file_type);
+        let ia_file = IaFile::open(file_id, &fm, Arc::new(table_meta_file), mgr.clone()).unwrap();
+
+        info!("Testing IaMmapSource validity transitions");
+
+        // Test Case 1: Basic validity check - source should be valid initially
+        {
+            info!("Testing basic source validity");
+
+            let test_offset = 0u64;
+            let test_length = 32usize;
+
+            // Create mmap and verify source is valid initially
+            let (mmap_data, source) = ia_file.mmap_range(test_offset, test_length).await.unwrap();
+            assert!(
+                source.is_valid(),
+                "Source should be valid when first created"
+            );
+
+            // Verify data correctness
+            let expected_data =
+                &user_data[test_offset as usize..(test_offset + test_length as u64) as usize];
+            assert_eq!(&mmap_data[..], expected_data, "Mmap data should be correct");
+
+            info!("✓ Basic source validity test passed");
+        }
+
+        // Test Case 2: Source becomes invalid after memory-to-disk transition
+        {
+            info!("Testing source validity after memory-to-disk transition");
+
+            let test_offset = 0u64;
+            let test_length = 32usize;
+
+            // First mmap to get the data and source - this should be in memory initially
+            let (mmap_data, source) = ia_file.mmap_range(test_offset, test_length).await.unwrap();
+            assert!(
+                source.is_valid(),
+                "Source should be valid initially (in memory)"
+            );
+
+            info!("Initial source validity: {}", source.is_valid());
+
+            // Verify data correctness
+            let expected_data =
+                &user_data[test_offset as usize..(test_offset + test_length as u64) as usize];
+            assert_eq!(
+                &mmap_data[..],
+                expected_data,
+                "Initial mmap data should be correct"
+            );
+
+            // Create multiple different segments to force memory pressure
+            // This should cause the original segment to be moved to disk
+            let mut other_segments = Vec::new();
+            for i in 1..20 {
+                let offset = (i * SEGMENT_SIZE as u64) % (user_data.len() as u64 - 32);
+                if offset + 32 <= user_data.len() as u64 {
+                    if let Ok((data, src)) = ia_file.mmap_range(offset, 32).await {
+                        other_segments.push((data, src));
+                    }
+                }
+            }
+
+            // Force flush to ensure segments are processed
+            mgr.flush_tasks(Duration::from_secs(10)).await.unwrap();
+
+            info!("Checking source validity after memory pressure...");
+
+            // Check if the source became invalid due to memory-to-disk transition
+            assert!(
+                !source.is_valid(),
+                "Source should become invalid after memory pressure"
+            );
+
+            // The data should still be accessible regardless
+            assert_eq!(
+                &mmap_data[..],
+                expected_data,
+                "Data should remain accessible even after source validity changes"
+            );
+
+            info!("✓ Memory-to-disk transition test completed");
+        }
+
+        // Test Case 3: Source becomes invalid after complete eviction
+        {
+            info!("Testing source validity after complete eviction");
+
+            let test_offset = 8u64;
+            let test_length = 24usize;
+
+            // Create a new mmap
+            let (mmap_data, source) = ia_file.mmap_range(test_offset, test_length).await.unwrap();
+            assert!(source.is_valid(), "Source should be valid initially");
+
+            // Verify data correctness
+            let expected_data =
+                &user_data[test_offset as usize..(test_offset + test_length as u64) as usize];
+            assert_eq!(
+                &mmap_data[..],
+                expected_data,
+                "Initial mmap data should be correct"
+            );
+
+            // Create many more segments to force eviction of the original segment
+            // This should exceed both memory and disk capacity limits
+            for i in 0..20 {
+                let offset = (i * 4) % 60; // Stay within segment boundaries
+                if offset + 8 <= 64 {
+                    // Create multiple mmaps to increase memory pressure
+                    let _ = ia_file.mmap_range(offset, 8).await;
+                }
+            }
+
+            // Force flush and wait to ensure eviction processes complete
+            mgr.flush_tasks(Duration::from_secs(15)).await.unwrap();
+
+            // Additional pressure to ensure eviction
+            for i in 0..10 {
+                let offset = (i * 6) % 58;
+                if offset + 6 <= 64 {
+                    let _ = ia_file.mmap_range(offset, 6).await;
+                }
+            }
+
+            mgr.flush_tasks(Duration::from_secs(15)).await.unwrap();
+
+            assert!(
+                !source.is_valid(),
+                "Source should become invalid after memory pressure"
+            );
+
+            // The data should still be accessible regardless
+            assert_eq!(
+                &mmap_data[..],
+                expected_data,
+                "Data should remain accessible even after potential eviction"
+            );
+
+            info!("✓ Eviction test completed");
+        }
+
+        mgr.flush_tasks(Duration::from_secs(60)).await.unwrap();
+    });
+
+    oss.shutdown();
 }
 
 fn make_blob_table_with_kvs(
