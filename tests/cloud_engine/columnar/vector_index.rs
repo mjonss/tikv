@@ -326,6 +326,25 @@ fn test_build_vector_index() {
     }
     let stats = vector_index_cache.stats();
     assert!(stats.cache_hit.load(Ordering::Relaxed) > 0);
+
+    // The background compaction process updates the snap_version of the columnar
+    // file and the snap_version of the vector index.
+    // For `collect_columnar_index_stats_request` to collect the latest statistics,
+    // it needs to wait for the vector index snap_version and the columnar file
+    // snap_version to remain synchronized.
+    must_wait(
+        || {
+            let shard = kvengine.get_shard(target_region).unwrap();
+            let vec_snap = shard
+                .get_vector_index(t1, 1, 2)
+                .map(|v| v.snap_version())
+                .unwrap_or_default();
+            vec_snap.is_not_zero() && vec_snap >= shard.get_columnar_snap_version()
+        },
+        20,
+        || "vector index snap_version not caught up".to_string(),
+    );
+
     let rt = dfs.get_runtime();
     let columnar_index_stats = rt.block_on(send_collect_columnar_index_stats_request(
         &status_addr,
@@ -864,6 +883,25 @@ fn test_read_distance_from_vector_index_and_table() {
             _ => {}
         }
     }
+
+    // The background compaction process updates the snap_version of the columnar
+    // file and the snap_version of the vector index.
+    // For `collect_columnar_index_stats_request` to collect the latest statistics,
+    // it needs to wait for the vector index snap_version and the columnar file
+    // snap_version to remain synchronized.
+    must_wait(
+        || {
+            let shard = kvengine.get_shard(target_region).unwrap();
+            let vec_snap = shard
+                .get_vector_index(t1, 1, 2)
+                .map(|v| v.snap_version())
+                .unwrap_or_default();
+            vec_snap.is_not_zero() && vec_snap >= shard.get_columnar_snap_version()
+        },
+        20,
+        || "vector index snap_version not caught up".to_string(),
+    );
+
     let rt = dfs.get_runtime();
     let columnar_index_stats = rt.block_on(send_collect_columnar_index_stats_request(
         &status_addr,
@@ -1087,6 +1125,25 @@ fn test_read_distance_from_vector_index() {
         );
         assert_eq!(topn[i].distance, *distance);
     }
+
+    // The background compaction process updates the snap_version of the columnar
+    // file and the snap_version of the vector index.
+    // For `collect_columnar_index_stats_request` to collect the latest statistics,
+    // it needs to wait for the vector index snap_version and the columnar file
+    // snap_version to remain synchronized.
+    must_wait(
+        || {
+            let shard = kvengine.get_shard(target_region).unwrap();
+            let vec_snap = shard
+                .get_vector_index(t1, 1, 2)
+                .map(|v| v.snap_version())
+                .unwrap_or_default();
+            vec_snap.is_not_zero() && vec_snap >= shard.get_columnar_snap_version()
+        },
+        20,
+        || "vector index snap_version not caught up".to_string(),
+    );
+
     let rt = dfs.get_runtime();
     let columnar_index_stats = rt.block_on(send_collect_columnar_index_stats_request(
         &status_addr,
